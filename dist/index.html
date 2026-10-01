@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aquarilândia — Protótipo de telas (v4 · heurísticas)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=Caveat:wght@600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#06181C;
+  --panel:#0C262B;
+  --panel-2:#103138;
+  --cyan:#00C2D6;
+  --cyan-deep:#008FA8;
+  --purple:#A64DFF;
+  --gold:#FFC93C;
+  --orange:#FF7A45;
+  --ink:#EAF7F6;
+  --ink-soft:#82A6A8;
+  --line:#123B41;
+  --radius:16px;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{
+  font-family:'Inter', sans-serif;
+  background:var(--bg);
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,.display{ font-family:'Poppins', sans-serif; font-weight:800; letter-spacing:-.01em; }
+.mono{ font-family:'Space Mono', monospace; }
+.script{ font-family:'Caveat', cursive; font-weight:700; }
+
+.hl{ position:relative; display:inline-block; padding:0 8px; color:#06181C; }
+.hl::before{ content:''; position:absolute; inset:2px -2px; background:var(--cyan); transform:rotate(-1.2deg); z-index:-1; border-radius:3px; }
+.hl.gold::before{ background:var(--gold); }
+
+/* ---------- Screen switcher chrome ---------- */
+.switcher{
+  position:sticky; top:0; z-index:200;
+  display:flex; gap:6px; padding:10px 16px; background:#031014;
+  overflow-x:auto; border-bottom:1px solid var(--line);
+}
+.switcher button{
+  font-family:'Space Mono', monospace; font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+  background:transparent; color:#4E7376; border:1px solid var(--line); padding:8px 14px; border-radius:999px;
+  cursor:pointer; white-space:nowrap; transition:all .15s ease;
+}
+.switcher button.active{ background:var(--cyan); color:#06181C; border-color:transparent; font-weight:700;}
+.switcher button:hover:not(.active){ border-color:var(--cyan); color:var(--ink); }
+
+.screen{ display:none; }
+.screen.active{ display:block; animation:fade .25s ease; }
+@keyframes fade{ from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:translateY(0)} }
+
+/* ---------- Site nav ---------- */
+.site-nav{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 40px; background:#031014; color:#fff; border-bottom:1px solid var(--line);
+  position:relative; z-index:150;
+}
+.logo{ display:flex; align-items:center; gap:12px; font-family:'Poppins',sans-serif; font-weight:800; font-size:19px; }
+.logo-ring{
+  width:38px; height:38px; border-radius:50%; flex-shrink:0;
+  background:conic-gradient(from 200deg, var(--purple), var(--cyan), var(--gold), var(--purple));
+  display:flex; align-items:center; justify-content:center; padding:3px;
+}
+.logo-ring span{ width:100%; height:100%; border-radius:50%; background:#031B22; display:flex; align-items:center; justify-content:center; font-size:15px; }
+.nav-links{ display:flex; gap:26px; font-size:14px; align-items:center; }
+.nav-links a{ color:#5E8A8C; text-decoration:none; }
+.nav-links a.on{ color:#fff; }
+
+.nav-drop{ position:relative; }
+.nav-drop-trigger{
+  background:transparent; border:none; color:#5E8A8C; font-size:14px; font-family:'Inter',sans-serif;
+  cursor:pointer; display:flex; align-items:center; gap:5px; padding:0;
+}
+.nav-drop-trigger.on, .nav-drop:hover .nav-drop-trigger, .nav-drop.open .nav-drop-trigger{ color:#fff; }
+.nav-drop-trigger .caret{ font-size:10px; transition:transform .15s ease; }
+.nav-drop.open .nav-drop-trigger .caret{ transform:rotate(180deg); }
+.nav-drop-panel{
+  position:absolute; top:calc(100% + 18px); left:50%; transform:translateX(-50%) translateY(6px);
+  background:var(--panel-2); border:1px solid var(--line); border-radius:12px; padding:14px;
+  display:grid; grid-template-columns:1fr 1fr; gap:4px; width:340px;
+  opacity:0; pointer-events:none; transition:all .15s ease; box-shadow:0 16px 40px rgba(0,0,0,.5);
+}
+.nav-drop:hover .nav-drop-panel, .nav-drop.open .nav-drop-panel{ opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0); }
+.nav-drop-panel a{
+  display:flex; align-items:center; gap:8px; color:var(--ink-soft); font-size:13px; text-decoration:none;
+  padding:8px 10px; border-radius:8px; transition:.12s;
+}
+.nav-drop-panel a:hover{ background:var(--panel); color:var(--cyan); }
+.nav-drop-panel a .em{ font-size:14px; }
+.nav-drop-panel .see-all{ grid-column:1 / -1; margin-top:4px; padding-top:10px; border-top:1px solid var(--line); color:var(--gold); font-weight:700; justify-content:center; }
+
+.nav-cta{
+  background:linear-gradient(90deg,var(--gold),#FFE08A); color:#231400; font-weight:800; font-size:13px;
+  border:none; padding:10px 20px; border-radius:999px; cursor:pointer;
+}
+
+/* ---------- HOME ---------- */
+.hero{
+  background:radial-gradient(circle at 20% 15%, rgba(0,194,214,.30), transparent 45%),
+             radial-gradient(circle at 85% 20%, rgba(166,77,255,.20), transparent 45%),
+             var(--bg);
+  color:#fff; padding:76px 40px 0; position:relative; overflow:hidden;
+}
+.hero-inner{ display:flex; align-items:center; gap:48px; max-width:1180px; margin:0 auto; padding-bottom:64px; }
+.hero-copy{ flex:1; }
+.eyebrow{ font-family:'Space Mono',monospace; color:var(--gold); font-size:12px; letter-spacing:.14em; text-transform:uppercase; }
+.hero h1{ font-size:50px; line-height:1.06; margin:16px 0 20px; }
+.hero h1 .script{ font-size:52px; color:var(--cyan); display:block; line-height:1; }
+.hero p{ color:var(--ink-soft); font-size:16px; max-width:440px; line-height:1.6; margin-bottom:28px;}
+.btn-row{ display:flex; gap:14px; }
+.btn-primary{ background:linear-gradient(90deg,var(--gold),#FFE08A); color:#231400; font-weight:800; border:none; padding:15px 26px; border-radius:999px; font-size:14px; cursor:pointer; }
+.btn-ghost{ background:transparent; color:#fff; border:1px solid #17474D; padding:15px 26px; border-radius:999px; font-size:14px; cursor:pointer; }
+.hero-tank{ flex:1; display:flex; justify-content:center; }
+.glow-frame{ padding:6px; border-radius:24px; background:conic-gradient(from 120deg, var(--purple), var(--cyan), var(--gold), var(--purple)); }
+.glow-frame-inner{ background:#031B22; border-radius:20px; padding:14px; }
+
+section{ padding:64px 40px; max-width:1180px; margin:0 auto; }
+.section-head{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:32px; }
+.section-head .eyebrow{ color:var(--cyan); }
+.section-head h2{ font-size:27px; margin-top:6px; }
+.section-head a{ color:var(--gold); font-size:13px; text-decoration:none; font-weight:700; }
+
+.two-col{ display:flex; gap:56px; align-items:center; }
+.two-col p{ color:var(--ink-soft); line-height:1.7; margin-top:14px; }
+
+.cat-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+.cat-card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:24px 18px; text-align:center; cursor:pointer; transition:.15s; }
+.cat-card:hover{ border-color:var(--cyan); transform:translateY(-3px); }
+.cat-card .ic{ font-size:28px; margin-bottom:10px; }
+.cat-card span{ font-size:13px; font-weight:700; }
+
+.fish-row{ display:flex; gap:18px; overflow-x:auto; padding-bottom:8px; }
+.fish-card{ min-width:220px; background:var(--panel); border-radius:var(--radius); border:1px solid var(--line); overflow:hidden; flex-shrink:0; }
+.fish-photo{ height:130px; background:radial-gradient(circle at 30% 20%, rgba(0,194,214,.45), transparent 60%), radial-gradient(circle at 80% 80%, rgba(255,122,69,.35), transparent 55%), #031B22; display:flex; align-items:center; justify-content:center; font-size:34px; }
+.fish-card .body{ padding:14px; }
+.fish-card h4{ font-size:14px; margin-bottom:4px; font-family:'Poppins',sans-serif; font-weight:700; }
+.fish-card .sci{ font-size:11px; color:var(--ink-soft); font-style:italic; margin-bottom:8px; }
+.bubbles{ font-size:11px; color:var(--gold); font-family:'Space Mono',monospace; }
+
+.offer-strip{ background:linear-gradient(115deg,var(--cyan-deep),#0A4C57); border-radius:var(--radius); padding:36px 40px; color:#fff; display:flex; justify-content:space-between; align-items:center; }
+.offer-strip h3{ font-size:22px; }
+.offer-strip p{ color:#BEEFF3; font-size:13px; margin-top:6px; font-family:'Inter',sans-serif; font-weight:400;}
+
+.mfa-band{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:48px; display:flex; justify-content:space-between; align-items:center; gap:32px; }
+.mfa-band h2{ font-size:25px; max-width:420px; }
+.mfa-band p{ color:var(--ink-soft); margin-top:10px; max-width:420px; }
+.step-dots{ display:flex; gap:8px; margin-top:18px; }
+.step-dots span{ width:8px; height:8px; border-radius:50%; background:var(--gold); opacity:.25; }
+.step-dots span:first-child{ opacity:1; }
+
+.svc-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+.svc-card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:26px; }
+.svc-card .ic{ font-size:24px; margin-bottom:14px; }
+.svc-card h4{ font-size:16px; margin-bottom:8px; font-family:'Poppins',sans-serif; }
+.svc-card p{ font-size:13px; color:var(--ink-soft); line-height:1.5; }
+
+footer{ background:#031014; color:var(--ink-soft); padding:48px 40px 32px; border-top:1px solid var(--line); }
+.foot-inner{ max-width:1180px; margin:0 auto; display:flex; justify-content:space-between; flex-wrap:wrap; gap:24px; }
+.foot-inner h5{ color:#fff; font-family:'Poppins',sans-serif; font-size:15px; margin-bottom:10px; }
+.foot-inner p, .foot-inner a{ font-size:13px; color:var(--ink-soft); line-height:1.8; text-decoration:none; display:block;}
+
+.wa-float{
+  position:fixed; bottom:24px; right:24px; background:#25D366; color:#fff; width:54px; height:54px;
+  border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; box-shadow:0 8px 24px rgba(0,0,0,.5); z-index:50;
+}
+
+/* ---------- LOJA ---------- */
+.page-head{ background:radial-gradient(circle at 80% 0%, rgba(0,194,214,.25), transparent 50%), #031014; color:#fff; padding:44px 40px 32px; border-bottom:1px solid var(--line); }
+.page-head .eyebrow{ color:var(--gold); }
+.page-head h1{ font-size:32px; margin-top:8px; }
+.shop-layout{ display:flex; gap:36px; max-width:1180px; margin:40px auto; padding:0 40px; align-items:flex-start; }
+.filters{ width:220px; flex-shrink:0; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:22px; position:sticky; top:66px; }
+.filters h5{ font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-soft); margin-bottom:12px; }
+.filters ul{ list-style:none; margin-bottom:22px; }
+.filters li{ font-size:13.5px; padding:7px 0; color:var(--ink); cursor:pointer; border-bottom:1px dashed var(--line); }
+.filters li.on{ color:var(--cyan); font-weight:700; }
+
+.prod-grid{ flex:1; display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+.prod-card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; display:flex; flex-direction:column; }
+.prod-photo{ height:150px; background:radial-gradient(circle at 30% 30%, rgba(0,194,214,.45), transparent 60%), radial-gradient(circle at 80% 80%, rgba(255,122,69,.3), transparent 55%), #031B22; display:flex; align-items:center; justify-content:center; font-size:36px; position:relative; }
+.tag{ position:absolute; top:10px; left:10px; background:#031B22; border:1px solid var(--line); font-size:10px; font-weight:700; padding:4px 9px; border-radius:999px; font-family:'Space Mono',monospace; }
+.tag.in{ color:#3DDC97; } .tag.out{ color:var(--orange); }
+.prod-body{ padding:16px; display:flex; flex-direction:column; gap:6px; flex:1; }
+.prod-body h4{ font-size:14.5px; font-family:'Poppins',sans-serif; }
+.prod-body .desc{ font-size:12px; color:var(--ink-soft); line-height:1.4; flex:1; }
+.price{ font-family:'Space Mono',monospace; font-weight:700; font-size:17px; color:var(--gold); margin-top:4px; }
+.prod-actions{ display:flex; gap:8px; margin-top:8px; }
+.btn-buy{ flex:1; background:linear-gradient(90deg,var(--cyan),var(--cyan-deep)); color:#06181C; border:none; padding:10px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }
+.btn-wa{ width:38px; background:#25D366; border:none; border-radius:8px; color:#fff; cursor:pointer; font-size:15px; }
+
+/* ---------- PEIXES ---------- */
+.chip-row{ display:flex; gap:10px; flex-wrap:wrap; padding:0 40px; max-width:1180px; margin:28px auto 0; }
+.chip{ font-family:'Space Mono',monospace; font-size:11.5px; border:1px solid var(--line); background:var(--panel); color:var(--ink-soft); padding:8px 16px; border-radius:999px; cursor:pointer; }
+.chip.on{ background:var(--cyan); border-color:var(--cyan); color:#06181C; font-weight:700; }
+
+.peixe-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; max-width:1180px; margin:28px auto 60px; padding:0 40px; }
+.peixe-card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+.peixe-photo{ height:140px; background:radial-gradient(circle at 30% 30%, rgba(255,201,60,.3), transparent 60%), radial-gradient(circle at 80% 80%, rgba(0,194,214,.4), transparent 55%), #031B22; display:flex; align-items:center; justify-content:center; font-size:36px; }
+.peixe-body{ padding:16px; }
+.peixe-body h4{ font-size:15px; font-family:'Poppins',sans-serif; } .peixe-body .sci{ font-size:11px; font-style:italic; color:var(--ink-soft); margin-bottom:10px;}
+.ficha{ display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:11.5px; margin-bottom:12px; }
+.ficha .k{ font-family:'Space Mono',monospace; color:var(--ink-soft); font-size:10px; text-transform:uppercase; display:block; }
+.disp-row{ display:flex; justify-content:space-between; align-items:center; }
+
+/* ---------- MEU PRIMEIRO AQUÁRIO ---------- */
+.mfa-hero{ background:radial-gradient(circle at 50% 0%, rgba(0,194,214,.28), transparent 55%), #031014; color:#fff; padding:70px 40px; text-align:center; border-bottom:1px solid var(--line); }
+.mfa-hero .eyebrow{ color:var(--gold); }
+.mfa-hero h1{ font-size:36px; margin:14px auto 12px; max-width:560px; }
+.mfa-hero p{ color:var(--ink-soft); max-width:480px; margin:0 auto 26px; }
+
+.timeline{ max-width:760px; margin:56px auto; padding:0 40px; }
+.tl-item{ display:flex; gap:22px; position:relative; padding-bottom:44px; }
+.tl-item:last-child{ padding-bottom:0; }
+.tl-item::before{ content:''; position:absolute; left:19px; top:44px; bottom:0; width:2px; background:var(--line); }
+.tl-item:last-child::before{ display:none; }
+.tl-num{ width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,var(--cyan),var(--cyan-deep)); color:#06181C; font-family:'Space Mono',monospace; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.tl-body h4{ font-size:16px; margin-bottom:5px; font-family:'Poppins',sans-serif; }
+.tl-body p{ font-size:13.5px; color:var(--ink-soft); line-height:1.5; max-width:480px; }
+
+.mfa-cta{ text-align:center; padding:20px 40px 70px; }
+.mfa-cta p{ color:var(--ink-soft); margin-bottom:16px; font-size:14px; }
+
+/* ---------- SERVIÇOS ---------- */
+.svc-page-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; max-width:1180px; margin:40px auto; padding:0 40px; }
+.svc-page-card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:28px; display:flex; flex-direction:column; }
+.svc-page-card .ic{ font-size:26px; margin-bottom:16px; }
+.svc-page-card h4{ font-size:16.5px; margin-bottom:8px; font-family:'Poppins',sans-serif; }
+.svc-page-card p{ font-size:13px; color:var(--ink-soft); line-height:1.55; flex:1; margin-bottom:16px; }
+.btn-quote{ background:linear-gradient(90deg,var(--gold),#FFE08A); color:#231400; border:none; padding:11px; border-radius:8px; font-size:12.5px; font-weight:800; cursor:pointer; }
+
+.future-banner{ max-width:1180px; margin:20px auto 70px; padding:0 40px; }
+.future-banner .inner{ background:linear-gradient(115deg,var(--cyan-deep),#0A4C57); color:#fff; border-radius:var(--radius); padding:28px 32px; display:flex; justify-content:space-between; align-items:center; }
+.future-banner .inner span.badge{ font-family:'Space Mono',monospace; font-size:10px; background:var(--gold); color:#231400; padding:4px 10px; border-radius:999px; font-weight:700; margin-right:12px;}
+
+@media(max-width:900px){
+  .hero-inner, .two-col, .mfa-band, .offer-strip, .shop-layout{ flex-direction:column; }
+  .cat-grid, .prod-grid, .svc-grid, .peixe-grid, .svc-page-grid{ grid-template-columns:repeat(2,1fr); }
+  .filters{ position:static; width:100%; }
+  .nav-links{ display:none; }
+}
+
+/* =================== v4 · HEURÍSTICAS DE NIELSEN =================== */
+.nav-tools{display:flex;align-items:center;gap:10px;}
+.icon-btn{position:relative;width:40px;height:40px;border-radius:50%;background:var(--panel);border:1px solid var(--line);color:var(--ink);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;}
+.icon-btn:hover{border-color:var(--cyan);}
+.cart-count{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--gold);color:#231400;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;font-family:'Space Mono',monospace;}
+.cart-count.bump{animation:bump .35s ease;}
+@keyframes bump{50%{transform:scale(1.4)}}
+
+#toast-wrap{position:fixed;bottom:92px;left:50%;transform:translateX(-50%);z-index:400;display:flex;flex-direction:column;gap:8px;align-items:center;width:max-content;max-width:92vw;}
+.toast{background:#E9FBF9;color:#06181C;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:600;display:flex;gap:14px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:tin .2s ease;}
+.toast button{background:none;border:none;color:var(--cyan-deep);font-weight:800;cursor:pointer;font-size:13px;white-space:nowrap;}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}}
+
+.overlay{position:fixed;inset:0;background:rgba(1,8,10,.72);z-index:300;display:none;}
+.overlay.open{display:block;}
+.drawer{position:fixed;top:0;right:0;height:100%;width:380px;max-width:100%;background:var(--panel);border-left:1px solid var(--line);z-index:310;transform:translateX(100%);transition:transform .25s ease;display:flex;flex-direction:column;}
+.drawer.open{transform:none;}
+.drawer-head{display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid var(--line);}
+.drawer-head h3{font-size:18px;}
+.close-x{background:none;border:1px solid var(--line);color:var(--ink);width:34px;height:34px;border-radius:50%;cursor:pointer;flex-shrink:0;}
+.close-x:hover{border-color:var(--cyan);}
+.drawer-body{flex:1;overflow:auto;padding:8px 20px 16px;}
+.cart-item{display:flex;gap:12px;padding:14px 0;border-bottom:1px dashed var(--line);align-items:center;}
+.ci-ic{width:46px;height:46px;border-radius:10px;background:#031B22;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+.ci-info{flex:1;} .ci-info h5{font-size:13px;font-family:'Poppins',sans-serif;}
+.ci-price{font-family:'Space Mono',monospace;color:var(--gold);font-size:12px;}
+.qty{display:flex;align-items:center;gap:6px;margin-top:6px;}
+.qty button{width:26px;height:26px;border-radius:6px;border:1px solid var(--line);background:#031B22;color:var(--ink);cursor:pointer;}
+.qty span{font-family:'Space Mono',monospace;font-size:12px;min-width:16px;text-align:center;}
+.ci-remove{background:none;border:none;color:var(--ink-soft);font-size:11.5px;cursor:pointer;text-decoration:underline;}
+.cart-empty{text-align:center;color:var(--ink-soft);padding:48px 10px;font-size:14px;}
+.hint{background:rgba(255,201,60,.08);border:1px solid rgba(255,201,60,.35);color:#FFE08A;font-size:12px;padding:10px 12px;border-radius:10px;margin-top:14px;line-height:1.45;}
+.hint.ok{background:rgba(61,220,151,.08);border-color:rgba(61,220,151,.4);color:#8FF0C4;}
+.drawer-foot{padding:18px 20px;border-top:1px solid var(--line);}
+.total-row{display:flex;justify-content:space-between;font-weight:700;margin-bottom:12px;}
+.total-row span:last-child{font-family:'Space Mono',monospace;color:var(--gold);}
+.btn-full{width:100%;background:#25D366;color:#fff;border:none;padding:13px;border-radius:10px;font-weight:800;font-size:14px;cursor:pointer;}
+.btn-full:disabled{opacity:.35;cursor:not-allowed;}
+
+.search-box{position:fixed;top:84px;left:50%;transform:translateX(-50%);width:560px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:16px;z-index:310;display:none;padding:16px;box-shadow:0 20px 50px rgba(0,0,0,.5);}
+.search-box.open{display:block;}
+.search-box input{width:100%;background:#031B22;border:1px solid var(--line);color:var(--ink);padding:14px 16px;border-radius:10px;font-size:15px;outline:none;font-family:'Inter',sans-serif;}
+.search-box input:focus{border-color:var(--cyan);}
+.search-meta{font-size:11px;color:var(--ink-soft);margin:10px 2px 6px;font-family:'Space Mono',monospace;}
+.s-result{display:flex;gap:12px;align-items:center;padding:10px;border-radius:10px;cursor:pointer;}
+.s-result:hover,.s-result.sel{background:var(--panel-2);}
+.s-result .s-ic{font-size:20px;width:28px;text-align:center;}
+.s-result small{color:var(--ink-soft);font-size:11px;display:block;}
+.s-type{margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;color:var(--cyan);}
+.s-empty{padding:16px 6px 6px;font-size:13.5px;color:var(--ink-soft);line-height:1.55;}
+.s-empty strong{color:var(--ink);}
+.s-empty button{margin-top:12px;}
+kbd{font-family:'Space Mono',monospace;font-size:10px;border:1px solid var(--line);padding:1px 6px;border-radius:4px;color:var(--ink-soft);}
+
+.modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:460px;max-width:92vw;max-height:90vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px;z-index:310;display:none;padding:24px;}
+.modal.open{display:block;}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;}
+.modal-head h3{font-size:19px;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:12.5px;font-weight:700;margin-bottom:6px;}
+.field .req{color:var(--orange);}
+.field .opt{color:var(--ink-soft);font-weight:400;}
+.field input,.field select,.field textarea{width:100%;background:#031B22;border:1px solid var(--line);color:var(--ink);padding:12px;border-radius:10px;font-size:14px;font-family:'Inter',sans-serif;outline:none;resize:vertical;}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--cyan);}
+.field.err input,.field.err select{border-color:var(--orange);}
+.field.ok input,.field.ok select{border-color:#3DDC97;}
+.field .msg{font-size:11.5px;color:var(--orange);margin-top:5px;display:none;}
+.field.err .msg{display:block;}
+.btn-submit{width:100%;background:linear-gradient(90deg,var(--gold),#FFE08A);color:#231400;border:none;padding:13px;border-radius:10px;font-weight:800;cursor:pointer;font-size:14px;}
+.btn-submit:disabled{opacity:.35;cursor:not-allowed;}
+.form-note{font-size:11.5px;color:var(--ink-soft);margin-top:10px;text-align:center;}
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:7px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.success{text-align:center;padding:16px 0 4px;}
+.success .big{font-size:44px;margin-bottom:10px;}
+.success h4{font-family:'Poppins',sans-serif;font-size:18px;margin-bottom:8px;}
+.success p{color:var(--ink-soft);font-size:13.5px;line-height:1.55;margin-bottom:18px;}
+
+.shop-main{flex:1;min-width:0;}
+.shop-main .prod-grid{width:100%;}
+.active-filter{display:none;align-items:center;gap:12px;margin-bottom:16px;font-size:13px;color:var(--ink-soft);flex-wrap:wrap;}
+.active-filter.show{display:flex;}
+.active-filter button{background:var(--cyan);color:#06181C;border:none;border-radius:999px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;}
+.empty-state{display:none;max-width:1180px;margin:0 auto 60px;padding:36px 40px;text-align:center;color:var(--ink-soft);font-size:14px;line-height:1.6;}
+.empty-state .big{font-size:36px;margin-bottom:8px;}
+.empty-state .row{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;}
+.chip{user-select:none;}
+
+.tip{display:inline-flex;width:17px;height:17px;border-radius:50%;background:var(--panel-2);border:1px solid var(--cyan);color:var(--cyan);font-size:10px;font-weight:800;align-items:center;justify-content:center;cursor:help;position:relative;margin-left:5px;vertical-align:2px;font-family:'Inter',sans-serif;}
+.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;bottom:135%;left:50%;transform:translateX(-50%);width:240px;background:#E9FBF9;color:#06181C;font-size:12px;font-weight:500;line-height:1.45;padding:10px 12px;border-radius:8px;z-index:30;text-transform:none;letter-spacing:0;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+
+.compat{font-size:11.5px;color:var(--ink-soft);margin:-2px 0 12px;line-height:1.4;}
+.compat b{color:var(--cyan);font-weight:600;}
+
+.timeline.guiding .tl-item{opacity:.4;transition:opacity .2s ease;}
+.timeline.guiding .tl-item.done{opacity:.75;}
+.timeline.guiding .tl-item.current{opacity:1;}
+.tl-item.done .tl-num{background:#3DDC97;}
+.tl-item.current .tl-num{box-shadow:0 0 0 6px rgba(0,194,214,.22);}
+.guide-bar{display:none;position:sticky;bottom:16px;z-index:40;max-width:680px;margin:0 auto 40px;background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:14px 16px;align-items:center;gap:12px;box-shadow:0 12px 30px rgba(0,0,0,.45);}
+.guide-bar.show{display:flex;}
+.guide-info{flex:1;min-width:0;}
+.guide-info .lbl{font-size:12.5px;font-weight:700;margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.progress{height:6px;background:#031B22;border-radius:999px;overflow:hidden;}
+.progress div{height:100%;background:linear-gradient(90deg,var(--cyan),#3DDC97);transition:width .25s ease;}
+.gb-btn{background:#031B22;border:1px solid var(--line);color:var(--ink);padding:9px 14px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.gb-btn.primary{background:var(--cyan);color:#06181C;border-color:var(--cyan);}
+.gb-btn:disabled{opacity:.3;cursor:not-allowed;}
+
+.faq{max-width:760px;margin:0 auto 40px;padding:0 40px;}
+.faq details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 18px;margin-bottom:10px;}
+.faq summary{cursor:pointer;font-weight:700;font-size:14px;}
+.faq details p{color:var(--ink-soft);font-size:13.5px;margin-top:10px;line-height:1.6;}
+
+.cat-card,.fish-card{cursor:pointer;}
+.switcher .h-toggle{margin-left:auto;border-color:#5C4A12;color:var(--gold);}
+.switcher .h-toggle.on{background:var(--gold);color:#231400;border-color:var(--gold);font-weight:700;}
+body.show-h [data-h]:not(#guide-bar):not(.icon-btn):not(.tip){position:relative;}
+body.show-h [data-h]{outline:2px dashed var(--gold);outline-offset:4px;}
+body.show-h [data-h]::before{content:attr(data-h);position:absolute;top:-14px;left:-4px;background:var(--gold);color:#231400;font:700 10px/1.2 'Space Mono',monospace;padding:3px 7px;border-radius:4px;z-index:60;white-space:nowrap;pointer-events:none;}
+
+</style>
+</head>
+<body>
+
+<div class="switcher" id="switcher">
+  <button data-t="home" class="active">Início</button>
+  <button data-t="loja">Loja / Produtos</button>
+  <button data-t="peixes">Peixes</button>
+  <button data-t="mfa">Meu Primeiro Aquário</button>
+  <button data-t="servicos">Serviços</button>
+  <button class="h-toggle" id="h-toggle">◎ Mostrar heurísticas</button>
+</div>
+
+<!-- category list used by every dropdown -->
+<template id="cat-items">
+  <a href="#" data-cat="Aquários"><span class="em">🧊</span>Aquários</a>
+  <a href="#" data-cat="Filtros"><span class="em">💧</span>Filtros</a>
+  <a href="#" data-cat="Bombas"><span class="em">🌊</span>Bombas</a>
+  <a href="#" data-cat="Iluminação"><span class="em">💡</span>Iluminação</a>
+  <a href="#" data-cat="Termostatos"><span class="em">🌡️</span>Termostatos</a>
+  <a href="#" data-cat="Rações"><span class="em">🍽️</span>Rações</a>
+  <a href="#" data-cat="Condicionadores"><span class="em">🧪</span>Condicionadores</a>
+  <a href="#" data-cat="Substratos"><span class="em">🪨</span>Substratos</a>
+  <a href="#" data-cat="Plantas"><span class="em">🌿</span>Plantas</a>
+  <a href="#" data-cat="Decorações"><span class="em">🏯</span>Decorações</a>
+  <a href="#" data-cat="Acessórios"><span class="em">🎒</span>Acessórios</a>
+  <a href="#" class="see-all">Ver loja completa →</a>
+</template>
+
+<!-- ============ HOME ============ -->
+<div class="screen active" id="home">
+  <nav class="site-nav">
+    <div class="logo"><div class="logo-ring"><span>🐟</span></div> Aquarilândia</div>
+    <div class="nav-links">
+      <a class="on" href="#">Início</a>
+      <div class="nav-drop"><button class="nav-drop-trigger">Loja <span class="caret">▾</span></button><div class="nav-drop-panel"></div></div>
+      <a href="#">Peixes</a><a href="#">Primeiro Aquário</a><a href="#">Serviços</a>
+    </div>
+    <button class="nav-cta">Falar no WhatsApp</button>
+  </nav>
+
+  <div class="hero">
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <div class="eyebrow">Peixes nacionais e importados</div>
+        <h1>Seu aquário é um <span class="script">ecossistema.</span></h1>
+        <p>Peixes, plantas e projetos de aquários. A qualidade que você já conhece, agora pertinho de você.</p>
+        <div class="btn-row">
+          <button class="btn-primary">Ver produtos</button>
+          <button class="btn-ghost">Sou iniciante →</button>
+        </div>
+      </div>
+      <div class="hero-tank">
+        <div class="glow-frame"><div class="glow-frame-inner">
+          <svg width="300" height="240" viewBox="0 0 300 240">
+            <ellipse cx="90" cy="110" rx="26" ry="14" fill="#FF7A45"/>
+            <path d="M116 110 l16 -12 l0 24 z" fill="#FF7A45"/>
+            <ellipse cx="190" cy="70" rx="18" ry="10" fill="#00C2D6"/>
+            <path d="M208 70 l12 -9 l0 18 z" fill="#00C2D6"/>
+            <ellipse cx="150" cy="160" rx="15" ry="8" fill="#FFC93C"/>
+            <path d="M165 160 l10 -7 l0 14 z" fill="#FFC93C"/>
+            <circle cx="240" cy="140" r="3" fill="#A64DFF"/>
+            <circle cx="250" cy="120" r="2" fill="#00C2D6"/>
+            <circle cx="50" cy="60" r="2.5" fill="#FFC93C"/>
+          </svg>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="two-col">
+    <div class="glow-frame" style="width:100%; max-width:320px; flex-shrink:0;"><div class="glow-frame-inner" style="height:280px; display:flex; align-items:center; justify-content:center; font-size:48px;">📍</div></div>
+    <div>
+      <div class="eyebrow" style="color:var(--cyan)">Quem somos</div>
+      <h2>Feito por quem também tem aquário em casa.</h2>
+      <p>A Aquarilândia trabalha com peixes nacionais e importados e projetos de aquários. Selecionamos cada peixe com cuidado e damos suporte real, do primeiro aquário aos projetos plantados mais elaborados.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div><div class="eyebrow">Explore</div><h2>Categorias de produtos</h2></div>
+      <a href="#">Ver loja completa →</a>
+    </div>
+    <div class="cat-grid">
+      <div class="cat-card"><div class="ic">🧊</div><span>Aquários</span></div>
+      <div class="cat-card"><div class="ic">💧</div><span>Filtros & Bombas</span></div>
+      <div class="cat-card"><div class="ic">💡</div><span>Iluminação</span></div>
+      <div class="cat-card"><div class="ic">🌿</div><span>Plantas</span></div>
+      <div class="cat-card"><div class="ic">🍽️</div><span>Rações</span></div>
+      <div class="cat-card"><div class="ic">🧪</div><span>Condicionadores</span></div>
+      <div class="cat-card"><div class="ic">🪨</div><span>Substratos</span></div>
+      <div class="cat-card"><div class="ic">🏯</div><span>Decorações</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div><div class="eyebrow">Disponíveis agora</div><h2>Peixes em destaque</h2></div>
+      <a href="#">Ver todos os peixes →</a>
+    </div>
+    <div class="fish-row">
+      <div class="fish-card"><div class="fish-photo">🐠</div><div class="body"><h4>Kinguio Ranchu</h4><div class="sci">Carassius auratus</div><div class="bubbles">●○○ Fácil</div></div></div>
+      <div class="fish-card"><div class="fish-photo">🐟</div><div class="body"><h4>Betta Splendens</h4><div class="sci">Betta splendens</div><div class="bubbles">●○○ Fácil</div></div></div>
+      <div class="fish-card"><div class="fish-photo">🐡</div><div class="body"><h4>Corydora Bronze</h4><div class="sci">Corydoras aeneus</div><div class="bubbles">●○○ Fácil</div></div></div>
+      <div class="fish-card"><div class="fish-photo">🐠</div><div class="body"><h4>Acará Disco</h4><div class="sci">Symphysodon spp.</div><div class="bubbles">●●● Avançado</div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="offer-strip">
+      <div><h3>Kit Primeiro Aquário 40L — 15% off</h3><p>Aquário + filtro + termostato + substrato, tudo compatível.</p></div>
+      <button class="btn-primary">Aproveitar oferta</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="mfa-band">
+      <div>
+        <div class="eyebrow" style="color:var(--cyan)">Área educativa</div>
+        <h2>Nunca teve um aquário? <span class="script" style="color:var(--gold)">Comece aqui.</span></h2>
+        <p>Um passo a passo simples, do zero à manutenção, pensado pra quem nunca montou um aquário na vida.</p>
+        <div class="step-dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      </div>
+      <button class="btn-primary">Começar guia</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><div><div class="eyebrow">Projetos de aquários</div><h2>Serviços</h2></div><a href="#">Ver todos →</a></div>
+    <div class="svc-grid">
+      <div class="svc-card"><div class="ic">🧰</div><h4>Montagem de aquários</h4><p>Instalação completa no seu espaço, do zero.</p></div>
+      <div class="svc-card"><div class="ic">🌱</div><h4>Aquários plantados</h4><p>Projetos de aquapaisagismo sob medida.</p></div>
+      <div class="svc-card"><div class="ic">🔧</div><h4>Manutenção</h4><p>Visitas periódicas de troca de água e limpeza.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="foot-inner">
+      <div><h5>Aquarilândia</h5><p>Peixes, plantas e projetos de aquários.</p></div>
+      <div><h5>Contato</h5><a href="#">wa.link/aquarilandia</a><a href="#">WhatsApp</a></div>
+      <div><h5>Endereço</h5><p>Avenida Josué de Queiroz, 115<br>São João del Rei</p></div>
+      <div><h5>Redes sociais</h5><a href="#">Instagram</a><a href="#">Threads</a></div>
+    </div>
+  </footer>
+</div>
+
+<!-- ============ LOJA ============ -->
+<div class="screen" id="loja">
+  <nav class="site-nav">
+    <div class="logo"><div class="logo-ring"><span>🐟</span></div> Aquarilândia</div>
+    <div class="nav-links">
+      <a href="#">Início</a>
+      <div class="nav-drop"><button class="nav-drop-trigger on">Loja <span class="caret">▾</span></button><div class="nav-drop-panel"></div></div>
+      <a href="#">Peixes</a><a href="#">Primeiro Aquário</a><a href="#">Serviços</a>
+    </div>
+    <button class="nav-cta">Falar no WhatsApp</button>
+  </nav>
+  <div class="page-head"><div class="eyebrow">Loja</div><h1>Tudo pro seu aquário</h1></div>
+
+  <div class="shop-layout">
+    <div class="filters">
+      <h5>Categorias</h5>
+      <ul id="loja-cat-list">
+        <li class="on" data-cat="Todos os produtos">Todos os produtos</li>
+        <li data-cat="Aquários">Aquários</li>
+        <li data-cat="Filtros">Filtros</li>
+        <li data-cat="Bombas">Bombas</li>
+        <li data-cat="Iluminação">Iluminação</li>
+        <li data-cat="Termostatos">Termostatos</li>
+        <li data-cat="Rações">Rações</li>
+        <li data-cat="Condicionadores">Condicionadores<span class="tip" tabindex="0" data-tip="Produtos que neutralizam o cloro da água da torneira e deixam a água segura para os peixes.">?</span></li>
+        <li data-cat="Substratos">Substratos</li>
+        <li data-cat="Plantas">Plantas</li>
+        <li data-cat="Decorações">Decorações</li>
+        <li data-cat="Acessórios">Acessórios</li>
+      </ul>
+      <h5>Disponibilidade</h5>
+      <ul id="loja-avail-list"><li data-avail="in">Em estoque</li><li data-avail="out">Sob encomenda</li></ul>
+    </div>
+
+    <div class="shop-main">
+    <div class="active-filter" id="active-filter"><span id="af-label"></span><button id="af-clear">✕ Limpar filtros</button></div>
+    <div class="prod-grid">
+      <div class="prod-card">
+        <div class="prod-photo">🧊<span class="tag in">Em estoque</span></div>
+        <div class="prod-body">
+          <h4>Aquário Vidro 40L</h4>
+          <div class="desc">Kit completo com tampa e suporte de iluminação.</div>
+          <div class="price">R$ 249,90</div>
+          <div class="prod-actions"><button class="btn-buy">Comprar</button><button class="btn-wa">💬</button></div>
+        </div>
+      </div>
+      <div class="prod-card">
+        <div class="prod-photo">💧<span class="tag in">Em estoque</span></div>
+        <div class="prod-body">
+          <h4>Filtro Externo HW-302</h4>
+          <div class="desc">Ideal para aquários de até 100L.</div>
+          <div class="price">R$ 189,00</div>
+          <div class="prod-actions"><button class="btn-buy">Comprar</button><button class="btn-wa">💬</button></div>
+        </div>
+      </div>
+      <div class="prod-card">
+        <div class="prod-photo">💡<span class="tag out">Sob encomenda</span></div>
+        <div class="prod-body">
+          <h4>Luminária LED RGB 60cm</h4>
+          <div class="desc">Espectro completo para plantados.</div>
+          <div class="price">R$ 320,00</div>
+          <div class="prod-actions"><button class="btn-buy">Solicitar</button><button class="btn-wa">💬</button></div>
+        </div>
+      </div>
+      <div class="prod-card">
+        <div class="prod-photo">🌿<span class="tag in">Em estoque</span></div>
+        <div class="prod-body">
+          <h4>Anúbias Nana (vaso)</h4>
+          <div class="desc">Planta de fácil manutenção, baixa luz.</div>
+          <div class="price">R$ 24,90</div>
+          <div class="prod-actions"><button class="btn-buy">Comprar</button><button class="btn-wa">💬</button></div>
+        </div>
+      </div>
+      <div class="prod-card">
+        <div class="prod-photo">🪨<span class="tag in">Em estoque</span></div>
+        <div class="prod-body">
+          <h4>Substrato Fértil 2kg</h4>
+          <div class="desc">Nutritivo, para aquários plantados.</div>
+          <div class="price">R$ 45,00</div>
+          <div class="prod-actions"><button class="btn-buy">Comprar</button><button class="btn-wa">💬</button></div>
+        </div>
+      </div>
+      <div class="prod-card">
+        <div class="prod-photo">🍽️<span class="tag in">Em estoque</span></div>
+        <div class="prod-body">
+          <h4>Ração Flocos Premium</h4>
+          <div class="desc">100g, para peixes ornamentais.</div>
+          <div class="price">R$ 18,50</div>
+          <div class="prod-actions"><button class="btn-buy">Comprar</button><button class="btn-wa">💬</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="empty-state" id="loja-empty"><div class="big">🔎</div>Ainda não temos produtos de <strong id="loja-empty-cat"></strong> cadastrados no site, mas a loja física pode ter.<div class="row"><button class="btn-ghost" id="loja-empty-clear">Ver todos os produtos</button><button class="btn-primary" id="loja-empty-wa">💬 Perguntar no WhatsApp</button></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PEIXES ============ -->
+<div class="screen" id="peixes">
+  <nav class="site-nav">
+    <div class="logo"><div class="logo-ring"><span>🐟</span></div> Aquarilândia</div>
+    <div class="nav-links">
+      <a href="#">Início</a>
+      <div class="nav-drop"><button class="nav-drop-trigger">Loja <span class="caret">▾</span></button><div class="nav-drop-panel"></div></div>
+      <a class="on" href="#">Peixes</a><a href="#">Primeiro Aquário</a><a href="#">Serviços</a>
+    </div>
+    <button class="nav-cta">Falar no WhatsApp</button>
+  </nav>
+  <div class="page-head"><div class="eyebrow">Catálogo</div><h1>Peixes disponíveis</h1></div>
+
+  <div class="chip-row">
+    <div class="chip on" data-f="all">Todos</div>
+    <div class="chip" data-f="doce">Água doce</div>
+    <div class="chip" data-f="salgada">Água salgada</div>
+    <div class="chip" data-f="pacifico">Pacífico</div>
+    <div class="chip" data-f="facil">Fácil de cuidar</div>
+    <div class="chip" data-f="disp">Disponível na loja</div>
+  </div>
+
+  <div class="peixe-grid">
+    <div class="peixe-card">
+      <div class="peixe-photo">🐠</div>
+      <div class="peixe-body">
+        <h4>Acará Disco</h4>
+        <div class="sci">Symphysodon spp.</div>
+        <div class="ficha">
+          <div><span class="k">Água</span><span>Doce · 28-30°C</span></div>
+          <div><span class="k">Temperamento</span><span>Pacífico</span></div>
+          <div><span class="k">Aquário mínimo</span><span>150L</span></div>
+          <div><span class="k">Dificuldade</span><span>●●● Avançado</span></div>
+        </div>
+        <div class="disp-row"><span class="tag in" style="position:static">Disponível</span><button class="btn-wa">💬</button></div>
+      </div>
+    </div>
+    <div class="peixe-card">
+      <div class="peixe-photo">🐟</div>
+      <div class="peixe-body">
+        <h4>Betta Splendens</h4>
+        <div class="sci">Betta splendens</div>
+        <div class="ficha">
+          <div><span class="k">Água</span><span>Doce · 24-27°C</span></div>
+          <div><span class="k">Temperamento</span><span>Territorial</span></div>
+          <div><span class="k">Aquário mínimo</span><span>20L</span></div>
+          <div><span class="k">Dificuldade</span><span>●○○ Fácil</span></div>
+        </div>
+        <div class="disp-row"><span class="tag in" style="position:static">Disponível</span><button class="btn-wa">💬</button></div>
+      </div>
+    </div>
+    <div class="peixe-card">
+      <div class="peixe-photo">🥇</div>
+      <div class="peixe-body">
+        <h4>Kinguio Ranchu</h4>
+        <div class="sci">Carassius auratus</div>
+        <div class="ficha">
+          <div><span class="k">Água</span><span>Doce · 18-22°C</span></div>
+          <div><span class="k">Temperamento</span><span>Pacífico</span></div>
+          <div><span class="k">Aquário mínimo</span><span>80L</span></div>
+          <div><span class="k">Dificuldade</span><span>●○○ Fácil</span></div>
+        </div>
+        <div class="disp-row"><span class="tag out" style="position:static">Sob consulta</span><button class="btn-wa">💬</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="empty-state" id="peixe-empty"><div class="big">🐟</div>Nenhum peixe combina com todos esses filtros no momento.<div class="row"><button class="btn-ghost" id="peixe-empty-clear">Limpar filtros</button><button class="btn-primary" id="peixe-empty-wa">💬 Perguntar o que chegou</button></div></div>
+</div>
+
+<!-- ============ MEU PRIMEIRO AQUÁRIO ============ -->
+<div class="screen" id="mfa">
+  <nav class="site-nav">
+    <div class="logo"><div class="logo-ring"><span>🐟</span></div> Aquarilândia</div>
+    <div class="nav-links">
+      <a href="#">Início</a>
+      <div class="nav-drop"><button class="nav-drop-trigger">Loja <span class="caret">▾</span></button><div class="nav-drop-panel"></div></div>
+      <a href="#">Peixes</a><a class="on" href="#">Primeiro Aquário</a><a href="#">Serviços</a>
+    </div>
+    <button class="nav-cta">Falar no WhatsApp</button>
+  </nav>
+
+  <div class="mfa-hero">
+    <div class="eyebrow">Área educativa</div>
+    <h1>Você nunca teve um aquário? <span class="script" style="color:var(--gold); display:block;">Comece aqui.</span></h1>
+    <p>Sete passos simples pra sair do zero até um aquário saudável e funcionando — sem enrolação.</p>
+    <button class="btn-primary">Iniciar guia passo a passo</button>
+  </div>
+
+  <div class="timeline">
+    <div class="tl-item"><div class="tl-num">1</div><div class="tl-body"><h4>Escolha o aquário</h4><p>Tamanho ideal pro seu espaço e pro tipo de peixe que você quer ter.</p></div></div>
+    <div class="tl-item"><div class="tl-num">2</div><div class="tl-body"><h4>Escolha os equipamentos</h4><p>Filtro, bomba, iluminação e termostato compatíveis com o volume do aquário.</p></div></div>
+    <div class="tl-item"><div class="tl-num">3</div><div class="tl-body"><h4>Prepare substrato e decoração</h4><p>Base fértil ou neutra, pedras e troncos — pensando também nos peixes escolhidos.</p></div></div>
+    <div class="tl-item"><div class="tl-num">4</div><div class="tl-body"><h4>Faça a ciclagem<span class="tip" tabindex="0" data-tip="Período de algumas semanas em que bactérias benéficas se instalam no filtro e passam a eliminar a amônia, que é tóxica. Pular essa etapa é uma das principais causas de morte de peixes em aquários novos.">?</span></h4><p>O processo que estabiliza as bactérias boas da água antes de colocar peixes.</p></div></div>
+    <div class="tl-item"><div class="tl-num">5</div><div class="tl-body"><h4>Teste a água<span class="tip" tabindex="0" data-tip="Kits de teste medem a qualidade da água. Amônia e nitrito precisam estar em zero antes de colocar os peixes.">?</span></h4><p>pH, amônia, nitrito e nitrato — garantindo que está tudo seguro.</p></div></div>
+    <div class="tl-item"><div class="tl-num">6</div><div class="tl-body"><h4>Escolha os peixes</h4><p>Espécies compatíveis entre si e com o tamanho do seu aquário.</p></div></div>
+    <div class="tl-item"><div class="tl-num">7</div><div class="tl-body"><h4>Aprenda a fazer a manutenção</h4><p>Rotina de trocas de água, limpeza de filtro e alimentação.</p></div></div>
+  </div>
+
+  <div class="guide-bar" id="guide-bar">
+    <button class="gb-btn" id="gb-prev">← Voltar</button>
+    <div class="guide-info"><div class="lbl" id="gb-label"></div><div class="progress"><div id="gb-fill"></div></div></div>
+    <button class="gb-btn primary" id="gb-next">Próxima →</button>
+    <button class="close-x" id="gb-exit" aria-label="Sair do guia" title="Sair do guia">✕</button>
+  </div>
+
+  <div class="faq">
+    <div class="section-head" style="margin-bottom:18px"><div><div class="eyebrow">Ajuda</div><h2>Dúvidas frequentes</h2></div></div>
+    <details><summary>Quanto tempo até eu poder colocar os peixes?</summary><p>Depende da ciclagem, que costuma levar algumas semanas. Antes de colocar os peixes, teste a água: amônia e nitrito precisam estar em zero.</p></details>
+    <details><summary>Qual tamanho de aquário é melhor pra começar?</summary><p>Aquários um pouco maiores são mais estáveis e perdoam mais erros do que os muito pequenos. Fale com a gente que indicamos o ideal pro seu espaço.</p></details>
+    <details><summary>Os peixes têm garantia? Vocês entregam?</summary><p><em>[Texto a definir com a loja: política de garantia, entrega e trocas.]</em></p></details>
+  </div>
+
+  <div class="mfa-cta">
+    <p>Prefere ter alguém te guiando pessoalmente?</p>
+    <button class="btn-primary">Falar com um especialista</button>
+  </div>
+</div>
+
+<!-- ============ SERVIÇOS ============ -->
+<div class="screen" id="servicos">
+  <nav class="site-nav">
+    <div class="logo"><div class="logo-ring"><span>🐟</span></div> Aquarilândia</div>
+    <div class="nav-links">
+      <a href="#">Início</a>
+      <div class="nav-drop"><button class="nav-drop-trigger">Loja <span class="caret">▾</span></button><div class="nav-drop-panel"></div></div>
+      <a href="#">Peixes</a><a href="#">Primeiro Aquário</a><a class="on" href="#">Serviços</a>
+    </div>
+    <button class="nav-cta">Falar no WhatsApp</button>
+  </nav>
+  <div class="page-head"><div class="eyebrow">Projetos de aquários</div><h1>Serviços</h1></div>
+
+  <div class="svc-page-grid">
+    <div class="svc-page-card"><div class="ic">🧰</div><h4>Montagem de aquários</h4><p>Instalação completa, do posicionamento à água pronta pros primeiros peixes.</p><button class="btn-quote">Solicitar orçamento</button></div>
+    <div class="svc-page-card"><div class="ic">🌱</div><h4>Aquários plantados</h4><p>Projetos de aquapaisagismo com seleção de plantas e substrato ideais.</p><button class="btn-quote">Solicitar orçamento</button></div>
+    <div class="svc-page-card"><div class="ic">✏️</div><h4>Projetos personalizados</h4><p>Aquário sob medida pro seu espaço, estilo e orçamento.</p><button class="btn-quote">Solicitar orçamento</button></div>
+    <div class="svc-page-card"><div class="ic">🔧</div><h4>Manutenção</h4><p>Visitas periódicas de troca de água, limpeza de filtro e checagem geral.</p><button class="btn-quote">Solicitar orçamento</button></div>
+    <div class="svc-page-card"><div class="ic">💬</div><h4>Consultoria</h4><p>Orientação técnica pontual pra resolver um problema ou planejar um projeto.</p><button class="btn-quote">Solicitar orçamento</button></div>
+    <div class="svc-page-card"><div class="ic">🏢</div><h4>Montagem para empresas</h4><p>Aquários corporativos para recepções, escritórios e comércios.</p><button class="btn-quote">Solicitar orçamento</button></div>
+  </div>
+
+  <div class="future-banner">
+    <div class="inner">
+      <div><span class="badge">Em breve</span>Locação de aquários — manutenção inclusa, sem compromisso de compra.</div>
+      <button class="btn-ghost" style="border-color:rgba(255,255,255,.5)">Quero saber mais</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ COMPONENTES GLOBAIS (v4) ============ -->
+<div class="overlay" id="overlay"></div>
+
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Carrinho">
+  <div class="drawer-head"><h3>🛒 Seu carrinho</h3><button class="close-x" aria-label="Fechar">✕</button></div>
+  <div class="drawer-body" id="cart-body"></div>
+  <div class="drawer-foot">
+    <div class="total-row"><span>Total</span><span id="cart-total">R$ 0,00</span></div>
+    <button class="btn-full" id="cart-checkout" disabled>💬 Finalizar pedido pelo WhatsApp</button>
+  </div>
+</aside>
+
+<div class="search-box" id="search-box" role="dialog" aria-label="Buscar">
+  <input id="search-input" type="search" placeholder="Buscar produtos, peixes ou categorias…" autocomplete="off">
+  <div class="search-meta" id="search-meta">Dica: aperte <kbd>/</kbd> em qualquer tela para buscar · <kbd>Esc</kbd> fecha</div>
+  <div id="search-results"></div>
+</div>
+
+<div class="modal" id="quote-modal" role="dialog" aria-modal="true" aria-labelledby="q-title">
+  <div class="modal-head"><h3 id="q-title">Solicitar orçamento</h3><button class="close-x" aria-label="Fechar">✕</button></div>
+  <div id="q-form">
+    <div class="field" id="f-nome"><label for="q-nome">Seu nome <span class="req">*</span></label><input id="q-nome" autocomplete="name" placeholder="Como podemos te chamar?"><div class="msg">Digite seu nome (pelo menos 2 letras).</div></div>
+    <div class="field" id="f-tel"><label for="q-tel">WhatsApp <span class="req">*</span></label><input id="q-tel" inputmode="numeric" autocomplete="tel" placeholder="(32) 99999-0000"><div class="msg">Telefone incompleto. Exemplo: (32) 99999-0000</div></div>
+    <div class="field" id="f-serv"><label for="q-serv">Serviço <span class="req">*</span></label>
+      <select id="q-serv">
+        <option value="">Selecione…</option>
+        <option>Montagem de aquários</option><option>Aquários plantados</option><option>Projetos personalizados</option>
+        <option>Manutenção</option><option>Consultoria</option><option>Montagem para empresas</option><option>Outro</option>
+      </select><div class="msg">Escolha um serviço da lista.</div></div>
+    <div class="field"><label for="q-msg">Conte um pouco do que precisa <span class="opt">(opcional)</span></label><textarea id="q-msg" rows="3" placeholder="Ex.: aquário de 100L para a sala, com plantas"></textarea></div>
+    <button class="btn-submit" id="q-submit" disabled>Enviar pedido de orçamento</button>
+    <div class="form-note" id="q-note">Preencha os campos marcados com * para enviar.</div>
+  </div>
+  <div class="success" id="q-success" style="display:none">
+    <div class="big">✅</div>
+    <h4>Pedido recebido!</h4>
+    <p id="q-success-txt"></p>
+    <button class="btn-primary" id="q-close">Fechar</button>
+  </div>
+</div>
+
+<div id="toast-wrap" aria-live="polite"></div>
+<div class="wa-float" id="wa-float" title="Falar no WhatsApp">💬</div>
+
+<script>
+/* ---------------- Navegação entre telas ---------------- */
+function goToScreen(id){
+  document.querySelectorAll('#switcher button[data-t]').forEach(b=>b.classList.toggle('active', b.dataset.t===id));
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active', s.id===id));
+  window.scrollTo({top:0, behavior:'instant'});
+}
+document.querySelectorAll('#switcher button[data-t]').forEach(b=>b.addEventListener('click',()=>goToScreen(b.dataset.t)));
+const linkMap={'Início':'home','Peixes':'peixes','Primeiro Aquário':'mfa','Serviços':'servicos'};
+document.querySelectorAll('.nav-links > a').forEach(a=>{
+  const t=linkMap[a.textContent.trim()];
+  if(t) a.addEventListener('click',e=>{e.preventDefault();goToScreen(t);});
+});
+document.querySelectorAll('.logo').forEach(l=>{l.style.cursor='pointer';l.addEventListener('click',()=>goToScreen('home'));});
+
+/* ---------------- H1 · Toast de feedback ---------------- */
+function toast(msg, actionLabel, action, ms){
+  const wrap=document.getElementById('toast-wrap');
+  const t=document.createElement('div'); t.className='toast'; t.setAttribute('role','status');
+  t.innerHTML='<span>'+msg+'</span>';
+  if(actionLabel){ const b=document.createElement('button'); b.textContent=actionLabel; b.onclick=()=>{t.remove(); action();}; t.appendChild(b); }
+  wrap.appendChild(t); setTimeout(()=>t.remove(), ms||3200);
+}
+function openWhats(ctx){ toast('<span class="spinner"></span>Abrindo WhatsApp'+(ctx?' — '+ctx:'')+'…'); }
+const esc=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------------- Ferramentas do menu: busca + carrinho ---------------- */
+document.querySelectorAll('.site-nav').forEach(nav=>{
+  const cta=nav.querySelector('.nav-cta');
+  const tools=document.createElement('div'); tools.className='nav-tools';
+  tools.innerHTML='<button class="icon-btn search-btn" aria-label="Buscar (atalho: tecla /)" title="Buscar — atalho: tecla /">🔍</button>'+
+                  '<button class="icon-btn cart-btn" aria-label="Abrir carrinho" title="Carrinho">🛒<span class="cart-count">0</span></button>';
+  nav.insertBefore(tools, cta); tools.appendChild(cta);
+  cta.addEventListener('click',()=>openWhats());
+});
+
+/* ---------------- Dropdown de categorias ---------------- */
+const catHTML=document.getElementById('cat-items').innerHTML;
+document.querySelectorAll('.nav-drop-panel').forEach(p=>p.innerHTML=catHTML);
+function closeDrops(){ document.querySelectorAll('.nav-drop.open').forEach(d=>d.classList.remove('open')); }
+document.querySelectorAll('.nav-drop').forEach(drop=>{
+  drop.querySelector('.nav-drop-trigger').addEventListener('click',e=>{
+    e.stopPropagation(); const was=drop.classList.contains('open'); closeDrops(); if(!was) drop.classList.add('open');
+  });
+});
+document.addEventListener('click',closeDrops);
+document.querySelectorAll('.nav-drop-panel a').forEach(a=>a.addEventListener('click',e=>{
+  e.preventDefault(); closeDrops(); goToScreen('loja'); applyFilter({cat:a.dataset.cat||null, avail:null});
+}));
+
+/* ---------------- Produtos ---------------- */
+const catByName={'Aquário Vidro 40L':'Aquários','Filtro Externo HW-302':'Filtros','Luminária LED RGB 60cm':'Iluminação','Anúbias Nana (vaso)':'Plantas','Substrato Fértil 2kg':'Substratos','Ração Flocos Premium':'Rações'};
+const volumeByName={'Aquário Vidro 40L':40};
+const maxByName={'Filtro Externo HW-302':100};
+const fmt=v=>'R$ '+v.toFixed(2).replace('.',',');
+const products=[...document.querySelectorAll('#loja .prod-card')].map(card=>{
+  const name=card.querySelector('h4').textContent.trim();
+  const price=parseFloat(card.querySelector('.price').textContent.replace(/[^\d,]/g,'').replace(',','.'));
+  const icon=card.querySelector('.prod-photo').firstChild.textContent.trim();
+  const inStock=!!card.querySelector('.tag.in');
+  const p={name,price,icon,inStock,cat:catByName[name]||'',card};
+  card.querySelector('.btn-buy').addEventListener('click',()=> inStock ? addToCart(p) : openWhats('consultar '+name));
+  card.querySelector('.btn-wa').addEventListener('click',()=>openWhats(name));
+  return p;
+});
+const prod=n=>products.find(p=>p.name===n);
+
+/* ---------------- Filtros da loja (H3 · desfazer filtro / H9 · vazio com solução) ---------------- */
+let filt={cat:null,avail:null};
+function applyFilter(f){
+  filt={...filt,...f};
+  document.querySelectorAll('#loja-cat-list li').forEach(li=>li.classList.toggle('on', filt.cat ? li.dataset.cat===filt.cat : li.dataset.cat==='Todos os produtos'));
+  document.querySelectorAll('#loja-avail-list li').forEach(li=>li.classList.toggle('on', li.dataset.avail===filt.avail));
+  let shown=0;
+  products.forEach(p=>{
+    const ok=(!filt.cat||p.cat===filt.cat)&&(!filt.avail||(filt.avail==='in')===p.inStock);
+    p.card.style.display=ok?'':'none'; if(ok) shown++;
+  });
+  const parts=[filt.cat, filt.avail==='in'?'Em estoque':filt.avail==='out'?'Sob encomenda':null].filter(Boolean);
+  document.getElementById('active-filter').classList.toggle('show', parts.length>0);
+  document.getElementById('af-label').textContent='Filtrando: '+parts.join(' · ')+' — '+shown+(shown===1?' produto':' produtos');
+  document.getElementById('loja-empty').style.display = shown ? 'none' : 'block';
+  document.getElementById('loja-empty-cat').textContent = filt.cat || 'esse filtro';
+}
+document.querySelectorAll('#loja-cat-list li').forEach(li=>li.addEventListener('click',e=>{
+  if(e.target.classList.contains('tip')) return;
+  applyFilter({cat: li.dataset.cat==='Todos os produtos' ? null : li.dataset.cat});
+}));
+document.querySelectorAll('#loja-avail-list li').forEach(li=>li.addEventListener('click',()=>applyFilter({avail: filt.avail===li.dataset.avail ? null : li.dataset.avail})));
+document.getElementById('af-clear').addEventListener('click',()=>applyFilter({cat:null,avail:null}));
+document.getElementById('loja-empty-clear').addEventListener('click',()=>applyFilter({cat:null,avail:null}));
+document.getElementById('loja-empty-wa').addEventListener('click',()=>openWhats('perguntar sobre '+(filt.cat||'o produto')));
+
+/* ---------------- Carrinho (H1 status · H3 desfazer · H5 compatibilidade · H6 sempre visível) ---------------- */
+let cart=[];
+function addToCart(p){
+  const it=cart.find(i=>i.name===p.name); if(it) it.qty++; else cart.push({name:p.name,qty:1});
+  renderCart(true);
+  toast('✓ '+p.name+' adicionado ao carrinho','Ver carrinho',openCart);
+}
+function compatHint(){
+  const f=cart.find(i=>maxByName[i.name]); if(!f) return '';
+  const a=cart.find(i=>volumeByName[i.name]); const max=maxByName[f.name];
+  if(a){ const v=volumeByName[a.name];
+    return v<=max ? '<div class="hint ok">✓ O '+f.name+' (até '+max+'L) é compatível com o '+a.name+'.</div>'
+                  : '<div class="hint">⚠ O '+f.name+' atende até '+max+'L, mas o aquário escolhido tem '+v+'L. Fale com a gente antes de fechar o pedido.</div>'; }
+  return '<div class="hint">ⓘ O '+f.name+' atende aquários de até '+max+'L. Confira o tamanho do seu antes de finalizar.</div>';
+}
+function renderCart(bump){
+  const count=cart.reduce((s,i)=>s+i.qty,0);
+  document.querySelectorAll('.cart-count').forEach(c=>{ c.textContent=count; if(bump){ c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump'); } });
+  const body=document.getElementById('cart-body');
+  if(!cart.length){
+    body.innerHTML='<div class="cart-empty">Seu carrinho está vazio.<br><br><button class="btn-ghost" id="empty-go">Ver produtos</button></div>';
+    document.getElementById('empty-go').onclick=()=>{closeAll();goToScreen('loja');};
+  } else {
+    body.innerHTML=cart.map((i,idx)=>{ const p=prod(i.name);
+      return '<div class="cart-item"><div class="ci-ic">'+p.icon+'</div><div class="ci-info"><h5>'+p.name+'</h5><div class="ci-price">'+fmt(p.price*i.qty)+'</div>'+
+             '<div class="qty"><button data-a="dec" data-i="'+idx+'" aria-label="Diminuir quantidade">−</button><span>'+i.qty+'</span><button data-a="inc" data-i="'+idx+'" aria-label="Aumentar quantidade">+</button></div></div>'+
+             '<button class="ci-remove" data-a="rm" data-i="'+idx+'">Remover</button></div>'; }).join('')+compatHint();
+  }
+  document.getElementById('cart-total').textContent=fmt(cart.reduce((s,i)=>s+prod(i.name).price*i.qty,0));
+  document.getElementById('cart-checkout').disabled=!cart.length;
+}
+function removeItem(idx){
+  const removed=cart.splice(idx,1)[0]; renderCart();
+  toast(removed.name+' removido','Desfazer',()=>{ cart.splice(Math.min(idx,cart.length),0,removed); renderCart(true); },5000);
+}
+document.getElementById('cart-body').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-a]'); if(!b) return; const i=+b.dataset.i;
+  if(b.dataset.a==='inc'){ cart[i].qty++; renderCart(); }
+  else if(b.dataset.a==='dec'){ if(cart[i].qty>1){ cart[i].qty--; renderCart(); } else removeItem(i); }
+  else removeItem(i);
+});
+document.getElementById('cart-checkout').addEventListener('click',()=>openWhats('enviando seu pedido'));
+
+/* ---------------- Painéis: abrir/fechar (H3 · saídas claras: ✕, Esc, clique fora) ---------------- */
+const overlay=document.getElementById('overlay');
+function closeAll(){ overlay.classList.remove('open'); ['drawer','search-box','quote-modal'].forEach(id=>document.getElementById(id).classList.remove('open')); }
+function openPanel(el){ closeAll(); closeDrops(); overlay.classList.add('open'); el.classList.add('open'); }
+function openCart(){ renderCart(); openPanel(document.getElementById('drawer')); }
+overlay.addEventListener('click',closeAll);
+document.querySelectorAll('.close-x').forEach(b=>b.addEventListener('click',closeAll));
+document.querySelectorAll('.cart-btn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openCart();}));
+document.querySelectorAll('.search-btn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();openSearch();}));
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ closeAll(); closeDrops(); }
+  const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
+  if(e.key==='/' && !typing){ e.preventDefault(); openSearch(); }
+});
+
+/* ---------------- Busca (H4 lupa · H7 atalho "/" · H9 sem resultado com saída) ---------------- */
+const norm=s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+function flash(el){ setTimeout(()=>{ el.scrollIntoView({behavior:'smooth',block:'center'}); el.animate([{boxShadow:'0 0 0 3px #00C2D6'},{boxShadow:'0 0 0 0 transparent'}],{duration:1800}); },80); }
+const cats=['Aquários','Filtros','Bombas','Iluminação','Termostatos','Rações','Condicionadores','Substratos','Plantas','Decorações','Acessórios'];
+const fishCards=[...document.querySelectorAll('#peixes .peixe-card')];
+const index=[
+  ...products.map(p=>({type:'Produto',label:p.name,sub:p.cat+' · '+fmt(p.price),icon:p.icon,go:()=>{goToScreen('loja');applyFilter({cat:p.cat,avail:null});flash(p.card);}})),
+  ...fishCards.map(c=>({type:'Peixe',label:c.querySelector('h4').textContent.trim(),sub:c.querySelector('.sci').textContent.trim(),icon:'🐟',go:()=>{goToScreen('peixes');resetFish();flash(c);}})),
+  ...cats.map(c=>({type:'Categoria',label:c,sub:'Ver produtos da categoria',icon:'📂',go:()=>{goToScreen('loja');applyFilter({cat:c,avail:null});}})),
+  {type:'Página',label:'Meu Primeiro Aquário',sub:'Guia passo a passo para iniciantes',icon:'📘',go:()=>goToScreen('mfa')},
+  {type:'Página',label:'Serviços e orçamento',sub:'Montagem, manutenção, plantados, empresas',icon:'🧰',go:()=>goToScreen('servicos')}
+];
+let results=[], sel=0;
+const sInput=document.getElementById('search-input'), sRes=document.getElementById('search-results'), sMeta=document.getElementById('search-meta');
+function openSearch(){ openPanel(document.getElementById('search-box')); sInput.value=''; renderSearch(); setTimeout(()=>sInput.focus(),30); }
+function renderSearch(){
+  const q=sInput.value.trim();
+  if(!q){ results=index.filter(i=>i.type==='Página'); sMeta.innerHTML='Atalhos rápidos · aperte <kbd>/</kbd> em qualquer tela para buscar'; }
+  else { const n=norm(q); results=index.filter(i=>norm(i.label+' '+i.sub).includes(n)).slice(0,8);
+         sMeta.textContent=results.length ? results.length+(results.length===1?' resultado':' resultados')+' · Enter abre o primeiro' : ''; }
+  sel=0;
+  if(q && !results.length){
+    sRes.innerHTML='<div class="s-empty">Não encontramos <strong>“'+esc(q)+'”</strong> no site.<br>Confira a grafia ou tente algo mais geral, como “filtro” ou “betta”. A loja pode ter o item mesmo que ele ainda não esteja cadastrado aqui.'+
+                   '<br><button class="btn-primary" id="s-wa">💬 Perguntar no WhatsApp</button></div>';
+    document.getElementById('s-wa').onclick=()=>{ closeAll(); openWhats('perguntando sobre “'+esc(q)+'”'); };
+    return;
+  }
+  sRes.innerHTML=results.map((r,i)=>'<div class="s-result'+(i===0&&q?' sel':'')+'" data-i="'+i+'"><span class="s-ic">'+r.icon+'</span><div><div>'+r.label+'</div><small>'+r.sub+'</small></div><span class="s-type">'+r.type+'</span></div>').join('');
+}
+sInput.addEventListener('input',renderSearch);
+sInput.addEventListener('keydown',e=>{ if(e.key==='Enter' && results[sel]){ closeAll(); results[sel].go(); } });
+sRes.addEventListener('click',e=>{ const r=e.target.closest('.s-result'); if(!r) return; closeAll(); results[+r.dataset.i].go(); });
+
+/* ---------------- Peixes: filtros rápidos + compatibilidade (H6) ---------------- */
+const fishData={
+  'Acará Disco':{doce:true,salgada:false,pacifico:true,facil:false,compat:'Néon Cardinal e Corydoras'},
+  'Betta Splendens':{doce:true,salgada:false,pacifico:false,facil:true,compat:'Corydoras; evite peixes de nadadeira longa e outros bettas machos'},
+  'Kinguio Ranchu':{doce:true,salgada:false,pacifico:true,facil:true,compat:'outros kinguios (peixes de água mais fria)'}
+};
+fishCards.forEach(c=>{
+  const d=fishData[c.querySelector('h4').textContent.trim()]; if(!d) return;
+  d.disp=!!c.querySelector('.tag.in'); c._d=d;
+  const el=document.createElement('div'); el.className='compat'; el.innerHTML='Combina com: <b>'+d.compat+'</b>';
+  c.querySelector('.disp-row').before(el);
+  c.querySelector('.btn-wa').addEventListener('click',()=>openWhats('perguntar sobre '+c.querySelector('h4').textContent.trim()));
+});
+let fishFilters=new Set();
+function renderFish(){
+  document.querySelectorAll('#peixes .chip').forEach(ch=>ch.classList.toggle('on', ch.dataset.f==='all' ? fishFilters.size===0 : fishFilters.has(ch.dataset.f)));
+  let shown=0;
+  fishCards.forEach(c=>{ const ok=[...fishFilters].every(f=>c._d&&c._d[f]); c.style.display=ok?'':'none'; if(ok) shown++; });
+  document.getElementById('peixe-empty').style.display = shown ? 'none' : 'block';
+}
+function resetFish(){ fishFilters.clear(); renderFish(); }
+document.querySelectorAll('#peixes .chip').forEach(ch=>ch.addEventListener('click',()=>{
+  if(ch.dataset.f==='all') fishFilters.clear(); else fishFilters.has(ch.dataset.f)?fishFilters.delete(ch.dataset.f):fishFilters.add(ch.dataset.f);
+  renderFish();
+}));
+document.getElementById('peixe-empty-clear').addEventListener('click',resetFish);
+document.getElementById('peixe-empty-wa').addEventListener('click',()=>openWhats('perguntar sobre peixes disponíveis'));
+
+/* ---------------- Formulário de orçamento (H5 prevenção · H9 mensagens claras · H1 envio) ---------------- */
+const qNome=document.getElementById('q-nome'), qTel=document.getElementById('q-tel'), qServ=document.getElementById('q-serv'), qSubmit=document.getElementById('q-submit');
+const touched=new Set();
+const rules={
+  nome:()=>qNome.value.trim().length>=2,
+  tel:()=>{ const d=qTel.value.replace(/\D/g,''); return d.length===10||d.length===11; },
+  serv:()=>qServ.value!==''
+};
+function validate(){
+  let all=true;
+  [['nome','f-nome'],['tel','f-tel'],['serv','f-serv']].forEach(([k,id])=>{
+    const ok=rules[k](); all=all&&ok; const f=document.getElementById(id);
+    f.classList.toggle('ok',ok); f.classList.toggle('err',!ok&&touched.has(k));
+  });
+  qSubmit.disabled=!all;
+  document.getElementById('q-note').textContent= all ? 'Tudo certo! Pode enviar.' : 'Preencha os campos marcados com * para enviar.';
+}
+qTel.addEventListener('input',()=>{
+  let d=qTel.value.replace(/\D/g,'').slice(0,11), out=d;
+  if(d.length>2) out='('+d.slice(0,2)+') '+d.slice(2);
+  if(d.length>7) out='('+d.slice(0,2)+') '+d.slice(2,d.length===11?7:6)+'-'+d.slice(d.length===11?7:6);
+  qTel.value=out; validate();
+});
+[['nome',qNome],['tel',qTel],['serv',qServ]].forEach(([k,el])=>{
+  el.addEventListener('blur',()=>{touched.add(k);validate();});
+  el.addEventListener('input',validate); el.addEventListener('change',()=>{touched.add(k);validate();});
+});
+function openQuote(service){
+  document.getElementById('q-form').style.display=''; document.getElementById('q-success').style.display='none';
+  qNome.value=''; qTel.value=''; document.getElementById('q-msg').value=''; touched.clear();
+  qServ.value = [...qServ.options].some(o=>o.text===service) ? service : '';
+  qSubmit.innerHTML='Enviar pedido de orçamento';
+  validate(); openPanel(document.getElementById('quote-modal')); setTimeout(()=>qNome.focus(),30);
+}
+qSubmit.addEventListener('click',()=>{
+  qSubmit.disabled=true; qSubmit.innerHTML='<span class="spinner"></span>Enviando…';
+  setTimeout(()=>{
+    document.getElementById('q-form').style.display='none';
+    document.getElementById('q-success').style.display='';
+    document.getElementById('q-success-txt').textContent='Obrigado, '+qNome.value.trim().split(' ')[0]+'! Recebemos seu pedido de '+qServ.value.toLowerCase()+'. Vamos responder no WhatsApp '+qTel.value+'.';
+  },1200);
+});
+document.getElementById('q-close').addEventListener('click',closeAll);
+document.querySelectorAll('.btn-quote').forEach(b=>b.addEventListener('click',()=>openQuote(b.closest('.svc-page-card').querySelector('h4').textContent.trim())));
+document.querySelector('#servicos .future-banner .btn-ghost').addEventListener('click',()=>openWhats('locação de aquários'));
+
+/* ---------------- Guia "Meu Primeiro Aquário" (H1 progresso · H3 voltar/sair) ---------------- */
+const timeline=document.querySelector('#mfa .timeline'), steps=[...timeline.querySelectorAll('.tl-item')], gBar=document.getElementById('guide-bar');
+let gi=-1;
+function setStep(i){
+  gi=i; timeline.classList.add('guiding'); gBar.classList.add('show');
+  steps.forEach((s,k)=>{ s.classList.toggle('current',k===i); s.classList.toggle('done',k<i); });
+  const title=steps[i].querySelector('h4').firstChild.textContent.trim();
+  document.getElementById('gb-label').textContent='Etapa '+(i+1)+' de '+steps.length+' · '+title;
+  document.getElementById('gb-fill').style.width=((i+1)/steps.length*100)+'%';
+  document.getElementById('gb-prev').disabled = i===0;
+  document.getElementById('gb-next').textContent = i===steps.length-1 ? 'Concluir ✓' : 'Próxima →';
+  steps[i].scrollIntoView({behavior:'smooth',block:'center'});
+}
+function endGuide(done){
+  timeline.classList.remove('guiding'); gBar.classList.remove('show');
+  steps.forEach(s=>s.classList.remove('current','done')); gi=-1;
+  if(done) toast('🎉 Guia concluído! Quer ajuda pra montar o seu?','Falar no WhatsApp',()=>openWhats('montar meu primeiro aquário'),6000);
+}
+document.getElementById('gb-prev').addEventListener('click',()=>gi>0&&setStep(gi-1));
+document.getElementById('gb-next').addEventListener('click',()=> gi<steps.length-1 ? setStep(gi+1) : endGuide(true));
+document.getElementById('gb-exit').addEventListener('click',()=>endGuide(false));
+document.querySelector('#mfa .mfa-hero .btn-primary').addEventListener('click',()=>setStep(0));
+document.querySelector('#mfa .mfa-cta .btn-primary').addEventListener('click',()=>openWhats('falar com um especialista'));
+
+/* ---------------- Atalhos da home (regra dos 3 cliques) ---------------- */
+document.querySelector('#home .hero .btn-primary').addEventListener('click',()=>goToScreen('loja'));
+document.querySelector('#home .hero .btn-ghost').addEventListener('click',()=>goToScreen('mfa'));
+document.querySelector('#home .mfa-band .btn-primary').addEventListener('click',()=>{goToScreen('mfa'); setTimeout(()=>setStep(0),120);});
+document.querySelector('#home .offer-strip .btn-primary').addEventListener('click',()=>{goToScreen('loja');applyFilter({cat:'Aquários',avail:null});});
+const homeCat={'Filtros & Bombas':'Filtros'};
+document.querySelectorAll('#home .cat-card').forEach(c=>c.addEventListener('click',()=>{ const t=c.querySelector('span').textContent.trim(); goToScreen('loja'); applyFilter({cat:homeCat[t]||t,avail:null}); }));
+document.querySelectorAll('#home .fish-card').forEach(c=>c.addEventListener('click',()=>goToScreen('peixes')));
+document.querySelectorAll('#home .section-head a').forEach(a=>a.addEventListener('click',e=>{
+  e.preventDefault(); const t=a.textContent; goToScreen(t.includes('loja')?'loja':t.includes('peixes')?'peixes':'servicos');
+}));
+document.getElementById('wa-float').addEventListener('click',()=>openWhats());
+
+/* ---------------- Modo apresentação: marcar heurísticas ---------------- */
+const H=[
+  ['.site-nav .cart-btn','H1 · H6 Carrinho sempre visível',true],
+  ['.site-nav .search-btn','H4 · H7 Lupa + atalho “/”',true],
+  ['.nav-drop-trigger','H7 Atalho p/ categorias',true],
+  ['#home .hero-tank','H8 Trocar por foto real'],
+  ['#loja .prod-card .tag','H1 Status do estoque'],
+  ['#loja .btn-buy','H4 Ação principal consistente'],
+  ['#active-filter','H3 Desfazer filtro'],
+  ['#loja-empty','H9 Vazio com solução'],
+  ['#loja-cat-list .tip','H10 Ajuda'],
+  ['#peixes .chip-row','H7 Filtros rápidos'],
+  ['#peixes .ficha','H2 Linguagem do aquarista'],
+  ['#peixes .compat','H6 Compatíveis à vista'],
+  ['#mfa .timeline .tip','H10 Ajuda contextual'],
+  ['#guide-bar','H1 · H3 Progresso, voltar e sair'],
+  ['#mfa .faq','H10 Dúvidas frequentes'],
+  ['#servicos .btn-quote','H5 · H9 Formulário validado']
+];
+H.forEach(([s,l,all])=>{ (all?[...document.querySelectorAll(s)]:[document.querySelector(s)]).forEach(el=>{ if(el) el.dataset.h=l; }); });
+document.getElementById('h-toggle').addEventListener('click',e=>{
+  const on=document.body.classList.toggle('show-h'); e.currentTarget.classList.toggle('on',on);
+  e.currentTarget.textContent = on ? '◉ Ocultar heurísticas' : '◎ Mostrar heurísticas';
+  if(on) toast('Elementos marcados com H1–H10 mostram onde cada heurística foi aplicada');
+});
+
+renderCart(); renderFish();
+</script>
+</body>
+</html>
