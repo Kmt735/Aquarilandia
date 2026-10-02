@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+@theme {
+    --breakpoint-desk: 900px;
+
+    --color-bg: #06181c;
+    --color-panel: #0c262b;
+    --color-panel-2: #103138;
+    --color-night: #031014;
+    --color-abyss: #031b22;
+    --color-line: #123b41;
+    --color-cyan: #00c2d6;
+    --color-cyan-deep: #008fa8;
+    --color-purple: #a64dff;
+    --color-gold: #ffc93c;
+    --color-gold-light: #ffe08a;
+    --color-gold-ink: #231400;
+    --color-orange: #ff7a45;
+    --color-mint: #3ddc97;
+    --color-whats: #25d366;
+    --color-ink: #eaf7f6;
+    --color-ink-soft: #82a6a8;
+    --color-ink-muted: #5e8a8c;
+    --color-foam: #e9fbf9;
+
+    --font-sans: "Inter", sans-serif;
+    --font-display: "Poppins", sans-serif;
+    --font-mono: "Space Mono", monospace;
+    --font-script: "Caveat", cursive;
+
+    --radius-card: 16px;
+
+    --animate-fade: fade 0.25s ease;
+    --animate-toast-in: toast-in 0.2s ease;
+    --animate-bump: bump 0.35s ease;
+    --animate-spin-fast: spin 0.7s linear infinite;
+
+    @keyframes fade {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes toast-in {
+        from { opacity: 0; transform: translateY(8px); }
+    }
+    @keyframes bump {
+        50% { transform: scale(1.4); }
+    }
+}
+
+@layer base {
+    body {
+        @apply bg-bg font-sans text-ink antialiased;
+    }
+    h1, h2, h3 {
+        @apply font-display font-extrabold tracking-[-0.01em];
+    }
+    button {
+        cursor: pointer;
+    }
+    button:disabled {
+        cursor: not-allowed;
+    }
+}
+
+/* Gradientes da identidade visual */
+@utility bg-gold-grad {
+    background-image: linear-gradient(90deg, var(--color-gold), var(--color-gold-light));
+}
+@utility bg-cyan-grad {
+    background-image: linear-gradient(90deg, var(--color-cyan), var(--color-cyan-deep));
+}
+@utility bg-ocean {
+    background-image: linear-gradient(115deg, var(--color-cyan-deep), #0a4c57);
+}
+@utility bg-ring {
+    background-image: conic-gradient(from 200deg, var(--color-purple), var(--color-cyan), var(--color-gold), var(--color-purple));
+}
+@utility bg-frame {
+    background-image: conic-gradient(from 120deg, var(--color-purple), var(--color-cyan), var(--color-gold), var(--color-purple));
+}
+@utility bg-hero {
+    background:
+        radial-gradient(circle at 20% 15%, rgb(0 194 214 / 0.3), transparent 45%),
+        radial-gradient(circle at 85% 20%, rgb(166 77 255 / 0.2), transparent 45%),
+        var(--color-bg);
+}
+@utility bg-page-head {
+    background: radial-gradient(circle at 80% 0%, rgb(0 194 214 / 0.25), transparent 50%), var(--color-night);
+}
+@utility bg-mfa-hero {
+    background: radial-gradient(circle at 50% 0%, rgb(0 194 214 / 0.28), transparent 55%), var(--color-night);
+}
+@utility bg-photo-coral {
+    background:
+        radial-gradient(circle at 30% 20%, rgb(0 194 214 / 0.45), transparent 60%),
+        radial-gradient(circle at 80% 80%, rgb(255 122 69 / 0.35), transparent 55%),
+        var(--color-abyss);
+}
+@utility bg-photo-produto {
+    background:
+        radial-gradient(circle at 30% 30%, rgb(0 194 214 / 0.45), transparent 60%),
+        radial-gradient(circle at 80% 80%, rgb(255 122 69 / 0.3), transparent 55%),
+        var(--color-abyss);
+}
+@utility bg-photo-ouro {
+    background:
+        radial-gradient(circle at 30% 30%, rgb(255 201 60 / 0.3), transparent 60%),
+        radial-gradient(circle at 80% 80%, rgb(0 194 214 / 0.4), transparent 55%),
+        var(--color-abyss);
+}
+
+/* Modo apresentação: marca onde cada heurística de Nielsen foi aplicada */
+.show-h [data-h] {
+    outline: 2px dashed var(--color-gold);
+    outline-offset: 4px;
+}
+.show-h [data-h]:not(.sticky):not(.absolute):not(.fixed) {
+    position: relative;
+}
+.show-h [data-h]::before {
+    content: attr(data-h);
+    position: absolute;
+    top: -14px;
+    left: -4px;
+    background: var(--color-gold);
+    color: var(--color-gold-ink);
+    font: 700 10px/1.2 var(--font-mono);
+    padding: 3px 7px;
+    border-radius: 4px;
+    z-index: 60;
+    white-space: nowrap;
+    pointer-events: none;
+}

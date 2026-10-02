@@ -1,16 +1,56 @@
-# React + Vite
+# Aquarilândia
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Site da Aquarilândia — peixes, plantas e projetos de aquários.
 
-Currently, two official plugins are available:
+```
+Aquarilandia/
+├── frontend/   React + JavaScript + Tailwind CSS (Vite) — Atomic Design
+├── backend/    Node.js + TypeScript (Express)
+└── docs/       protótipo HTML original (prototipo-v4.html)
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Frontend
 
-## React Compiler
+```bash
+cd frontend
+npm install
+npm run dev      # http://localhost:5173
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Estrutura (Atomic Design) em `frontend/src/`:
 
-## Expanding the ESLint configuration
+| Pasta | Conteúdo |
+| --- | --- |
+| `components/atoms/` | Peças indivisíveis: Button, Chip, Tag, Tip, Input, Logo… |
+| `components/molecules/` | Combinações de átomos: ProductCard, PeixeCard, FormField, NavDropdown… |
+| `components/organisms/` | Seções completas: SiteNav, Hero, CartDrawer, SearchBox, QuoteModal… |
+| `components/templates/` | Esqueletos de página: MainLayout, PageTemplate |
+| `pages/` | Telas: Home, Loja, Peixes, Primeiro Aquário, Serviços |
+| `context/` · `hooks/` | Estado global (carrinho, toasts, painéis) e hooks de acesso |
+| `data/` | Dados mockados (produtos, peixes, serviços, guia, FAQ) |
+| `utils/` | Formatação, máscara de telefone, rotas, busca |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+As cores, fontes e gradientes da marca ficam no `@theme` de `src/index.css` (Tailwind v4).
+
+## Backend
+
+```bash
+cd backend
+npm install
+cp .env.example .env
+npm run dev      # http://localhost:3333/api
+```
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| GET | `/api/health` | Status da API |
+| GET | `/api/categorias` | Categorias da loja |
+| GET | `/api/produtos?categoria=&disponibilidade=in\|out` | Produtos (com filtros) |
+| GET | `/api/produtos/:id` | Um produto |
+| GET | `/api/peixes?filtros=doce,facil,disp` | Peixes (com filtros) |
+| GET | `/api/peixes/:id` | Um peixe |
+| GET | `/api/servicos` | Serviços |
+| POST | `/api/orcamentos` | Cria pedido de orçamento (`nome`, `telefone`, `servico`, `mensagem?`) |
+| GET | `/api/orcamentos` | Lista orçamentos recebidos |
+
+Os dados ficam em memória por enquanto. Com os dois rodando, o Vite já encaminha `/api` para o backend.
