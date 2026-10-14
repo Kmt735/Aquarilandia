@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: aquarilandia-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-aquarilandia}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-aquarilandia}
+      POSTGRES_DB: ${DB_NAME:-aquarilandia}
+    ports:
+      - '${DB_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Scripts executados só na primeira subida (volume vazio), em ordem alfabética
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

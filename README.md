@@ -38,8 +38,22 @@ As cores, fontes e gradientes da marca ficam no `@theme` de `src/index.css` (Tai
 cd backend
 npm install
 cp .env.example .env
+npm run db:up    # sobe o PostgreSQL no Docker (porta 5432)
 npm run dev      # http://localhost:3333/api
 ```
+
+### Banco de dados (PostgreSQL + Docker)
+
+O `backend/docker-compose.yml` sobe um PostgreSQL 17. Na primeira subida (volume vazio) o Postgres executa os scripts de `backend/db/init/` — o `01_schema.sql` cria as tabelas do catálogo e as categorias iniciais.
+
+| Script | O que faz |
+| --- | --- |
+| `npm run db:up` | Sobe o banco e espera ficar saudável |
+| `npm run db:down` | Para o banco (os dados ficam no volume) |
+| `npm run db:reset` | Apaga o volume e recria o banco do zero (roda o schema de novo) |
+| `npm run db:psql` | Abre o `psql` dentro do container |
+
+A conexão vem de `DATABASE_URL` no `.env`; o pool fica em `src/config/db.ts`. O `/api/health` também confere o banco.
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
@@ -53,4 +67,4 @@ npm run dev      # http://localhost:3333/api
 | POST | `/api/orcamentos` | Cria pedido de orçamento (`nome`, `telefone`, `servico`, `mensagem?`) |
 | GET | `/api/orcamentos` | Lista orçamentos recebidos |
 
-Os dados ficam em memória por enquanto. Com os dois rodando, o Vite já encaminha `/api` para o backend.
+As rotas do catálogo ainda leem os dados em memória (`src/data/`); o banco já está pronto para recebê-las. Com os dois rodando, o Vite já encaminha `/api` para o backend.
