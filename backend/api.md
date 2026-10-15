@@ -5,8 +5,10 @@ Se precisar fugir de alguma regra, combine antes e atualize este arquivo no mesm
 
 | Domínio | Dono | Pasta | Prefixo de rota | Tabelas |
 |---|---|---|---|---|
-| Clientes | Celio | `src/modulos/clientes/` | `/api/clientes` | `clientes`, `enderecos_cliente` |
-| Vendas | Celio | `src/modulos/vendas/` | `/api/vendas` | `vendas`, `itens_venda` |
+| Autenticação | Celio | `src/modulos/auth/` | `/api/auth` | `sessoes` |
+| Clientes | Celio | `src/modulos/clientes/` | `/api/clientes` | `clientes` (inclui admins), `enderecos_cliente` |
+| Vendas | Celio | `src/modulos/vendas/` | `/api/vendas` | `vendas`, `itens_venda`, `historico_status_venda` |
+| Pagamentos | Celio | `src/modulos/pagamentos/` | `/api/pagamentos`, `/api/vendas/:id/pagamentos` | `pagamentos`, `eventos_webhook` |
 | Orçamentos *(já existe)* | Celio | `src/modulos/orcamentos/` | `/api/orcamentos` | `orcamentos` |
 | Catálogo | Dev 2 | `src/modulos/catalogo/` | `/api/categorias`, `/api/produtos`, `/api/peixes`, `/api/servicos` | `categorias`, `produtos` e as tabelas de detalhe (`peixes`, `aquarios`, `filtros`...) |
 | Estoque | Dev 2 | `src/modulos/estoque/` | `/api/estoque` | `movimentacoes_estoque` e a coluna `produtos.estoque` |
@@ -36,7 +38,9 @@ backend/src/
     │   ├── cliente.service.ts
     │   ├── cliente.repository.ts
     │   └── cliente.types.ts
+    ├── auth/
     ├── vendas/
+    ├── pagamentos/
     ├── orcamentos/
     ├── catalogo/
     └── estoque/
@@ -136,19 +140,33 @@ Não usamos `PUT`. Atualização é sempre `PATCH`.
 
 Antes de criar uma rota fora desta lista, adicione-a aqui para o outro saber.
 
-**Celio — clientes / vendas / orçamentos**
+**Celio — auth / clientes / vendas / pagamentos / orçamentos**
 ```
-GET    /api/clientes                 ?busca=&pagina=&limite=
-GET    /api/clientes/:id
-POST   /api/clientes
-PATCH  /api/clientes/:id
-DELETE /api/clientes/:id
-GET    /api/clientes/:id/vendas
+POST   /api/auth/cadastro
+POST   /api/auth/login               (cria sessão, cookie "sid")
+POST   /api/auth/logout
+GET    /api/auth/sessao              (usuário logado)
 
-GET    /api/vendas                   ?clienteId=&status=&de=&ate=&pagina=&limite=
+GET    /api/clientes                 ?busca=&papel=&pagina=&limite=   (admin)
+GET    /api/clientes/:id
+PATCH  /api/clientes/:id
+DELETE /api/clientes/:id             (anonimiza — LGPD)
+GET    /api/clientes/:id/vendas
+GET    /api/clientes/:id/enderecos
+POST   /api/clientes/:id/enderecos
+PATCH  /api/clientes/:id/enderecos/:enderecoId
+DELETE /api/clientes/:id/enderecos/:enderecoId
+
+GET    /api/vendas                   ?clienteId=&status=&tipoEntrega=&de=&ate=&pagina=&limite=
 GET    /api/vendas/:id               (inclui itens)
+GET    /api/vendas/:id/historico
 POST   /api/vendas                   (cria venda + itens + baixa estoque, numa transação)
+POST   /api/vendas/:id/status        (admin avança o status: { status, observacao, codigoRastreio? })
+POST   /api/vendas/:id/solicitar-cancelamento   (cliente, depois de paga)
 POST   /api/vendas/:id/cancelar      (estorna estoque)
+
+POST   /api/vendas/:id/pagamentos    (cria a preferência do Checkout Pro)
+POST   /api/pagamentos/webhook       (notificações do Mercado Pago)
 
 GET    /api/orcamentos
 POST   /api/orcamentos
@@ -257,6 +275,7 @@ Formato da resposta (já feito pelo `errorHandler`):
 | Dinheiro | `INTEGER` em centavos + `CHECK (>= 0)` | `preco`, `total`, `preco_unitario` |
 | Datas | `criado_em` / `atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()` | |
 | Enum | `TEXT` + `CHECK (col IN (...))`, valores minúsculos `snake_case` | `status IN ('aberta', 'paga', 'cancelada')` |
+| Enum usado em mais de uma coluna | `CREATE DOMAIN <nome> AS TEXT CHECK (VALUE IN (...))` — a lista fica num lugar só | `status_venda` (vendas e histórico) |
 | Soft delete | `ativo BOOLEAN NOT NULL DEFAULT TRUE` | |
 
 ### Arquivos SQL — um por domínio, para não editarmos o mesmo arquivo
@@ -266,8 +285,8 @@ O Postgres executa `db/init/*.sql` em ordem alfabética, então a numeração de
 | Arquivo | Dono | Conteúdo |
 |---|---|---|
 | `01_schema.sql` *(já existe — renomear para `01_catalogo.sql`)* | Dev 2 | categorias, produtos, tabelas de detalhe |
-| `10_clientes.sql` | Celio | clientes, enderecos_cliente |
-| `20_vendas.sql` | Celio | vendas, itens_venda (FK para clientes e produtos) |
+| `10_clientes.sql` | Celio | clientes, enderecos_cliente, sessoes |
+| `20_vendas.sql` | Celio | domain status_venda, vendas, itens_venda, historico_status_venda, pagamentos, eventos_webhook |
 | `30_estoque.sql` | Dev 2 | movimentacoes_estoque (pode ter FK para vendas) |
 | `90_seed.sql` | ambos (só `INSERT`) | dados de exemplo |
 
@@ -349,14 +368,16 @@ estoqueService.estornarVenda(vendaId: number, client: PoolClient): Promise<void>
 - Nova dependência no `package.json`: combinar antes (evita dois instalarem libs diferentes para a mesma coisa).
 - Nova variável de ambiente: adicionar em `config/env.ts` **e** em `.env.example` no mesmo PR.
 
-O `routes/index.ts` já deve ficar com os cinco módulos montados, uma linha cada, para ninguém precisar editar depois:
+O `routes/index.ts` já deve ficar com todos os módulos montados, uma linha cada, para ninguém precisar editar depois:
 
 ```ts
-routes.use('/', catalogoRoutes)          // Dev 2: /categorias, /produtos, /peixes, /servicos
-routes.use('/estoque', estoqueRoutes)    // Dev 2
-routes.use('/clientes', clienteRoutes)   // Celio
-routes.use('/vendas', vendaRoutes)       // Celio
-routes.use('/orcamentos', orcamentoRoutes) // Celio
+routes.use('/', catalogoRoutes)              // Dev 2: /categorias, /produtos, /peixes, /servicos
+routes.use('/estoque', estoqueRoutes)        // Dev 2
+routes.use('/auth', authRoutes)              // Celio
+routes.use('/clientes', clienteRoutes)       // Celio
+routes.use('/vendas', vendaRoutes)           // Celio (inclui /vendas/:id/pagamentos)
+routes.use('/pagamentos', pagamentoRoutes)   // Celio (webhook)
+routes.use('/orcamentos', orcamentoRoutes)   // Celio
 ```
 
 ---
