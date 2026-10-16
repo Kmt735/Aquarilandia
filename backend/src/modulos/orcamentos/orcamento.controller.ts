@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { orcamentoService } from '../services/orcamento.service.js'
+import { orcamentoService } from './orcamento.service.js'
 
 export const orcamentoController = {
   criar(req: Request, res: Response) {

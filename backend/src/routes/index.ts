@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { db } from '../config/db.js'
 import { catalogoRoutes } from './catalogo.routes.js'
-import { orcamentoRoutes } from './orcamento.routes.js'
+import { orcamentoRoutes } from '../modulos/orcamentos/orcamento.routes.js'
 
 export const routes = Router()
 
