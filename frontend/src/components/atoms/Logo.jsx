@@ -1,12 +1,10 @@
 import { Link } from 'react-router'
+import logoImage from '../../assets/Aquarilandia_Logo.jpeg'
 
 export default function Logo() {
   return (
-    <Link to="/" className="flex items-center gap-3 font-display text-[19px] font-extrabold text-white">
-      <span className="flex size-[38px] shrink-0 items-center justify-center rounded-full bg-ring p-[3px]">
-        <span className="flex size-full items-center justify-center rounded-full bg-abyss text-[15px]">🐟</span>
-      </span>
-      Aquarilândia
+    <Link to="/" aria-label="Aquarilândia - página inicial" className="flex shrink-0 items-center">
+      <img src={logoImage} alt="Aquarilândia" className="size-16 object-contain" />
     </Link>
   )
 }

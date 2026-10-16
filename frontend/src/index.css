@@ -22,11 +22,14 @@
     --color-ink-soft: #82a6a8;
     --color-ink-muted: #5e8a8c;
     --color-foam: #e9fbf9;
+    --color-inic:#2323FF;
+    --color-blue-neon: #15158A;
 
     --font-sans: "Inter", sans-serif;
     --font-display: "Poppins", sans-serif;
     --font-mono: "Space Mono", monospace;
     --font-script: "Caveat", cursive;
+    --font-serif: "Playfair Display", serif;
 
     --radius-card: 16px;
 
@@ -64,7 +67,7 @@
 
 /* Gradientes da identidade visual */
 @utility bg-gold-grad {
-    background-image: linear-gradient(90deg, var(--color-gold), var(--color-gold-light));
+    background-image: linear-gradient(90deg, var(--color-inic), var(--color-gold-light));
 }
 @utility bg-cyan-grad {
     background-image: linear-gradient(90deg, var(--color-cyan), var(--color-cyan-deep));
