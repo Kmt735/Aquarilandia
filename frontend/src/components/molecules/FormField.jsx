@@ -1,16 +1,22 @@
+import { Label } from '@/components/ui/label'
+
 export default function FormField({ id, label, obrigatorio = false, estado, erro, children }) {
   return (
-    <div className="mb-3.5">
-      <label htmlFor={id} className="mb-1.5 block text-[12.5px] font-bold">
+    <div className="mb-4">
+      <Label htmlFor={id} className="mb-1.5 text-[13px] font-semibold">
         {label}{' '}
         {obrigatorio ? (
-          <span className="text-orange">*</span>
+          <span className="text-danger">*</span>
         ) : (
-          <span className="font-normal text-ink-soft">(opcional)</span>
+          <span className="font-normal text-text-muted">(opcional)</span>
         )}
-      </label>
+      </Label>
       {children}
-      {estado === 'erro' && erro && <div className="mt-[5px] text-[11.5px] text-orange">{erro}</div>}
+      {estado === 'erro' && erro && (
+        <div role="alert" className="mt-1.5 text-[12.5px] text-danger">
+          {erro}
+        </div>
+      )}
     </div>
   )
 }

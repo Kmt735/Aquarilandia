@@ -18,4 +18,9 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    // Componentes gerados pelo shadcn/ui exportam variantes (cva) junto com os componentes
+    files: ['src/components/ui/**/*.jsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
 ])

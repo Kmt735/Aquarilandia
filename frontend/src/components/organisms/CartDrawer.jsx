@@ -1,8 +1,9 @@
+import { MessageCircle, ShoppingCart } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import Button from '../atoms/Button'
-import CloseButton from '../atoms/CloseButton'
 import CartItem from '../molecules/CartItem'
 import Hint from '../molecules/Hint'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import useCart from '../../hooks/useCart'
 import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
@@ -15,66 +16,63 @@ export default function CartDrawer() {
   const { linhas, total, incrementar, decrementar, remover } = useCart()
   const navigate = useNavigate()
   const abrirWhatsApp = useWhatsApp()
-  const aberto = painel === 'carrinho'
   const compatibilidade = analisarCompatibilidade(linhas)
 
   return (
-    <aside
-      role="dialog"
-      aria-modal="true"
-      aria-label="Carrinho"
-      inert={!aberto}
-      className={`fixed top-0 right-0 z-[310] flex h-full w-[380px] max-w-full flex-col border-l border-line bg-panel transition-transform duration-250 ${
-        aberto ? 'translate-x-0' : 'translate-x-full'
-      }`}
-    >
-      <div className="flex items-center justify-between border-b border-line p-5">
-        <h3 className="text-lg">🛒 Seu carrinho</h3>
-        <CloseButton onClick={fecharPaineis} />
-      </div>
+    <Sheet open={painel === 'carrinho'} onOpenChange={(aberto) => !aberto && fecharPaineis()}>
+      <SheetContent side="right" className="w-[400px] max-w-full gap-0 border-border bg-surface p-0 sm:max-w-[400px]">
+        <SheetHeader className="border-b border-border px-5 py-5">
+          <SheetTitle className="flex items-center gap-2.5 font-display text-[20px]">
+            <ShoppingCart aria-hidden="true" className="size-5 text-primary-text dark:text-neon" />
+            Seu carrinho
+          </SheetTitle>
+          <SheetDescription className="sr-only">Itens do carrinho e finalização pelo WhatsApp</SheetDescription>
+        </SheetHeader>
 
-      <div className="flex-1 overflow-auto px-5 pt-2 pb-4">
-        {linhas.length === 0 ? (
-          <div className="px-2.5 py-12 text-center text-sm text-ink-soft">
-            Seu carrinho está vazio.
-            <br />
-            <br />
-            <Button
-              variant="ghost"
-              onClick={() => {
-                fecharPaineis()
-                navigate(ROTAS.loja)
-              }}
-            >
-              Ver produtos
-            </Button>
-          </div>
-        ) : (
-          <>
-            {linhas.map((l) => (
-              <CartItem
-                key={l.id}
-                produto={l.produto}
-                qtd={l.qtd}
-                onIncrementar={() => incrementar(l.id)}
-                onDecrementar={() => decrementar(l.id)}
-                onRemover={() => remover(l.id)}
-              />
-            ))}
-            {compatibilidade && <Hint tipo={compatibilidade.tipo}>{compatibilidade.texto}</Hint>}
-          </>
-        )}
-      </div>
-
-      <div className="border-t border-line px-5 py-[18px]">
-        <div className="mb-3 flex justify-between font-bold">
-          <span>Total</span>
-          <span className="font-mono text-gold">{formatarPreco(total)}</span>
+        <div className="flex-1 overflow-auto px-5 pt-1 pb-4">
+          {linhas.length === 0 ? (
+            <div className="py-14 text-center text-[15px] text-text-muted">
+              Seu carrinho está vazio.
+              <br />
+              <br />
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  fecharPaineis()
+                  navigate(ROTAS.loja)
+                }}
+              >
+                Ver produtos
+              </Button>
+            </div>
+          ) : (
+            <>
+              {linhas.map((l) => (
+                <CartItem
+                  key={l.id}
+                  produto={l.produto}
+                  qtd={l.qtd}
+                  onIncrementar={() => incrementar(l.id)}
+                  onDecrementar={() => decrementar(l.id)}
+                  onRemover={() => remover(l.id)}
+                />
+              ))}
+              {compatibilidade && <Hint tipo={compatibilidade.tipo}>{compatibilidade.texto}</Hint>}
+            </>
+          )}
         </div>
-        <Button variant="whatsapp" disabled={!linhas.length} onClick={() => abrirWhatsApp('enviando seu pedido')}>
-          💬 Finalizar pedido pelo WhatsApp
-        </Button>
-      </div>
-    </aside>
+
+        <div className="border-t border-border px-5 py-5">
+          <div className="mb-4 flex justify-between text-[15px] font-semibold">
+            <span>Total</span>
+            <span className="tabular-nums dark:text-neon">{formatarPreco(total)}</span>
+          </div>
+          <Button variant="whatsapp" disabled={!linhas.length} onClick={() => abrirWhatsApp('enviando seu pedido')}>
+            <MessageCircle aria-hidden="true" />
+            Finalizar pedido pelo WhatsApp
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }

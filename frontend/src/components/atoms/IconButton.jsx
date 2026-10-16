@@ -1,18 +1,16 @@
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import Badge from './Badge'
 
 export default function IconButton({ children, badge, badgeKey = 0, className = '', ...props }) {
   return (
-    <button
-      type="button"
-      className={`relative flex size-10 items-center justify-center rounded-full border border-line bg-panel text-base text-ink hover:border-cyan ${className}`}
-      {...props}
-    >
+    <Button variant="outline" size="icon" className={cn('relative', className)} {...props}>
       {children}
       {badge !== undefined && (
         <Badge key={badgeKey} animar={badgeKey > 0}>
           {badge}
         </Badge>
       )}
-    </button>
+    </Button>
   )
 }

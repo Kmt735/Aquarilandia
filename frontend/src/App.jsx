@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import MainLayout from './components/templates/MainLayout'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import CartProvider from './context/CartProvider'
 import ToastProvider from './context/ToastProvider'
 import UIProvider from './context/UIProvider'
@@ -13,6 +14,7 @@ import { ROTAS } from './utils/rotas'
 export default function App() {
   return (
     <BrowserRouter>
+      <TooltipProvider delayDuration={150}>
       <ToastProvider>
         <UIProvider>
           <CartProvider>
@@ -29,6 +31,7 @@ export default function App() {
           </CartProvider>
         </UIProvider>
       </ToastProvider>
+      </TooltipProvider>
     </BrowserRouter>
   )
 }

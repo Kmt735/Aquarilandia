@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useLocation } from 'react-router'
+import { Fish, MessageCircle } from 'lucide-react'
 import Button from '../components/atoms/Button'
 import EmptyState from '../components/molecules/EmptyState'
 import FishFilterChips from '../components/organisms/FishFilterChips'
@@ -37,14 +38,15 @@ function CatalogoPeixes() {
       <FishGrid peixes={visiveis} />
       {visiveis.length === 0 && (
         <EmptyState
-          icone="🐟"
+          icone={<Fish />}
           acoes={
             <>
               <Button variant="ghost" onClick={limpar}>
                 Limpar filtros
               </Button>
               <Button onClick={() => abrirWhatsApp('perguntar sobre peixes disponíveis')}>
-                💬 Perguntar o que chegou
+                <MessageCircle aria-hidden="true" />
+                Perguntar o que chegou
               </Button>
             </>
           }

@@ -1,12 +1,15 @@
 import { Link } from 'react-router'
+import marca from '../../assets/logo-marca.png'
+import marca2x from '../../assets/logo-marca@2x.png'
 
-export default function Logo() {
+// Marca (golfinhos) num círculo branco fixo — os golfinhos são pretos e sumiriam no tema escuro
+export default function Logo({ className = '' }) {
   return (
-    <Link to="/" className="flex items-center gap-3 font-display text-[19px] font-extrabold text-white">
-      <span className="flex size-[38px] shrink-0 items-center justify-center rounded-full bg-ring p-[3px]">
-        <span className="flex size-full items-center justify-center rounded-full bg-abyss text-[15px]">🐟</span>
+    <Link to="/" className={`flex shrink-0 items-center gap-2.5 rounded-full ${className}`}>
+      <span className="flex size-10 items-center justify-center rounded-full border border-border bg-logo-tile">
+        <img src={marca} srcSet={`${marca} 1x, ${marca2x} 2x`} alt="" width="34" height="34" className="size-[34px]" />
       </span>
-      Aquarilândia
+      <span className="font-display text-[17px] font-semibold tracking-[-0.01em] text-foreground">Aquarilândia</span>
     </Link>
   )
 }

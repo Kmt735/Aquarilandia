@@ -1,4 +1,5 @@
 import { useSearchParams } from 'react-router'
+import { MessageCircle, SearchX } from 'lucide-react'
 import Button from '../components/atoms/Button'
 import ActiveFilter from '../components/molecules/ActiveFilter'
 import EmptyState from '../components/molecules/EmptyState'
@@ -36,7 +37,7 @@ export default function LojaPage() {
 
   return (
     <PageTemplate eyebrow="Loja" titulo="Tudo pro seu aquário">
-      <div className="mx-auto my-10 flex max-w-[1180px] flex-col items-start gap-9 px-4 desk:flex-row desk:px-10">
+      <div className="mx-auto my-12 flex max-w-[1200px] flex-col items-start gap-10 px-4 sm:px-6 desk:my-16 desk:flex-row desk:px-10">
         <ShopFilters
           categoria={categoria}
           disponibilidade={disponibilidade}
@@ -49,15 +50,15 @@ export default function LojaPage() {
           <ProductGrid produtos={visiveis} />
           {visiveis.length === 0 && (
             <EmptyState
-              icone="🔎"
-              data-h="H9 Vazio com solução"
+              icone={<SearchX />}
               acoes={
                 <>
                   <Button variant="ghost" onClick={limpar}>
                     Ver todos os produtos
                   </Button>
                   <Button onClick={() => abrirWhatsApp(`perguntar sobre ${categoria || 'o produto'}`)}>
-                    💬 Perguntar no WhatsApp
+                    <MessageCircle aria-hidden="true" />
+                    Perguntar no WhatsApp
                   </Button>
                 </>
               }
