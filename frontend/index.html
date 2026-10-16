@@ -2,13 +2,23 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/src/assets/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/src/assets/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f8fc" />
     <title>Aquarilândia</title>
+    <script>
+      // Aplica o tema antes da pintura: escolha salva > preferência do sistema > claro
+      try {
+        var salvo = localStorage.getItem('aquarilandia-tema')
+        var escuro = salvo ? salvo === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+        if (escuro) document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=Caveat:wght@600;700&family=Space+Mono:wght@400;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
   </head>

@@ -1,10 +1,5 @@
+import { Progress } from '@/components/ui/progress'
+
 export default function ProgressBar({ valor }) {
-  return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-abyss">
-      <div
-        className="h-full bg-linear-to-r from-cyan to-mint transition-[width] duration-250"
-        style={{ width: `${valor * 100}%` }}
-      />
-    </div>
-  )
+  return <Progress value={valor * 100} className="h-1.5 bg-surface-muted" aria-label="Progresso do guia" />
 }

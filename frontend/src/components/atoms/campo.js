@@ -1,5 +1,5 @@
-// Estilo compartilhado por Input, Select e Textarea
+// Estilo compartilhado por Input, Select e Textarea (sobre os campos do shadcn/ui)
 export function classeCampo(estado) {
-  const borda = estado === 'erro' ? 'border-orange' : estado === 'ok' ? 'border-mint' : 'border-line'
-  return `w-full resize-y rounded-[10px] border ${borda} bg-abyss p-3 font-sans text-sm text-ink outline-none focus:border-cyan`
+  const borda = estado === 'erro' ? 'border-danger' : estado === 'ok' ? 'border-primary/60' : 'border-border-strong'
+  return `rounded-lg bg-surface text-[15px] text-foreground placeholder:text-text-muted ${borda}`
 }

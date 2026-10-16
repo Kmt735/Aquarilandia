@@ -1,37 +1,125 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-@theme {
-    --breakpoint-desk: 900px;
+@custom-variant dark (&:where(.dark, .dark *));
 
-    --color-bg: #06181c;
-    --color-panel: #0c262b;
-    --color-panel-2: #103138;
-    --color-night: #031014;
-    --color-abyss: #031b22;
-    --color-line: #123b41;
-    --color-cyan: #00c2d6;
-    --color-cyan-deep: #008fa8;
-    --color-purple: #a64dff;
-    --color-gold: #ffc93c;
-    --color-gold-light: #ffe08a;
-    --color-gold-ink: #231400;
-    --color-orange: #ff7a45;
-    --color-mint: #3ddc97;
-    --color-whats: #25d366;
-    --color-ink: #eaf7f6;
-    --color-ink-soft: #82a6a8;
-    --color-ink-muted: #5e8a8c;
-    --color-foam: #e9fbf9;
+/* ───────── Tokens do tema ─────────
+   Claro (padrão): branco + azul + neon.  Escuro (.dark no <html>): quase-preto + azul + neon.
+   Neon é só detalhe: sublinhados, pontos de status, badges, brilho curto no hover. */
+:root {
+    --background: #f6f8fc;
+    --surface: #ffffff;
+    --surface-elevated: #ffffff;
+    --surface-muted: #eef2f8;
+    --text: #0b1220;
+    --text-muted: #4b5568;
+    --border: #e1e7f0;
+    --border-strong: #c9d3e1;
+    --primary: #0b4fd9;
+    --primary-hover: #0a3d91;
+    --primary-text: #0b4fd9; /* azul para textos e links */
+    --primary-soft: #e7eefd;
+    --neon: #00e5ff;
+    --neon-glow: rgb(0 229 255 / 0.3);
+    --on-neon: #0b1220; /* texto sobre neon (12:1), igual nos dois temas */
+    --logo-tile: #ffffff; /* fundo da marca: os golfinhos são pretos */
+    --danger: #c4321f;
+    --shadow-color: 11 18 32;
+    --overlay: rgb(11 18 32 / 0.45); /* fundo atrás de modais e gavetas */
 
-    --font-sans: "Inter", sans-serif;
-    --font-display: "Poppins", sans-serif;
-    --font-mono: "Space Mono", monospace;
-    --font-script: "Caveat", cursive;
+    /* Nomes esperados pelos componentes shadcn/ui, apontando para os tokens acima */
+    --foreground: var(--text);
+    --card: var(--surface);
+    --card-foreground: var(--text);
+    --popover: var(--surface-elevated);
+    --popover-foreground: var(--text);
+    --primary-foreground: #ffffff;
+    --secondary: var(--surface-muted);
+    --secondary-foreground: var(--text);
+    --muted: var(--surface-muted);
+    --muted-foreground: var(--text-muted);
+    --accent: var(--surface-muted);
+    --accent-foreground: var(--primary-text);
+    --destructive: var(--danger);
+    --input: var(--border-strong);
+    --ring: var(--primary);
+    --radius: 0.75rem;
 
+    color-scheme: light;
+}
+
+.dark {
+    --background: #070b14;
+    --surface: #0d1422;
+    --surface-elevated: #131c2e;
+    --surface-muted: #111a2b;
+    --text: #e6ecf5;
+    --text-muted: #9aa6ba;
+    --border: #1c2740;
+    --border-strong: #2a3853;
+    --primary: #2f66e0;
+    --primary-hover: #255ad0;
+    --primary-text: #6ea0ff;
+    --primary-soft: #13254a;
+    --neon-glow: rgb(0 229 255 / 0.45);
+    --danger: #ff7a6b;
+    --shadow-color: 0 0 0;
+    --overlay: rgb(0 0 0 / 0.65);
+
+    color-scheme: dark;
+}
+
+@theme inline {
+    --breakpoint-desk: 56.25rem; /* 900px — em rem para ordenar corretamente com sm/md */
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-surface: var(--surface);
+    --color-surface-elevated: var(--surface-elevated);
+    --color-surface-muted: var(--surface-muted);
+    --color-text-muted: var(--text-muted);
+    --color-border: var(--border);
+    --color-border-strong: var(--border-strong);
+    --color-primary: var(--primary);
+    --color-primary-hover: var(--primary-hover);
+    --color-primary-text: var(--primary-text);
+    --color-primary-soft: var(--primary-soft);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-neon: var(--neon);
+    --color-on-neon: var(--on-neon);
+    --color-logo-tile: var(--logo-tile);
+    --color-danger: var(--danger);
+
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
     --radius-card: 16px;
 
-    --animate-fade: fade 0.25s ease;
-    --animate-toast-in: toast-in 0.2s ease;
+    --font-display: "Outfit", system-ui, sans-serif;
+    --font-sans: "Work Sans", system-ui, sans-serif;
+
+    --shadow-soft: 0 1px 2px rgb(var(--shadow-color) / 0.05), 0 8px 24px -12px rgb(var(--shadow-color) / 0.16);
+    --shadow-pop: 0 1px 2px rgb(var(--shadow-color) / 0.06), 0 16px 40px -18px rgb(var(--shadow-color) / 0.3);
+    /* Brilho neon curto e de baixa opacidade — só detalhe */
+    --shadow-neon: 0 0 0 1px rgb(0 229 255 / 0.55), 0 0 10px -1px var(--neon-glow);
+
+    --animate-fade: fade 0.3s ease-out;
+    --animate-toast-in: toast-in 0.2s ease-out;
     --animate-bump: bump 0.35s ease;
     --animate-spin-fast: spin 0.7s linear infinite;
 
@@ -43,91 +131,61 @@
         from { opacity: 0; transform: translateY(8px); }
     }
     @keyframes bump {
-        50% { transform: scale(1.4); }
+        50% { transform: scale(1.25); }
     }
 }
 
 @layer base {
+    * {
+        @apply border-border;
+    }
+    html {
+        -webkit-text-size-adjust: 100%;
+        scroll-padding-top: 96px; /* altura do cabeçalho fixo */
+    }
     body {
-        @apply bg-bg font-sans text-ink antialiased;
+        @apply bg-background font-sans text-[15px] leading-relaxed text-foreground antialiased;
+        overflow-x: clip;
     }
-    h1, h2, h3 {
-        @apply font-display font-extrabold tracking-[-0.01em];
+    h1, h2, h3, h4 {
+        @apply font-display font-semibold tracking-[-0.025em] text-balance;
     }
-    button {
+    button:not(:disabled), [role="button"]:not(:disabled) {
         cursor: pointer;
     }
-    button:disabled {
-        cursor: not-allowed;
+    :focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+        box-shadow: 0 0 0 5px rgb(0 229 255 / 0.22); /* halo neon discreto */
+    }
+    ::selection {
+        background: var(--primary-soft);
     }
 }
 
-/* Gradientes da identidade visual */
-@utility bg-gold-grad {
-    background-image: linear-gradient(90deg, var(--color-gold), var(--color-gold-light));
+/* Detalhes neon reutilizáveis */
+@utility neon-dot {
+    background: var(--neon);
+    box-shadow: 0 0 6px var(--neon-glow);
 }
-@utility bg-cyan-grad {
-    background-image: linear-gradient(90deg, var(--color-cyan), var(--color-cyan-deep));
+@utility neon-line {
+    background: var(--neon);
+    box-shadow: 0 0 6px var(--neon-glow);
 }
-@utility bg-ocean {
-    background-image: linear-gradient(115deg, var(--color-cyan-deep), #0a4c57);
-}
-@utility bg-ring {
-    background-image: conic-gradient(from 200deg, var(--color-purple), var(--color-cyan), var(--color-gold), var(--color-purple));
-}
-@utility bg-frame {
-    background-image: conic-gradient(from 120deg, var(--color-purple), var(--color-cyan), var(--color-gold), var(--color-purple));
-}
-@utility bg-hero {
-    background:
-        radial-gradient(circle at 20% 15%, rgb(0 194 214 / 0.3), transparent 45%),
-        radial-gradient(circle at 85% 20%, rgb(166 77 255 / 0.2), transparent 45%),
-        var(--color-bg);
-}
-@utility bg-page-head {
-    background: radial-gradient(circle at 80% 0%, rgb(0 194 214 / 0.25), transparent 50%), var(--color-night);
-}
-@utility bg-mfa-hero {
-    background: radial-gradient(circle at 50% 0%, rgb(0 194 214 / 0.28), transparent 55%), var(--color-night);
-}
-@utility bg-photo-coral {
-    background:
-        radial-gradient(circle at 30% 20%, rgb(0 194 214 / 0.45), transparent 60%),
-        radial-gradient(circle at 80% 80%, rgb(255 122 69 / 0.35), transparent 55%),
-        var(--color-abyss);
-}
-@utility bg-photo-produto {
-    background:
-        radial-gradient(circle at 30% 30%, rgb(0 194 214 / 0.45), transparent 60%),
-        radial-gradient(circle at 80% 80%, rgb(255 122 69 / 0.3), transparent 55%),
-        var(--color-abyss);
-}
-@utility bg-photo-ouro {
-    background:
-        radial-gradient(circle at 30% 30%, rgb(255 201 60 / 0.3), transparent 60%),
-        radial-gradient(circle at 80% 80%, rgb(0 194 214 / 0.4), transparent 55%),
-        var(--color-abyss);
+/* Borda que acende em neon no hover/foco (mais presente no tema escuro) */
+@utility neon-hover {
+    transition: border-color 0.2s, box-shadow 0.2s;
+    &:hover, &:focus-within {
+        border-color: rgb(0 229 255 / 0.45);
+        box-shadow: 0 0 10px -3px var(--neon-glow);
+    }
 }
 
-/* Modo apresentação: marca onde cada heurística de Nielsen foi aplicada */
-.show-h [data-h] {
-    outline: 2px dashed var(--color-gold);
-    outline-offset: 4px;
-}
-.show-h [data-h]:not(.sticky):not(.absolute):not(.fixed) {
-    position: relative;
-}
-.show-h [data-h]::before {
-    content: attr(data-h);
-    position: absolute;
-    top: -14px;
-    left: -4px;
-    background: var(--color-gold);
-    color: var(--color-gold-ink);
-    font: 700 10px/1.2 var(--font-mono);
-    padding: 3px 7px;
-    border-radius: 4px;
-    z-index: 60;
-    white-space: nowrap;
-    pointer-events: none;
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }

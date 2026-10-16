@@ -1,13 +1,10 @@
+import { MessageCircle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+
 export default function WhatsAppButton({ label = 'Falar no WhatsApp', className = '', ...props }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      className={`min-h-[34px] w-[38px] rounded-lg bg-whats text-[15px] text-white ${className}`}
-      {...props}
-    >
-      💬
-    </button>
+    <Button variant="outline" size="icon-sm" aria-label={label} title={label} className={className} {...props}>
+      <MessageCircle />
+    </Button>
   )
 }
