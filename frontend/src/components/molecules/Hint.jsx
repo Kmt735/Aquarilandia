@@ -1,9 +1,9 @@
 const estilos = {
-  info: 'border-gold/35 bg-gold/8 text-gold-light',
-  alerta: 'border-gold/35 bg-gold/8 text-gold-light',
-  ok: 'border-mint/40 bg-mint/8 text-[#8FF0C4]',
+  info: 'border-primary/25 bg-primary-soft text-foreground',
+  alerta: 'border-danger/30 bg-danger/8 text-foreground',
+  ok: 'border-neon/40 bg-neon/8 text-foreground',
 }
 
 export default function Hint({ tipo = 'info', children }) {
-  return <div className={`mt-3.5 rounded-[10px] border px-3 py-2.5 text-xs leading-[1.45] ${estilos[tipo]}`}>{children}</div>
+  return <div className={`mt-4 rounded-lg border px-3.5 py-3 text-[13px] leading-normal ${estilos[tipo]}`}>{children}</div>
 }

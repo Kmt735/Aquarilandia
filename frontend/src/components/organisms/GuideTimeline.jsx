@@ -15,13 +15,11 @@ export default function GuideTimeline({ passos, passoAtual }) {
     return () => clearTimeout(timer)
   }, [passoAtual])
 
-  const primeiraDica = passos.findIndex((p) => p.dica)
-
   return (
-    <div className="mx-auto my-14 max-w-[760px] px-4 desk:px-10">
+    <ol className="mx-auto my-16 max-w-[1200px] px-4 sm:px-6 desk:px-10">
       {passos.map((passo, i) => (
+        <li key={passo.titulo} className="max-w-[720px]">
           <TimelineItem
-            key={passo.titulo}
             ref={(el) => {
               itens.current[i] = el
             }}
@@ -30,9 +28,9 @@ export default function GuideTimeline({ passos, passoAtual }) {
             guiando={guiando}
             estado={i === passoAtual ? 'atual' : i < passoAtual ? 'feito' : null}
             ultimo={i === passos.length - 1}
-            marcarHeuristicas={i === primeiraDica}
           />
+        </li>
       ))}
-    </div>
+    </ol>
   )
 }

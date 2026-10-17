@@ -7,12 +7,11 @@ export default function ProductGrid({ produtos }) {
   const abrirWhatsApp = useWhatsApp()
 
   return (
-    <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 desk:grid-cols-3">
-      {produtos.map((produto, i) => (
+    <div className="grid w-full grid-cols-1 gap-6 sm:grid-cols-2 desk:grid-cols-3">
+      {produtos.map((produto) => (
         <ProductCard
           key={produto.id}
           produto={produto}
-          marcarHeuristicas={i === 0}
           onComprar={() => (produto.emEstoque ? adicionar(produto) : abrirWhatsApp(`consultar ${produto.nome}`))}
           onWhatsApp={() => abrirWhatsApp(produto.nome)}
         />

@@ -1,29 +1,33 @@
+import { Minus, Plus } from 'lucide-react'
+import Midia from '../atoms/Midia'
+import { Button } from '@/components/ui/button'
+import { iconeCategoria } from '@/lib/icones'
 import { formatarPreco } from '../../utils/format'
 
 export default function CartItem({ produto, qtd, onIncrementar, onDecrementar, onRemover }) {
-  const botaoQtd = 'size-[26px] rounded-md border border-line bg-abyss text-ink'
-
   return (
-    <div className="flex items-center gap-3 border-b border-dashed border-line py-3.5">
-      <div className="flex size-[46px] shrink-0 items-center justify-center rounded-[10px] bg-abyss text-xl">
-        {produto.icone}
+    <div className="flex items-start gap-3.5 border-b border-border py-4">
+      <div className="w-14 shrink-0 overflow-hidden rounded-lg">
+        <Midia proporcao="1/1" icone={iconeCategoria[produto.categoria]} className="[&>svg]:size-6" />
       </div>
-      <div className="flex-1">
-        <h5 className="font-display text-[13px] font-bold">{produto.nome}</h5>
-        <div className="font-mono text-xs text-gold">{formatarPreco(produto.preco * qtd)}</div>
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <button type="button" className={botaoQtd} onClick={onDecrementar} aria-label="Diminuir quantidade">
-            −
-          </button>
-          <span className="min-w-4 text-center font-mono text-xs">{qtd}</span>
-          <button type="button" className={botaoQtd} onClick={onIncrementar} aria-label="Aumentar quantidade">
-            +
-          </button>
+      <div className="min-w-0 flex-1">
+        <h5 className="font-display text-[14px] font-semibold">{produto.nome}</h5>
+        <div className="mt-0.5 text-[13px] font-medium text-primary-text tabular-nums dark:text-neon">
+          {formatarPreco(produto.preco * qtd)}
+        </div>
+        <div className="mt-2.5 flex items-center gap-2">
+          <Button variant="outline" size="icon-sm" className="size-8" onClick={onDecrementar} aria-label="Diminuir quantidade">
+            <Minus />
+          </Button>
+          <span className="min-w-5 text-center text-[13px] tabular-nums">{qtd}</span>
+          <Button variant="outline" size="icon-sm" className="size-8" onClick={onIncrementar} aria-label="Aumentar quantidade">
+            <Plus />
+          </Button>
         </div>
       </div>
-      <button type="button" onClick={onRemover} className="text-[11.5px] text-ink-soft underline">
+      <Button variant="link" size="xs" className="text-text-muted hover:text-danger" onClick={onRemover}>
         Remover
-      </button>
+      </Button>
     </div>
   )
 }

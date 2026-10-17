@@ -1,8 +1,10 @@
+import { MessageCircle, Search } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import Button from '../atoms/Button'
 import Kbd from '../atoms/Kbd'
 import SearchResult from '../molecules/SearchResult'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
 import { buscar } from '../../utils/busca'
@@ -23,11 +25,15 @@ export default function SearchBox() {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-label="Buscar"
-      className="fixed top-[84px] left-1/2 z-[310] w-[560px] max-w-[92vw] -translate-x-1/2 rounded-2xl border border-line bg-panel p-4 shadow-[0_20px_50px_rgba(0,0,0,.5)]"
-    >
+    <Dialog open onOpenChange={(aberto) => !aberto && fecharPaineis()}>
+      <DialogContent
+        showCloseButton={false}
+        className="top-[96px] translate-y-0 gap-0 rounded-2xl border-border bg-surface-elevated p-3 sm:max-w-[580px]"
+      >
+      <DialogTitle className="sr-only">Buscar</DialogTitle>
+      <DialogDescription className="sr-only">Busque produtos, peixes ou categorias</DialogDescription>
+      <div className="relative">
+      <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-[18px] -translate-y-1/2 text-text-muted" />
       <input
         type="search"
         autoFocus
@@ -36,10 +42,11 @@ export default function SearchBox() {
         onChange={(e) => setConsulta(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && resultados[0] && abrir(resultados[0])}
         placeholder="Buscar produtos, peixes ou categorias…"
-        className="w-full rounded-[10px] border border-line bg-abyss px-4 py-3.5 font-sans text-[15px] text-ink outline-none focus:border-cyan"
+        className="w-full rounded-xl border border-border-strong bg-surface py-3.5 pr-4 pl-11 text-[15px] text-foreground outline-none placeholder:text-text-muted focus:border-primary dark:focus:border-neon/70 dark:focus:shadow-[0_0_10px_-3px_var(--neon-glow)]"
       />
+      </div>
 
-      <div className="mx-0.5 mt-2.5 mb-1.5 font-mono text-[11px] text-ink-soft">
+      <div className="mx-1 mt-3 mb-2 text-[12px] text-text-muted">
         {!termo && (
           <>
             Atalhos rápidos · aperte <Kbd>/</Kbd> em qualquer tela para buscar
@@ -50,8 +57,8 @@ export default function SearchBox() {
       </div>
 
       {termo && resultados.length === 0 ? (
-        <div className="px-1.5 pt-4 pb-1.5 text-[13.5px] leading-[1.55] text-ink-soft">
-          Não encontramos <strong className="text-ink">“{termo}”</strong> no site.
+        <div className="px-1.5 pt-3 pb-2 text-[14px] leading-relaxed text-text-muted">
+          Não encontramos <strong className="text-foreground">“{termo}”</strong> no site.
           <br />
           Confira a grafia ou tente algo mais geral, como “filtro” ou “betta”. A loja pode ter o item mesmo que ele
           ainda não esteja cadastrado aqui.
@@ -63,7 +70,8 @@ export default function SearchBox() {
               abrirWhatsApp(`perguntando sobre “${termo}”`)
             }}
           >
-            💬 Perguntar no WhatsApp
+            <MessageCircle aria-hidden="true" />
+            Perguntar no WhatsApp
           </Button>
         </div>
       ) : (
@@ -71,6 +79,7 @@ export default function SearchBox() {
           <SearchResult key={`${r.tipo}-${r.rotulo}`} resultado={r} selecionado={i === 0 && Boolean(termo)} onClick={() => abrir(r)} />
         ))
       )}
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

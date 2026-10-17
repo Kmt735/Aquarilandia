@@ -1,5 +1,5 @@
 export default function Kbd({ children }) {
   return (
-    <kbd className="rounded border border-line px-1.5 py-px font-mono text-[10px] text-ink-soft">{children}</kbd>
+    <kbd className="rounded border border-border bg-surface-muted px-1.5 py-px text-[11px] text-text-muted">{children}</kbd>
   )
 }

@@ -4,7 +4,7 @@ import { filtrosPeixe } from '../../data/peixes'
 // H7 · Flexibilidade: filtros rápidos combináveis
 export default function FishFilterChips({ ativos, onAlternar, onLimpar }) {
   return (
-    <div className="mx-auto mt-7 flex max-w-[1180px] flex-wrap gap-2.5 px-4 desk:px-10" data-h="H7 Filtros rápidos">
+    <div role="group" aria-label="Filtrar peixes" className="mx-auto mt-10 flex max-w-[1200px] flex-wrap gap-2 px-4 sm:px-6 desk:px-10">
       <Chip ativo={ativos.size === 0} onClick={onLimpar}>
         Todos
       </Chip>

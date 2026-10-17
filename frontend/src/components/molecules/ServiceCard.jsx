@@ -1,27 +1,31 @@
 import Button from '../atoms/Button'
+import { iconeServico } from '@/lib/icones'
 
-// Sem `onOrcamento` vira o card resumido da home
-export default function ServiceCard({ servico, onOrcamento, marcarHeuristicas = false }) {
+// Célula da grade de serviços (bordas compartilhadas). Sem `onOrcamento` vira a versão resumida.
+export default function ServiceCard({ servico, onOrcamento }) {
+  const Icone = iconeServico[servico.id]
+  const icone = Icone && (
+    <span className="flex size-11 items-center justify-center rounded-xl bg-primary-soft text-primary-text dark:text-neon">
+      <Icone aria-hidden="true" className="size-5" />
+    </span>
+  )
+
   if (!onOrcamento) {
     return (
-      <div className="rounded-card border border-line bg-panel p-[26px]">
-        <div className="mb-3.5 text-2xl">{servico.icone}</div>
-        <h4 className="mb-2 font-display text-base font-bold">{servico.nome}</h4>
-        <p className="text-[13px] leading-normal text-ink-soft">{servico.resumo}</p>
+      <div className="p-7">
+        {icone}
+        <h4 className="mt-5 mb-2 text-[18px]">{servico.nome}</h4>
+        <p className="text-[14px] leading-normal text-text-muted">{servico.resumo}</p>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col rounded-card border border-line bg-panel p-7">
-      <div className="mb-4 text-[26px]">{servico.icone}</div>
-      <h4 className="mb-2 font-display text-[16.5px] font-bold">{servico.nome}</h4>
-      <p className="mb-4 flex-1 text-[13px] leading-[1.55] text-ink-soft">{servico.descricao}</p>
-      <Button
-        variant="quote"
-        onClick={onOrcamento}
-        data-h={marcarHeuristicas ? 'H5 · H9 Formulário validado' : undefined}
-      >
+    <div className="neon-hover flex flex-col border border-transparent bg-surface p-7 desk:p-8">
+      {icone}
+      <h4 className="mt-6 mb-2 text-[19px]">{servico.nome}</h4>
+      <p className="mb-6 flex-1 text-[14.5px] leading-relaxed text-text-muted">{servico.descricao}</p>
+      <Button variant="guide" className="self-start" onClick={onOrcamento}>
         Solicitar orçamento
       </Button>
     </div>

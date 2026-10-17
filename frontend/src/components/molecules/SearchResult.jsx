@@ -1,16 +1,22 @@
+import { Search } from 'lucide-react'
+import { iconeBusca } from '@/lib/icones'
+
 export default function SearchResult({ resultado, selecionado, onClick }) {
+  const Icone = iconeBusca[resultado.tipo] ?? Search
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-3 rounded-[10px] p-2.5 text-left hover:bg-panel-2 ${selecionado ? 'bg-panel-2' : ''}`}
+      className={`flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-surface-muted ${selecionado ? 'bg-surface-muted' : ''}`}
     >
-      <span className="w-7 text-center text-xl">{resultado.icone}</span>
-      <div>
-        <div>{resultado.rotulo}</div>
-        <small className="block text-[11px] text-ink-soft">{resultado.sub}</small>
-      </div>
-      <span className="ml-auto font-mono text-[10px] text-cyan">{resultado.tipo}</span>
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-primary-text dark:text-neon">
+        <Icone aria-hidden="true" className="size-4" />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-[14px]">{resultado.rotulo}</span>
+        <small className="block truncate text-[12px] text-text-muted">{resultado.sub}</small>
+      </span>
+      <span className="ml-auto text-[11px] font-semibold tracking-[.1em] text-text-muted uppercase">{resultado.tipo}</span>
     </button>
   )
 }

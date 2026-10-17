@@ -1,9 +1,7 @@
 import { useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router'
-import Overlay from '../atoms/Overlay'
 import WhatsAppFloat from '../atoms/WhatsAppFloat'
 import CartDrawer from '../organisms/CartDrawer'
-import PrototypeSwitcher from '../organisms/PrototypeSwitcher'
 import QuoteModal from '../organisms/QuoteModal'
 import SearchBox from '../organisms/SearchBox'
 import SiteNav from '../organisms/SiteNav'
@@ -36,13 +34,11 @@ export default function MainLayout() {
 
   return (
     <>
-      <PrototypeSwitcher />
       <SiteNav />
       <main key={pathname} className="animate-fade">
         <Outlet />
       </main>
 
-      {painel && <Overlay onClick={fecharPaineis} />}
       <CartDrawer />
       {painel === 'busca' && <SearchBox />}
       {painel === 'orcamento' && <QuoteModal />}

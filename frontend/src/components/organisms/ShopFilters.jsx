@@ -8,7 +8,10 @@ const itensCategoria = [
 
 export default function ShopFilters({ categoria, disponibilidade, onCategoria, onDisponibilidade }) {
   return (
-    <aside className="w-full shrink-0 rounded-card border border-line bg-panel p-[22px] desk:sticky desk:top-[66px] desk:w-[220px]">
+    <aside
+      aria-label="Filtros"
+      className="w-full shrink-0 rounded-card border border-border bg-surface p-6 desk:sticky desk:top-[96px] desk:w-[230px]"
+    >
       <FilterGroup
         titulo="Categorias"
         itens={itensCategoria}
