@@ -11,12 +11,10 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-    "erros": "dados invalidos",
     "nome": "Cliente Teste",
     "telefone": "3299999999",
-    "servico": "montagem",
-    "mensagem": "Quero montar um aquario de 100 litros",
-    "digitos": "1234" 
+    "servico": "Manutenção",
+    "mensagem": "Quero montar um aquario de 100 litros" 
 }
 
 
@@ -29,3 +27,4 @@ post {{api}}/orcamentos
 Content-Type: application/json
 Origin: {{origem}}
 
+{ /
