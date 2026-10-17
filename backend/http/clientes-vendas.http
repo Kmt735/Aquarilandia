@@ -1,0 +1,31 @@
+@api=http://localhost:3333/api
+@origem=http//localhost:5173
+
+
+get {{api}}/orcamentos 
+
+
+###
+post {{api}}/orcamentos
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+    "erros": "dados invalidos",
+    "nome": "Cliente Teste",
+    "telefone": "3299999999",
+    "servico": "montagem",
+    "mensagem": "Quero montar um aquario de 100 litros",
+    "digitos": "1234" 
+}
+
+
+###
+get {{api}}/rota-que-nao-existe
+
+
+###
+post {{api}}/orcamentos
+Content-Type: application/json
+Origin: {{origem}}
+
