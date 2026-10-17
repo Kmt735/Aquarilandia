@@ -3,6 +3,7 @@ import express from 'express'
 import { env } from './config/env.js'
 import { errorHandler, notFound } from './middlewares/errorHandler.js'
 import { routes } from './routes/index.js'
+import { AppError } from './utils/AppError.js'
 
 export const app = express()
 

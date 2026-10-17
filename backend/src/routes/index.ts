@@ -1,7 +1,12 @@
 import { Router } from 'express'
 import { db } from '../config/db.js'
 import { catalogoRoutes } from './catalogo.routes.js'
-import { orcamentoRoutes } from './orcamento.routes.js'
+import { orcamentoRoutes } from '../modulos/orcamentos/orcamento.routes.js'
+import { authRoutes } from '../modulos/clientes/auth.routes.js'
+import { clienteRoutes } from '../modulos/clientes/cliente.routes.js'
+import { freteRoutes } from '../modulos/vendas/frete.routes.js'
+import { vendaRoutes } from '../modulos/vendas/venda.routes.js'
+import { webhookRoutes } from '../modulos/vendas/webhook.routes.js'
 
 export const routes = Router()
 
@@ -15,3 +20,8 @@ routes.get('/health', async (_req, res) => {
 })
 routes.use('/', catalogoRoutes)
 routes.use('/orcamentos', orcamentoRoutes)
+routes.use('/auth', authRoutes)
+routes.use('/clientes', clienteRoutes)
+routes.use('/frete', freteRoutes)
+routes.use('/vendas', vendaRoutes)
+routes.use('/webhook', webhookRoutes)

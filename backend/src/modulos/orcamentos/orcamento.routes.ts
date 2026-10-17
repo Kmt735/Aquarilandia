@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { orcamentoController } from '../controllers/orcamento.controller.js'
+import { orcamentoController } from './orcamento.controller.js'
 
 export const orcamentoRoutes = Router()
 
