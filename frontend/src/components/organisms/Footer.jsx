@@ -1,10 +1,34 @@
 import LogoCompleto from '../atoms/LogoCompleto'
+import useWhatsApp from '../../hooks/useWhatsApp'
 
+
+const contato = {
+  enderecos: [
+    {
+      unidade: 'Centro',
+      linhas: ['Rua Antônio Rocha, 27', 'Centro'],
+      mapaUrl:
+        'https://www.google.com/maps/place/Aquaril%C3%A2ndia/@-21.1324225,-44.2587924,17z/data=!3m1!4b1!4m6!3m5!1s0xa1c88596df8fb1:0xe9529c471598d2b3!8m2!3d-21.1324225!4d-44.2562175!16s%2Fg%2F1th600p_?entry=ttu&g_ep=EgoyMDI2MTAxMy4wIKXMDSoASAFQAw%3D%3D',
+    },
+    {
+      unidade: 'Matosinhos',
+      linhas: ['Avenida Josué de Queiroz, 115', 'São João del Rei'],
+      mapaUrl:
+        'https://www.google.com/maps/place/Aquaril%C3%A2ndia+Matosinhos+Aquarismo/@-21.1279278,-44.2426833,17z/data=!3m1!4b1!4m6!3m5!1s0xa1c7758e94b9b9:0x33cd0a02d79b42e!8m2!3d-21.1279278!4d-44.2401084!16s%2Fg%2F11vc2rs2x9?entry=ttu&g_ep=EgoyMDI2MTAxMy4wIKXMDSoASAFQAw%3D%3D',
+    },
+  ],
+  redes: [
+    { nome: 'Instagram', url: 'https://www.instagram.com/aquarilandia/' },   
+    { nome: 'Facebook', url: 'https://www.facebook.com/aquarilandiasjdr/?locale=pt_BR' }, 
+  ],
+}
 const titulo = 'mb-3 font-sans text-[12px] font-semibold tracking-[.14em] text-foreground uppercase'
 const texto = 'block text-[14px] leading-[1.9] text-text-muted'
 const link = `${texto} transition-colors hover:text-primary-text`
 
 export default function Footer() {
+  const abrirWhatsApp = useWhatsApp()
+
   return (
     <footer className="border-t border-border bg-surface">
       <span aria-hidden="true" className="neon-line mx-auto block h-px max-w-[1200px] opacity-60" />
@@ -14,25 +38,53 @@ export default function Footer() {
           <h5 className="sr-only">Aquarilândia</h5>
           <p className={texto}>Peixes, plantas e projetos de aquários.</p>
         </div>
+
         <div>
           <h5 className={titulo}>Contato</h5>
-          <a href="#" className={link}>wa.link/aquarilandia</a>
-          <a href="#" className={link}>WhatsApp</a>
+          <button type="button" onClick={() => abrirWhatsApp('Vim pelo site da Aquarilândia')} className={`${link} text-left`}>
+            Falar no WhatsApp
+          </button>
         </div>
+
         <div>
-          <h5 className={titulo}>Endereço</h5>
-          <p className={texto}>
-            Avenida Josué de Queiroz, 115
-            <br />
-            São João del Rei
-          </p>
+          <h5 className={titulo}>Endereços</h5>
+          {contato.enderecos.map((endereco) => (
+            <div key={endereco.unidade} className="mb-4 last:mb-0">
+              <p className={`${texto} font-medium text-foreground`}>{endereco.unidade}</p>
+              <address className={`${texto} not-italic`}>
+                {endereco.linhas.map((linha, indice) => (
+                  <span key={`${indice}-${linha}`} className="block">
+                    {linha}
+                  </span>
+                ))}
+              </address>
+              <a href={endereco.mapaUrl} target="_blank" rel="noopener noreferrer" className={`${link} text-primary-text`}>
+                Ver no mapa
+              </a>
+            </div>
+          ))}
         </div>
+
         <div>
           <h5 className={titulo}>Redes sociais</h5>
-          <a href="#" className={link}>Instagram</a>
-          <a href="#" className={link}>Threads</a>
+          {contato.redes.map((rede) => (
+            <a
+              key={rede.nome}
+              href={rede.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Aquarilândia no ${rede.nome} (abre em nova aba)`}
+              className={link}
+            >
+              {rede.nome}
+            </a>
+          ))}
         </div>
       </div>
+
+      <p className="mx-auto max-w-[1200px] border-t border-border px-4 py-5 text-[13px] text-text-muted sm:px-6 desk:px-10">
+        © {new Date().getFullYear()} Aquarilândia. Todos os direitos reservados.
+      </p>
     </footer>
   )
 }
