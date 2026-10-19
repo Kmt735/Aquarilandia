@@ -39,9 +39,6 @@ export default function MainLayout() {
       <main key={pathname} className="animate-fade">
         <Outlet />
       </main>
-            <main key={pathname} className="animate-fade">
-        <Outlet />
-      </main>
       <Footer />
 
       <CartDrawer />
