@@ -28,3 +28,16 @@ Content-Type: application/json
 Origin: {{origem}}
 
 { /
+
+###
+post {{api}}/auth/cadastro
+Content-type: application/json
+Origin: {{origem}}
+
+{
+    "nome": "Rafaela",
+    "email": "rafa@gmail.com",
+    "senha": "343434343434",
+    "telefone": "33333333333",
+    "aceiteTermos": true
+}
