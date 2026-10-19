@@ -25,7 +25,9 @@
 --   aguardando_pagamento → paga → em_separacao → enviada → entregue        (correios / propria)
 --   aguardando_pagamento → paga → em_separacao → pronta_retirada → entregue (retirada na loja)
 --   aguardando_pagamento → cancelada
---   paga / em_separacao / pronta_retirada → cancelamento_solicitado → cancelada (ou volta para em_separacao)
+--   paga / em_separacao / pronta_retirada → cancelada                        (estorno aprovado na hora)
+--   paga / em_separacao / pronta_retirada → cancelamento_solicitado → cancelada
+--     cancelamento_solicitado = estorno pendente (o gateway falhou); só segue para cancelada
 -- ---------------------------------------------------------------------
 
 CREATE DOMAIN status_venda AS TEXT
@@ -150,10 +152,10 @@ CREATE INDEX idx_historico_status_venda_venda ON historico_status_venda(venda_id
 
 
 -- ---------------------------------------------------------------------
--- Pagamentos (Mercado Pago — Checkout Pro)
+-- Pagamentos (gateway de pagamento)
 --
 -- Uma venda pode ter mais de um pagamento (ex.: cartão recusado e depois PIX).
--- status é a nossa tradução do status do Mercado Pago:
+-- status é a nossa tradução do status do gateway de pagamento:
 --   approved → aprovado · pending/in_process/authorized → pendente
 --   rejected → recusado · cancelled → cancelado
 --   refunded/charged_back → estornado · in_mediation → em_disputa
@@ -162,13 +164,17 @@ CREATE INDEX idx_historico_status_venda_venda ON historico_status_venda(venda_id
 CREATE TABLE pagamentos (
   id                  SERIAL       PRIMARY KEY,
   venda_id            INTEGER      NOT NULL REFERENCES vendas(id),
-  mp_preferencia_id   VARCHAR(100) NOT NULL,                  -- id da preferência do Checkout Pro
-  mp_pagamento_id     VARCHAR(50)  UNIQUE,                    -- id do pagamento no Mercado Pago (chega pelo webhook)
+  gateway             TEXT         NOT NULL,                  -- qual gateway foi usado (o código informa; sem DEFAULT)
+  gateway_cobranca_id VARCHAR(100) NOT NULL,                  -- id da cobrança criada no gateway
+  gateway_pagamento_id VARCHAR(50) UNIQUE,                    -- id do pagamento no gateway de pagamento (chega pelo webhook)
   metodo              VARCHAR(30),                            -- "credit_card", "pix"...
   status              TEXT         NOT NULL DEFAULT 'pendente'
                                    CHECK (status IN ('pendente', 'aprovado', 'recusado', 'estornado', 'cancelado', 'em_disputa')),
   status_detalhe      VARCHAR(80),                            -- "cc_rejected_insufficient_amount"...
   valor               INTEGER      NOT NULL CHECK (valor >= 0),
+  -- estorno: a tarefa agendada tenta até 5 vezes; depois o admin resolve manualmente
+  estorno_tentativas  INTEGER      NOT NULL DEFAULT 0 CHECK (estorno_tentativas BETWEEN 0 AND 5),
+  estorno_ultimo_erro TEXT,
   criado_em           TIMESTAMPTZ  NOT NULL DEFAULT now(),
   atualizado_em       TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
@@ -180,7 +186,7 @@ CREATE INDEX idx_pagamentos_venda ON pagamentos(venda_id);
 -- Eventos do webhook (idempotência)
 --
 -- Toda notificação recebida é gravada aqui ANTES de ser processada:
---   INSERT ... ON CONFLICT (mp_notificacao_id) DO NOTHING
+--   INSERT ... ON CONFLICT (gateway_notificacao_id) DO NOTHING
 --   * inseriu agora                        → processar
 --   * já existia com processado_em IS NULL → reprocessar (falhou antes)
 --   * já existia com processado_em preenchido → ignorar (notificação repetida)
@@ -189,7 +195,7 @@ CREATE INDEX idx_pagamentos_venda ON pagamentos(venda_id);
 
 CREATE TABLE eventos_webhook (
   id                  SERIAL       PRIMARY KEY,
-  mp_notificacao_id   VARCHAR(100) NOT NULL UNIQUE,
+  gateway_notificacao_id VARCHAR(100) NOT NULL UNIQUE,
   tipo                VARCHAR(50)  NOT NULL,                  -- "payment"
   payload             JSONB        NOT NULL,
   processado_em       TIMESTAMPTZ,

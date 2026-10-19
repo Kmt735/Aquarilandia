@@ -58,8 +58,8 @@ INSERT INTO produtos (categoria_id, nome, preco, estoque)
 VALUES ((SELECT id FROM categorias WHERE slug = 'acessorios'), 'Sifão 30 cm', 12990, 5)
 RETURNING id AS produto2 \gset
 
-INSERT INTO clientes (nome, email, senha_hash, telefone, cpf, aceitou_termos_em)
-VALUES ('Ana Teste', 'ana@exemplo.com', '$argon2id$hash-falso', '11999998888', '12345678901', now())
+INSERT INTO clientes (nome, email, senha_hash, telefone, aceitou_termos_em)
+VALUES ('Ana Teste', 'ana@exemplo.com', '$argon2id$hash-falso', '11999998888', now())
 RETURNING id AS cliente \gset
 
 INSERT INTO clientes (nome, email, senha_hash, papel)
@@ -72,6 +72,9 @@ RETURNING id AS endereco1 \gset
 
 INSERT INTO sessoes (token_hash, cliente_id, expira_em, ip, user_agent)
 VALUES (encode(sha256('token-de-teste'), 'hex'), :cliente, now() + interval '7 days', '127.0.0.1', 'psql');
+
+INSERT INTO tokens_recuperacao_senha (cliente_id, token_hash, expira_em)
+VALUES (:cliente, encode(sha256('recuperacao-de-teste'), 'hex'), now() + interval '30 minutes');
 
 -- venda 1: correios, 2 itens (2 x 4990 + 1 x 12990 = 22970) + frete 2500
 INSERT INTO vendas (cliente_id, subtotal, frete, total, tipo_entrega, entrega_destinatario, entrega_telefone,
@@ -88,10 +91,10 @@ INSERT INTO itens_venda (venda_id, produto_id, nome_produto, preco_unitario, qua
 INSERT INTO historico_status_venda (venda_id, status_anterior, status_novo, origem)
 VALUES (:venda1, NULL, 'aguardando_pagamento', 'sistema');
 
-INSERT INTO pagamentos (venda_id, mp_preferencia_id, valor)
-VALUES (:venda1, 'pref-teste-123', 25470);
+INSERT INTO pagamentos (venda_id, gateway, gateway_cobranca_id, valor)
+VALUES (:venda1, 'teste', 'cobranca-teste-123', 25470);
 
-INSERT INTO eventos_webhook (mp_notificacao_id, tipo, payload)
+INSERT INTO eventos_webhook (gateway_notificacao_id, tipo, payload)
 VALUES ('notif-teste-1', 'payment', '{"data": {"id": "pg-teste-1"}}');
 
 -- venda 2: retirada, SEM informar expira_em (deve usar o DEFAULT), com 1 item
@@ -105,8 +108,8 @@ VALUES (:venda2, :produto1, 'Redinha média', 4990, 1, 4990);
 
 \set ON_ERROR_STOP off
 
-SELECT 'OK dados válidos inseridos (2 produtos, cliente, admin, endereço, sessão, 2 vendas, 3 itens, '
-       || 'histórico, pagamento, webhook)';
+SELECT 'OK dados válidos inseridos (2 produtos, cliente, admin, endereço, sessão, token de recuperação, '
+       || '2 vendas, 3 itens, histórico, pagamento, webhook)';
 
 
 -- ---------------------------------------------------------------------
@@ -143,7 +146,7 @@ SELECT pg_temp.recusa('recusa papel inválido', :erro, :'LAST_ERROR_SQLSTATE', :
 
 SAVEPOINT caso;
 UPDATE clientes
-   SET email = NULL, senha_hash = NULL, telefone = NULL, cpf = NULL, anonimizado_em = now()   -- ativo continua TRUE
+   SET email = NULL, senha_hash = NULL, telefone = NULL, anonimizado_em = now()   -- ativo continua TRUE
  WHERE id = :cliente;
 \set erro :ERROR
 ROLLBACK TO SAVEPOINT caso;
@@ -152,7 +155,7 @@ SELECT pg_temp.recusa('recusa cliente anonimizado e ativo', :erro, :'LAST_ERROR_
 
 SAVEPOINT caso;
 UPDATE clientes
-   SET email = NULL, senha_hash = NULL, cpf = NULL, ativo = FALSE, anonimizado_em = now()   -- telefone mantido
+   SET email = NULL, senha_hash = NULL, ativo = FALSE, anonimizado_em = now()   -- telefone mantido
  WHERE id = :cliente;
 \set erro :ERROR
 ROLLBACK TO SAVEPOINT caso;
@@ -165,6 +168,30 @@ UPDATE clientes SET telefone = '119999-8888' WHERE id = :cliente;
 ROLLBACK TO SAVEPOINT caso;
 SELECT pg_temp.recusa('recusa telefone com máscara', :erro, :'LAST_ERROR_SQLSTATE', :'LAST_ERROR_MESSAGE',
                       '{23514}', 'clientes_telefone_check');
+
+SAVEPOINT caso;
+INSERT INTO tokens_recuperacao_senha (cliente_id, token_hash, expira_em)
+VALUES (:cliente, encode(sha256('recuperacao-de-teste'), 'hex'), now() + interval '30 minutes');
+\set erro :ERROR
+ROLLBACK TO SAVEPOINT caso;
+SELECT pg_temp.recusa('recusa token de recuperação com hash duplicado', :erro, :'LAST_ERROR_SQLSTATE',
+                      :'LAST_ERROR_MESSAGE', '{23505}', 'tokens_recuperacao_senha_token_hash_key');
+
+SAVEPOINT caso;
+INSERT INTO tokens_recuperacao_senha (cliente_id, token_hash, expira_em)
+VALUES (999999999, encode(sha256('recuperacao-fantasma'), 'hex'), now() + interval '30 minutes');
+\set erro :ERROR
+ROLLBACK TO SAVEPOINT caso;
+SELECT pg_temp.recusa('recusa token de recuperação de cliente inexistente', :erro, :'LAST_ERROR_SQLSTATE',
+                      :'LAST_ERROR_MESSAGE', '{23503}', 'tokens_recuperacao_senha_cliente_id_fkey');
+
+SAVEPOINT caso;
+INSERT INTO tokens_recuperacao_senha (cliente_id, token_hash, expira_em)
+VALUES (:cliente, encode(sha256('recuperacao-vencida'), 'hex'), now() - interval '1 minute');
+\set erro :ERROR
+ROLLBACK TO SAVEPOINT caso;
+SELECT pg_temp.recusa('recusa token que expira antes de ser criado', :erro, :'LAST_ERROR_SQLSTATE',
+                      :'LAST_ERROR_MESSAGE', '{23514}', 'ck_tokens_recuperacao_senha_expira_depois');
 
 SAVEPOINT caso;
 INSERT INTO enderecos_cliente (cliente_id, cep, logradouro, numero, bairro, cidade, uf, principal)
@@ -270,12 +297,27 @@ SELECT pg_temp.recusa('recusa status de pagamento inválido', :erro, :'LAST_ERRO
                       '{23514}', 'pagamentos_status_check');
 
 SAVEPOINT caso;
-INSERT INTO eventos_webhook (mp_notificacao_id, tipo, payload)
+INSERT INTO pagamentos (venda_id, gateway_cobranca_id, valor)
+VALUES (:venda1, 'cobranca-teste-456', 25470);
+\set erro :ERROR
+ROLLBACK TO SAVEPOINT caso;
+SELECT pg_temp.recusa('recusa pagamento sem gateway', :erro, :'LAST_ERROR_SQLSTATE', :'LAST_ERROR_MESSAGE',
+                      '{23502}', 'column "gateway"');
+
+SAVEPOINT caso;
+UPDATE pagamentos SET estorno_tentativas = 6 WHERE venda_id = :venda1;
+\set erro :ERROR
+ROLLBACK TO SAVEPOINT caso;
+SELECT pg_temp.recusa('recusa estorno_tentativas = 6', :erro, :'LAST_ERROR_SQLSTATE', :'LAST_ERROR_MESSAGE',
+                      '{23514}', 'pagamentos_estorno_tentativas_check');
+
+SAVEPOINT caso;
+INSERT INTO eventos_webhook (gateway_notificacao_id, tipo, payload)
 VALUES ('notif-teste-1', 'payment', '{"data": {"id": "pg-teste-1"}}');
 \set erro :ERROR
 ROLLBACK TO SAVEPOINT caso;
 SELECT pg_temp.recusa('recusa evento de webhook duplicado', :erro, :'LAST_ERROR_SQLSTATE', :'LAST_ERROR_MESSAGE',
-                      '{23505}', 'eventos_webhook_mp_notificacao_id_key');
+                      '{23505}', 'eventos_webhook_gateway_notificacao_id_key');
 
 SAVEPOINT caso;
 DELETE FROM produtos WHERE id = :produto2;
@@ -307,14 +349,43 @@ SELECT pg_temp.recusa('recusa apagar venda que tem itens', :erro, :'LAST_ERROR_S
 SELECT pg_temp.funciona('criar venda sem informar expira_em (DEFAULT criado_em + 30 min)', FALSE, '',
   (SELECT expira_em = criado_em + interval '30 minutes' FROM vendas WHERE id = :venda2));
 
--- Anonimização LGPD: limpa dados pessoais, apaga endereços e sessões, mantém as vendas
+SAVEPOINT caso;
+INSERT INTO tokens_recuperacao_senha (cliente_id, token_hash, expira_em)
+VALUES (:cliente, encode(sha256('recuperacao-nova'), 'hex'), now() + interval '30 minutes')
+RETURNING id AS token_novo \gset
+\set erro :ERROR
+\if :erro
+  ROLLBACK TO SAVEPOINT caso;
+\endif
+SELECT pg_temp.funciona('criar token de recuperação válido', :erro, :'LAST_ERROR_MESSAGE',
+  (SELECT expira_em = criado_em + interval '30 minutes'
+     FROM tokens_recuperacao_senha WHERE id = :token_novo));
+ROLLBACK TO SAVEPOINT caso;
+
+-- Cliente sem vendas: apagar a linha leva junto os tokens de recuperação (ON DELETE CASCADE)
+SAVEPOINT caso;
+INSERT INTO clientes (nome, email, senha_hash) VALUES ('Edu Teste', 'edu@exemplo.com', '$argon2id$hash-falso')
+RETURNING id AS cliente_sem_venda \gset
+INSERT INTO tokens_recuperacao_senha (cliente_id, token_hash, expira_em)
+VALUES (:cliente_sem_venda, encode(sha256('recuperacao-edu'), 'hex'), now() + interval '30 minutes');
+DELETE FROM clientes WHERE id = :cliente_sem_venda;
+\set erro :ERROR
+\if :erro
+  ROLLBACK TO SAVEPOINT caso;
+\endif
+SELECT pg_temp.funciona('apagar o cliente apaga os tokens de recuperação dele', :erro, :'LAST_ERROR_MESSAGE',
+  NOT EXISTS (SELECT 1 FROM tokens_recuperacao_senha WHERE cliente_id = :cliente_sem_venda));
+ROLLBACK TO SAVEPOINT caso;
+
+-- Anonimização LGPD: limpa dados pessoais, apaga endereços, sessões e tokens de recuperação, mantém as vendas
 SAVEPOINT caso;
 UPDATE clientes
-   SET nome = 'Cliente removido', email = NULL, senha_hash = NULL, telefone = NULL, cpf = NULL,
+   SET nome = 'Cliente removido', email = NULL, senha_hash = NULL, telefone = NULL,
        ativo = FALSE, anonimizado_em = now(), atualizado_em = now()
  WHERE id = :cliente;
 DELETE FROM enderecos_cliente WHERE cliente_id = :cliente;
 DELETE FROM sessoes WHERE cliente_id = :cliente;
+DELETE FROM tokens_recuperacao_senha WHERE cliente_id = :cliente;
 \set erro :ERROR
 \if :erro
   ROLLBACK TO SAVEPOINT caso;
@@ -324,7 +395,8 @@ SELECT pg_temp.funciona('anonimizar o cliente mantendo as vendas', :erro, :'LAST
   AND (SELECT entrega_cep IS NOT NULL FROM vendas WHERE id = :venda1)
   AND (SELECT email IS NULL AND NOT ativo FROM clientes WHERE id = :cliente)
   AND NOT EXISTS (SELECT 1 FROM enderecos_cliente WHERE cliente_id = :cliente)
-  AND NOT EXISTS (SELECT 1 FROM sessoes WHERE cliente_id = :cliente));
+  AND NOT EXISTS (SELECT 1 FROM sessoes WHERE cliente_id = :cliente)
+  AND NOT EXISTS (SELECT 1 FROM tokens_recuperacao_senha WHERE cliente_id = :cliente));
 ROLLBACK TO SAVEPOINT caso;
 
 SAVEPOINT caso;
@@ -356,6 +428,7 @@ ROLLBACK TO SAVEPOINT caso;
 
 ROLLBACK;
 
-SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM clientes WHERE email IN ('ana@exemplo.com', 'admin@exemplo.com'))
+SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM clientes
+                             WHERE email IN ('ana@exemplo.com', 'admin@exemplo.com', 'edu@exemplo.com'))
             THEN 'OK nenhum dado de teste ficou no banco'
             ELSE 'FALHOU sobraram dados de teste no banco' END;

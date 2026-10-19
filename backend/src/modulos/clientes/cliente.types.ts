@@ -10,3 +10,11 @@ export interface Cliente {
     criadoEm:Date
     atualizadoEm:Date
 }
+
+export interface NovoCliente {
+    nome:string
+    email:string 
+    telefone:string 
+    senhaHash:string
+}
+

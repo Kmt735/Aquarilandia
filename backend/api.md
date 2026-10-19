@@ -5,11 +5,11 @@ Se precisar fugir de alguma regra, combine antes e atualize este arquivo no mesm
 
 | Domínio | Dono | Pasta | Prefixo de rota | Tabelas |
 |---|---|---|---|---|
-| Autenticação | Celio | `src/modulos/auth/` | `/api/auth` | `sessoes` |
+| Autenticação | Celio | `src/modulos/auth/` | `/api/auth` | `sessoes`, `tokens_recuperacao_senha` |
 | Clientes | Celio | `src/modulos/clientes/` | `/api/clientes` | `clientes` (inclui admins), `enderecos_cliente` |
-| Vendas | Celio | `src/modulos/vendas/` | `/api/vendas` | `vendas`, `itens_venda`, `historico_status_venda` |
+| Vendas | Celio | `src/modulos/vendas/` | `/api/vendas`, `/api/frete` | `vendas`, `itens_venda`, `historico_status_venda` |
 | Pagamentos | Celio | `src/modulos/pagamentos/` | `/api/pagamentos`, `/api/vendas/:id/pagamentos` | `pagamentos`, `eventos_webhook` |
-| Orçamentos *(já existe)* | Celio | `src/modulos/orcamentos/` | `/api/orcamentos` | `orcamentos` |
+| Orçamentos *(já existe)* | Celio | `src/modulos/orcamentos/` | `/api/orcamentos` | `orcamentos` (a criar — hoje os dados ficam em memória) |
 | Catálogo | Dev 2 | `src/modulos/catalogo/` | `/api/categorias`, `/api/produtos`, `/api/peixes`, `/api/servicos` | `categorias`, `produtos` e as tabelas de detalhe (`peixes`, `aquarios`, `filtros`...) |
 | Estoque | Dev 2 | `src/modulos/estoque/` | `/api/estoque` | `movimentacoes_estoque` e a coluna `produtos.estoque` |
 
@@ -88,7 +88,7 @@ export const clienteRepository = { ... }
 |---|---|---|
 | Listar vários | `listar(filtros)` | `listar(filtros)` |
 | Buscar um | `buscarPorId(id)` | `buscarPorId(id)` |
-| Buscar por outro campo | `buscarPorCpf(cpf)`, `buscarPorSlug(slug)` | idem |
+| Buscar por outro campo | `buscarPorEmail(email)`, `buscarPorSlug(slug)` | idem |
 | Criar | `criar(dados)` | `inserir(dados)` |
 | Atualizar | `atualizar(id, dados)` | `atualizar(id, dados)` |
 | Remover | `remover(id)` | `desativar(id)` ou `excluir(id)` |
@@ -134,60 +134,77 @@ export interface FiltrosCliente { busca?: string; pagina: number; limite: number
 | `PATCH` | `/clientes/:id` | Atualizar parcialmente | `200` + objeto atualizado |
 | `DELETE` | `/clientes/:id` | Remover (soft delete) | `204` sem corpo |
 
+Exceção: endereços do cliente são excluídos de verdade (dado pessoal); a venda guarda cópia do endereço de entrega.
+
 Não usamos `PUT`. Atualização é sempre `PATCH`.
 
 ### Mapa de rotas reservadas
 
 Antes de criar uma rota fora desta lista, adicione-a aqui para o outro saber.
 
+Cada rota indica quem pode usá-la: **(público)** qualquer visitante · **(logado)** cliente ou admin ·
+**(cliente)** cliente logado · **(cliente, dono)** só se o recurso for do cliente logado ·
+**(admin)** equipe da loja · **(gateway)** notificação do gateway de pagamento.
+Rotas `/me` são registradas no router **antes** das rotas `/:id`.
+
 **Celio — auth / clientes / vendas / pagamentos / orçamentos**
 ```
-POST   /api/auth/cadastro
-POST   /api/auth/login               (cria sessão, cookie "sid")
-POST   /api/auth/logout
-GET    /api/auth/sessao              (usuário logado)
+POST   /api/auth/cadastro                       (público, rate limit)
+POST   /api/auth/login                          (público, rate limit — cria sessão, cookie "sid")
+POST   /api/auth/logout                         (logado)
+POST   /api/auth/esqueci-senha                  (público, rate limit — responde 202 sempre)
+POST   /api/auth/redefinir-senha                (público, rate limit)
+GET    /api/auth/sessao                         (logado — usuário da sessão atual)
 
-GET    /api/clientes                 ?busca=&papel=&pagina=&limite=   (admin)
-GET    /api/clientes/:id
-PATCH  /api/clientes/:id
-DELETE /api/clientes/:id             (anonimiza — LGPD)
-GET    /api/clientes/:id/vendas
-GET    /api/clientes/:id/enderecos
-POST   /api/clientes/:id/enderecos
-PATCH  /api/clientes/:id/enderecos/:enderecoId
-DELETE /api/clientes/:id/enderecos/:enderecoId
+GET    /api/clientes/me                         (cliente)
+PATCH  /api/clientes/me                         (cliente)
+PATCH  /api/clientes/me/senha                   (cliente)
+DELETE /api/clientes/me                         (cliente — anonimiza, LGPD)
+GET    /api/clientes/me/enderecos               (cliente)
+POST   /api/clientes/me/enderecos               (cliente)
+PATCH  /api/clientes/me/enderecos/:enderecoId   (cliente, dono)
+DELETE /api/clientes/me/enderecos/:enderecoId   (cliente, dono)
+GET    /api/clientes/me/vendas                  ?status=&pagina=&limite=   (cliente)
+GET    /api/clientes/me/vendas/:id              (cliente, dono — inclui itens e histórico)
 
-GET    /api/vendas                   ?clienteId=&status=&tipoEntrega=&de=&ate=&pagina=&limite=
-GET    /api/vendas/:id               (inclui itens)
-GET    /api/vendas/:id/historico
-POST   /api/vendas                   (cria venda + itens + baixa estoque, numa transação)
-POST   /api/vendas/:id/status        (admin avança o status: { status, observacao, codigoRastreio? })
-POST   /api/vendas/:id/solicitar-cancelamento   (cliente, depois de paga)
-POST   /api/vendas/:id/cancelar      (estorna estoque)
+GET    /api/clientes                            ?busca=&papel=&pagina=&limite=   (admin)
+GET    /api/clientes/:id                        (admin — inclui endereços)
+PATCH  /api/clientes/:id                        (admin — ativar/desativar)
+DELETE /api/clientes/:id                        (admin — anonimiza, LGPD)
+GET    /api/clientes/:id/vendas                 (admin)
 
-POST   /api/vendas/:id/pagamentos    (cria a preferência do Checkout Pro)
-POST   /api/pagamentos/webhook       (notificações do Mercado Pago)
+POST   /api/frete/calcular                      (público, rate limit)
 
-GET    /api/orcamentos
-POST   /api/orcamentos
+GET    /api/vendas                              ?clienteId=&status=&tipoEntrega=&de=&ate=&pagina=&limite=   (admin)
+GET    /api/vendas/:id                          (admin — inclui itens)
+GET    /api/vendas/:id/historico                (admin)
+POST   /api/vendas                              (cliente — cria venda + itens + baixa estoque, numa transação)
+POST   /api/vendas/:id/status                   (admin — avança o status: { status, observacao, codigoRastreio? })
+POST   /api/vendas/:id/cancelar                 (cliente, dono, antes do envio; ou admin — estorna estoque e, se paga, o pagamento)
+
+POST   /api/vendas/:id/pagamentos               (cliente, dono — cria a cobrança no gateway e devolve o link)
+POST   /api/pagamentos/webhook                  (gateway — validado por assinatura)
+
+GET    /api/orcamentos                          (admin)
+POST   /api/orcamentos                          (público, rate limit)
 ```
 
 **Dev 2 — catálogo / estoque**
 ```
-GET    /api/categorias
-GET    /api/produtos                 ?categoria=&busca=&emEstoque=&pagina=&limite=
-GET    /api/produtos/:id
-POST   /api/produtos
-PATCH  /api/produtos/:id
-DELETE /api/produtos/:id
-GET    /api/peixes                   ?tipoAgua=&temperamento=&dificuldade=&temperatura=
-GET    /api/peixes/:id
-GET    /api/servicos
+GET    /api/categorias                                                        (público)
+GET    /api/produtos                 ?categoria=&busca=&emEstoque=&pagina=&limite=   (público)
+GET    /api/produtos/:id                                                      (público)
+POST   /api/produtos                                                          (admin)
+PATCH  /api/produtos/:id                                                      (admin)
+DELETE /api/produtos/:id                                                      (admin)
+GET    /api/peixes                   ?tipoAgua=&temperamento=&dificuldade=&temperatura=   (público)
+GET    /api/peixes/:id                                                        (público)
+GET    /api/servicos                                                          (público)
 
-GET    /api/estoque                  ?abaixoDe=   (saldo por produto)
-GET    /api/estoque/:produtoId
-GET    /api/estoque/movimentacoes    ?produtoId=&tipo=&de=&ate=
-POST   /api/estoque/movimentacoes    (entrada / ajuste manual)
+GET    /api/estoque                  ?abaixoDe=   (saldo por produto)        (admin)
+GET    /api/estoque/:produtoId                                                (admin)
+GET    /api/estoque/movimentacoes    ?produtoId=&tipo=&de=&ate=               (admin)
+POST   /api/estoque/movimentacoes    (entrada / ajuste manual)               (admin)
 ```
 
 ---
@@ -241,11 +258,17 @@ Formato da resposta (já feito pelo `errorHandler`):
 
 | Status | Quando |
 |---|---|
-| `400` | Requisição malformada (id não numérico, query inválida) |
+| `400` | Requisição malformada (id não numérico, query inválida, JSON malformado no body) |
+| `401` | Sem login, sessão expirada ou credenciais inválidas |
+| `403` | Logado, mas sem permissão (cliente em rota de admin) |
 | `404` | Recurso não existe (ou está `ativo = false`) |
-| `409` | Conflito de regra: CPF já cadastrado, estoque insuficiente, venda já cancelada |
+| `409` | Conflito de regra: e-mail já cadastrado, estoque insuficiente, venda já cancelada |
 | `422` | Validação de campos do body — `detalhes` com uma mensagem por campo |
+| `429` | Muitas tentativas (rate limit) |
 | `500` | Erro inesperado (o handler já trata, não lance manualmente) |
+| `502` | Gateway de pagamento indisponível |
+
+Recurso de outro cliente responde **404** (não 403), para não confirmar que ele existe.
 
 - Mensagens em português, para o usuário final, terminando com ponto em `detalhes`.
 - Chaves de `detalhes` = nome do campo no body (camelCase). Em itens de lista: `"itens.0.quantidade"`.
@@ -257,8 +280,21 @@ Formato da resposta (já feito pelo `errorHandler`):
 
 - Fica no **service**, numa função `validar<Algo>` privada do arquivo (ver `orcamento.service.ts`).
 - Junta **todos** os erros em `Record<string, string>` e lança um único `AppError(…, 422, erros)`.
-- Normaliza antes de salvar: `trim()`, telefone/CPF só dígitos, e-mail em minúsculo.
+- Normaliza antes de salvar: `trim()`, telefone só dígitos, e-mail em minúsculo.
 - Conversão de `req.params`/`req.query` (string → number etc.) fica no controller, usando helpers de `utils/validacao.ts` (ex.: `idParam(req.params.id)` que lança `400` se não for inteiro positivo).
+
+### Regras do cadastro de cliente
+
+| Campo | Normalização | Regra | Mensagem |
+|---|---|---|---|
+| `nome` | `trim` | 2 a 120 caracteres | Digite seu nome (pelo menos 2 letras). |
+| `email` | `trim` + minúsculas | um `@`, algo antes, domínio com ponto, sem espaços, até 160 caracteres | Digite um e-mail válido. Exemplo: nome@email.com. |
+| `senha` | nenhuma (não fazer `trim`) | 8 a 128 caracteres | A senha precisa ter pelo menos 8 caracteres. |
+| `telefone` | só dígitos | exatamente 11 dígitos (celular com DDD) | Digite um celular com DDD. Exemplo: (32) 99999-0000. |
+| `aceiteTermos` | — | exatamente `true` | Para criar a conta, aceite os termos de uso e a política de privacidade. |
+
+- E-mail já cadastrado → `409` com detalhes `{ email: 'Este e-mail já está cadastrado.' }`.
+- A `novaSenha` da redefinição de senha (seção 11) segue a mesma regra de `senha`.
 
 ---
 
@@ -285,7 +321,7 @@ O Postgres executa `db/init/*.sql` em ordem alfabética, então a numeração de
 | Arquivo | Dono | Conteúdo |
 |---|---|---|
 | `01_schema.sql` *(já existe — renomear para `01_catalogo.sql`)* | Dev 2 | categorias, produtos, tabelas de detalhe |
-| `10_clientes.sql` | Celio | clientes, enderecos_cliente, sessoes |
+| `10_clientes.sql` | Celio | clientes, enderecos_cliente, sessoes, tokens_recuperacao_senha |
 | `20_vendas.sql` | Celio | domain status_venda, vendas, itens_venda, historico_status_venda, pagamentos, eventos_webhook |
 | `30_estoque.sql` | Dev 2 | movimentacoes_estoque (pode ter FK para vendas) |
 | `90_seed.sql` | ambos (só `INSERT`) | dados de exemplo |
@@ -339,7 +375,9 @@ Um módulo **nunca** importa o repository do outro nem faz SQL em tabela do outr
 ```ts
 // modulos/catalogo/produto.service.ts
 produtoService.buscarParaVenda(ids: number[]): Promise<ProdutoVenda[]>
-// ProdutoVenda = { id: number; nome: string; preco: number; ativo: boolean }
+// ProdutoVenda = { id: number; nome: string; preco: number; ativo: boolean; categoria: string }
+// categoria = categorias.slug (vendas precisa saber quais itens são 'peixes' para a regra de entrega)
+//   (decidido em 19/10/2026 — implementação: Dev 2)
 // Retorna só os encontrados; quem chama decide o erro para id faltando.
 
 // modulos/estoque/estoque.service.ts
@@ -350,13 +388,51 @@ estoqueService.estornarVenda(vendaId: number, client: PoolClient): Promise<void>
 //   com detalhes { "itens.<indice>.quantidade": "Só restam N unidades." }
 ```
 
+`baixarParaVenda` faz `UPDATE produtos SET estoque = estoque - $1 WHERE id = $2 AND estoque >= $1`;
+se nenhuma linha for afetada, lança o 409 acima. O `CHECK (estoque >= 0)` do banco é só rede de segurança.
+(decidido em 19/10/2026 — implementação: Dev 2)
+
+```ts
+// modulos/catalogo/servico.service.ts
+servicoService.listarOpcoes(): Promise<string[]>   // valores aceitos no campo servico do orçamento
+// (decidido em 19/10/2026 — implementação: Dev 2)
+```
+
+(para o módulo `orcamentos` não importar `data/servicos.ts` diretamente)
+
 `ProdutoVenda` e `ItemMovimento` ficam em `types/index.ts` (compartilhado), porque os dois módulos usam.
 
 ### Fluxo de `POST /api/vendas`
 1. `vendaService.criar` valida o body.
 2. Chama `produtoService.buscarParaVenda` → confere se todos existem e estão ativos.
-3. Abre `comTransacao`: insere `vendas` e `itens_venda` (guardando `preco_unitario` do momento da venda) → chama `estoqueService.baixarParaVenda(vendaId, itens, client)`.
-4. Se qualquer passo lançar erro, tudo é desfeito.
+3. Calcula o frete (fora da transação).
+4. Abre `comTransacao`: insere `vendas` e `itens_venda` (guardando `preco_unitario` do momento da venda) → chama `estoqueService.baixarParaVenda(vendaId, itens, client)`. A venda nasce como `'aguardando_pagamento'`, com `expira_em` = criação + 30 minutos.
+5. Se qualquer passo lançar erro, tudo é desfeito.
+
+### Gateway de pagamento
+O gateway de pagamento **ainda não foi escolhido** (prazo: **29/10/2026**). Requisitos:
+- página de pagamento hospedada pelo gateway (cartão e PIX) — o backend nunca recebe dados de cartão;
+- API de estorno;
+- webhooks com assinatura;
+- ambiente de testes;
+- conta no nome da loja.
+
+Todo o código do gateway fica isolado em `modulos/pagamentos/gateway.ts`, e o banco usa nomes genéricos
+(`gateway_*`), para que a escolha afete só esse arquivo. Variáveis: `GATEWAY_ACCESS_TOKEN` e `GATEWAY_WEBHOOK_SECRET`.
+
+### Venda não paga, pagamento e cancelamento
+- Uma tarefa agendada do módulo `vendas` cancela vendas `'aguardando_pagamento'` vencidas e chama
+  `estoqueService.estornarVenda`.
+- O webhook só confirma o pagamento (venda → `'paga'`); não mexe em estoque. Sempre valida a
+  assinatura e reconsulta o pagamento na API do gateway antes de confirmar.
+- Pagamento aprovado de venda já cancelada ou expirada → o módulo `vendas` solicita o estorno.
+- Cancelar venda paga: estorno **automático** do valor total pela API do gateway, com chave de
+  idempotência; depois `estornarVenda`. Se o gateway falhar, a venda fica `'cancelamento_solicitado'`
+  e o estorno é tentado de novo.
+- O estorno é tentado até 5 vezes pela tarefa agendada (contador em `pagamentos.estorno_tentativas`);
+  depois disso a venda continua em `'cancelamento_solicitado'` e o admin resolve manualmente.
+  A chave de idempotência do estorno é derivada do id da venda (`estorno-venda-<id>`).
+- O cliente pode cancelar até antes de a venda ser enviada.
 
 ---
 
@@ -364,9 +440,18 @@ estoqueService.estornarVenda(vendaId: number, client: PoolClient): Promise<void>
 
 `app.ts`, `server.ts`, `config/*`, `middlewares/*`, `utils/*`, `types/index.ts`, `routes/index.ts`, `package.json`, `tsconfig.json`, `docker-compose.yml`, `.env.example`, este `api.md`.
 
+Middlewares de acesso: `middlewares/autenticar.ts` e `middlewares/exigirAdmin.ts` (dono: Celio).
+Envio de e-mail: `utils/email.ts` (dono: Celio) — serviço de envio de e-mail usado por mais de um módulo.
+
 - Mudança neles = **PR separado e pequeno**, com aviso no grupo antes.
 - Nova dependência no `package.json`: combinar antes (evita dois instalarem libs diferentes para a mesma coisa).
+  Já combinadas: `argon2` (hash de senha) e `express-rate-limit` (rate limit). A combinar antes de instalar:
+  SDK do provedor de e-mail (provedor a definir).
 - Nova variável de ambiente: adicionar em `config/env.ts` **e** em `.env.example` no mesmo PR.
+  Novas: `SESSION_SECRET`, `API_URL`, `FRONTEND_URL`, `GATEWAY_ACCESS_TOKEN`, `GATEWAY_WEBHOOK_SECRET`,
+  `EMAIL_API_KEY`, `EMAIL_REMETENTE`.
+  - `FRONTEND_URL` = endereço público do frontend, usado **só** para montar links em e-mails.
+  - `CORS_ORIGIN` (já existe) = origem aceita no CORS e na checagem do header `Origin` (CSRF).
 
 O `routes/index.ts` já deve ficar com todos os módulos montados, uma linha cada, para ninguém precisar editar depois:
 
@@ -376,6 +461,7 @@ routes.use('/estoque', estoqueRoutes)        // Dev 2
 routes.use('/auth', authRoutes)              // Celio
 routes.use('/clientes', clienteRoutes)       // Celio
 routes.use('/vendas', vendaRoutes)           // Celio (inclui /vendas/:id/pagamentos)
+routes.use('/frete', freteRoutes)            // Celio
 routes.use('/pagamentos', pagamentoRoutes)   // Celio (webhook)
 routes.use('/orcamentos', orcamentoRoutes)   // Celio
 ```
@@ -496,7 +582,65 @@ export const clienteRepository = {
 
 ---
 
-## 11. Git
+## 11. Autenticação e acesso
+
+- **Sessão:** login cria uma linha em `sessoes` (o banco guarda só o hash do token) e envia o cookie
+  `sid` com `httpOnly`, `secure` em produção e `sameSite=lax`. Sem token em header, sem `localStorage`.
+  Logout, troca de senha e cliente desativado apagam as sessões na hora.
+- **Frontend:** toda chamada usa `fetch(url, { credentials: 'include' })`. CORS liberado só para
+  `CORS_ORIGIN`, com `credentials: true`; nunca `origin: '*'`.
+
+### Níveis de acesso
+
+| Nível | Middlewares na rota |
+|---|---|
+| público | nenhum |
+| logado / cliente | `autenticar` |
+| admin | `autenticar, exigirAdmin` |
+| gateway | validação de assinatura, sem `autenticar` |
+
+```ts
+clienteRoutes.get('/me', autenticar, clienteController.buscarMeusDados)         // cliente
+clienteRoutes.get('/', autenticar, exigirAdmin, clienteController.listar)        // admin
+```
+
+- `autenticar` preenche `req.usuario: { id: number, papel: 'cliente' | 'admin' }` (tipo em `types/index.ts`).
+- Admin só é criado por script (`npm run criar-admin`), nunca por rota.
+
+### Recuperação de senha
+- `POST /api/auth/esqueci-senha` recebe `{ email }`. Se o e-mail pertencer a uma conta ativa, **apaga todos os
+  tokens anteriores do cliente**, gera um token aleatório, salva só o hash (SHA-256) em `tokens_recuperacao_senha`,
+  com `expira_em` = agora + 30 minutos, e envia um e-mail com o link `<FRONTEND_URL>/redefinir-senha?token=<token>`.
+  A resposta é **sempre** `202` com a mesma mensagem, exista o e-mail ou não, para não revelar quem tem conta.
+- `POST /api/auth/redefinir-senha` recebe `{ token, novaSenha }`. O token é válido se existe e não venceu, e a conta
+  precisa estar ativa e não anonimizada; senão `400` com mensagem genérica (`'Link inválido ou expirado.'`).
+  A nova senha segue a regra de senha do cadastro (seção 6). Em uma transação: grava o novo `senha_hash`, apaga
+  **todos** os tokens de recuperação do cliente e apaga **todas** as sessões dele.
+- Não há limpeza periódica de tokens vencidos na entrega de 19/11: eles ficam até o cliente pedir outro link,
+  redefinir a senha ou ser anonimizado.
+- Rate limit nas duas rotas (por IP e, no `esqueci-senha`, também por e-mail).
+- O token nunca é logado nem devolvido em resposta; ele só existe no link do e-mail.
+
+### Regras
+- O dono vem do login: rotas `/me` usam `req.usuario.id`; nunca aceitar `clienteId` do body ou da URL
+  em rota de cliente. Rotas de cliente com id de venda ou endereço filtram também por
+  `cliente_id = req.usuario.id`; não achou → `404`.
+- Em rotas de **cliente**, campos controlados pelo sistema são ignorados se vierem no body: `papel`, `ativo`,
+  `status`, `preco`, `precoUnitario`, `subtotal`, `frete`, `total`, `clienteId`. Rotas de **admin** aceitam só
+  os campos que cada uma documenta (ex.: `POST /api/vendas/:id/status` aceita `status`;
+  `PATCH /api/clientes/:id` aceita `ativo`).
+- `DELETE /api/clientes/me` (e `DELETE /api/clientes/:id`, do admin) anonimiza o cliente e apaga, na mesma
+  transação, os endereços, as sessões e os tokens de recuperação de senha dele.
+- Preço e total são sempre calculados a partir de `produtos.preco`.
+- Nunca devolver `senha_hash` nem dados de pagamento; nunca logar senha, cookie ou token.
+- `POST`/`PATCH`/`DELETE` (exceto o webhook) exigem header `Origin` igual a `CORS_ORIGIN` (proteção CSRF).
+- O frontend faz proxy de `/api` para o backend, então o navegador enxerga uma única origem e o cookie
+  `sameSite=lax` funciona sem domínio próprio. Com domínio próprio no futuro: frontend e API em subdomínios
+  do mesmo domínio.
+
+---
+
+## 12. Git
 
 - Nunca commitar direto na `main`. Uma branch por tarefa, PR revisado pelo outro dev.
 - Branch: `<tipo>/<modulo>-<descricao-curta>` → `feat/clientes-crud`, `feat/estoque-movimentacoes`, `fix/vendas-total`.
