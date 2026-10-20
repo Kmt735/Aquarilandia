@@ -10,6 +10,10 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     res.status(err.statusCode).json({ erro: err.message, detalhes: err.detalhes })
     return
   }
+  if (err instanceof SyntaxError && 'body' in err) {
+    res.status(400).json({ erro: 'JSON inválido' })
+    return
+  }
   console.error(err)
   res.status(500).json({ erro: 'Erro interno do servidor' })
 }

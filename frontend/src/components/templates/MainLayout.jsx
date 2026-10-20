@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router'
 import WhatsAppFloat from '../atoms/WhatsAppFloat'
+import Footer from '../organisms/Footer'
 import CartDrawer from '../organisms/CartDrawer'
 import QuoteModal from '../organisms/QuoteModal'
 import SearchBox from '../organisms/SearchBox'
@@ -38,6 +39,7 @@ export default function MainLayout() {
       <main key={pathname} className="animate-fade">
         <Outlet />
       </main>
+      <Footer />
 
       <CartDrawer />
       {painel === 'busca' && <SearchBox />}

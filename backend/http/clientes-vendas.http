@@ -1,0 +1,43 @@
+@api=http://localhost:3333/api
+@origem=http//localhost:5173
+
+
+get {{api}}/orcamentos 
+
+
+###
+post {{api}}/orcamentos
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+    "nome": "Cliente Teste",
+    "telefone": "3299999999",
+    "servico": "Manutenção",
+    "mensagem": "Quero montar um aquario de 100 litros" 
+}
+
+
+###
+get {{api}}/rota-que-nao-existe
+
+
+###
+post {{api}}/orcamentos
+Content-Type: application/json
+Origin: {{origem}}
+
+{ /
+
+###
+post {{api}}/auth/cadastro
+Content-type: application/json
+Origin: {{origem}}
+
+{
+    "nome": "Rafaela",
+    "email": "rafa@gmail.com",
+    "senha": "343434343434",
+    "telefone": "33333333333",
+    "aceiteTermos": true
+}
