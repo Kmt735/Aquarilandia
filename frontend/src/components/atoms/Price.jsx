@@ -1,7 +1,5 @@
 export default function Price({ children }) {
   return (
-    <div className="font-display text-[19px] font-semibold tracking-[-0.01em] text-foreground tabular-nums dark:text-neon">
-      {children}
-    </div>
+    <div className="font-display text-[21px] font-extrabold tracking-[-0.01em] text-primary-text tabular-nums">{children}</div>
   )
 }

@@ -1,4 +1,4 @@
-import { MessageCircle } from 'lucide-react'
+import WhatsAppIcon from '../icons/WhatsAppIcon'
 
 export default function WhatsAppFloat({ onClick }) {
   return (
@@ -7,9 +7,9 @@ export default function WhatsAppFloat({ onClick }) {
       onClick={onClick}
       title="Falar no WhatsApp"
       aria-label="Falar no WhatsApp"
-      className="fixed right-4 bottom-4 z-50 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-pop transition-[background-color,box-shadow] duration-200 hover:bg-primary-hover hover:shadow-neon sm:right-6 sm:bottom-6"
+      className="fixed right-4 bottom-4 z-50 flex size-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-pop transition-[background-color,transform] duration-200 hover:-translate-y-0.5 hover:bg-accent-hover sm:right-6 sm:bottom-6"
     >
-      <MessageCircle className="size-6" />
+      <WhatsAppIcon className="size-7" />
     </button>
   )
 }

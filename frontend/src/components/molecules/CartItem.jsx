@@ -7,12 +7,12 @@ import { formatarPreco } from '../../utils/format'
 export default function CartItem({ produto, qtd, onIncrementar, onDecrementar, onRemover }) {
   return (
     <div className="flex items-start gap-3.5 border-b border-border py-4">
-      <div className="w-14 shrink-0 overflow-hidden rounded-lg">
+      <div className="w-14 shrink-0 overflow-hidden rounded-xl">
         <Midia proporcao="1/1" icone={iconeCategoria[produto.categoria]} className="[&>svg]:size-6" />
       </div>
       <div className="min-w-0 flex-1">
-        <h5 className="font-display text-[14px] font-semibold">{produto.nome}</h5>
-        <div className="mt-0.5 text-[13px] font-medium text-primary-text tabular-nums dark:text-neon">
+        <h5 className="text-[14.5px]">{produto.nome}</h5>
+        <div className="mt-0.5 text-[14px] font-bold text-primary-text tabular-nums">
           {formatarPreco(produto.preco * qtd)}
         </div>
         <div className="mt-2.5 flex items-center gap-2">

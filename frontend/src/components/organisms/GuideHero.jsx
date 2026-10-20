@@ -4,11 +4,11 @@ import Highlight from '../atoms/Highlight'
 
 export default function GuideHero({ onIniciar }) {
   return (
-    <div className="border-b border-border bg-surface">
+    <div className="border-b border-border bg-surface-tint">
       <div className="mx-auto grid max-w-[1200px] gap-8 px-4 py-16 sm:px-6 desk:grid-cols-[1.3fr_1fr] desk:items-end desk:px-10 desk:py-24">
         <div>
           <Eyebrow>Área educativa</Eyebrow>
-          <h1 className="mt-5 max-w-[620px] text-[40px] leading-[1.04] desk:text-[56px]">
+          <h1 className="mt-5 max-w-[620px] text-[40px] leading-[1.06] text-primary-dark desk:text-[56px] dark:text-foreground">
             Você nunca teve um aquário? <Highlight bloco>Comece aqui.</Highlight>
           </h1>
         </div>

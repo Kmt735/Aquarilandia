@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 const CHAVE = 'aquarilandia-tema'
-const COR_BARRA = { light: '#f6f8fc', dark: '#070b14' }
+const COR_BARRA = { light: '#ffffff', dark: '#071433' }
 
 // Primeira visita segue o sistema (aplicado no index.html); depois vale a escolha salva
 export default function useTema() {

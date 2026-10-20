@@ -5,7 +5,7 @@ export default function EmptyState({ icone, children, acoes, ...props }) {
       {...props}
     >
       {icone && (
-        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-surface-muted text-primary-text dark:text-neon [&_svg]:size-6">
+        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-surface-tint text-primary-text [&_svg]:size-6">
           {icone}
         </div>
       )}

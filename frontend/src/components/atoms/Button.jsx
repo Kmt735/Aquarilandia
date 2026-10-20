@@ -6,10 +6,11 @@ const variantes = {
   primary: { variant: 'default', size: 'lg' },
   ghost: { variant: 'outline', size: 'lg' },
   cta: { variant: 'default', size: 'default' },
-  buy: { variant: 'default', size: 'sm', className: 'flex-1' },
+  buy: { variant: 'default', size: 'default', className: 'flex-1' },
   quote: { variant: 'default', size: 'default', className: 'w-full' },
   submit: { variant: 'default', size: 'lg', className: 'w-full' },
-  whatsapp: { variant: 'default', size: 'lg', className: 'w-full' },
+  whatsapp: { variant: 'accent', size: 'lg', className: 'w-full' },
+  accent: { variant: 'accent', size: 'lg' },
   guide: { variant: 'outline', size: 'sm' },
   guidePrimary: { variant: 'default', size: 'sm' },
 }

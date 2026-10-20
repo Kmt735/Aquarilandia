@@ -41,15 +41,15 @@ export default function QuoteModal() {
 
   return (
     <Dialog open onOpenChange={(aberto) => !aberto && fecharPaineis()}>
-      <DialogContent className="max-h-[90vh] overflow-auto rounded-2xl border-border bg-surface-elevated p-6 sm:max-w-[480px]">
+      <DialogContent className="max-h-[90vh] overflow-auto rounded-[20px] border-border bg-surface-elevated p-6 sm:max-w-[480px]">
       <DialogHeader className="mb-2">
-        <DialogTitle className="font-display text-[22px]">Solicitar orçamento</DialogTitle>
+        <DialogTitle className="font-display text-[23px] font-extrabold">Solicitar orçamento</DialogTitle>
         <DialogDescription className="sr-only">Formulário de pedido de orçamento</DialogDescription>
       </DialogHeader>
 
       {status === 'enviado' ? (
         <div className="pt-4 pb-1 text-center">
-          <CircleCheck aria-hidden="true" className="mx-auto mb-3 size-11 text-primary-text dark:text-neon" />
+          <CircleCheck aria-hidden="true" className="mx-auto mb-3 size-11 text-primary-text" />
           <h4 className="mb-2 text-[20px]">Pedido recebido!</h4>
           <p className="mb-5 text-[14.5px] leading-relaxed text-text-muted">
             Obrigado, {form.nome.trim().split(' ')[0]}! Recebemos seu pedido de {form.servico.toLowerCase()}. Vamos

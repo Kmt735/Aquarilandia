@@ -7,7 +7,7 @@ export default function GuideBar({ passo, total, titulo, onVoltar, onAvancar, on
   const ultimo = passo === total - 1
 
   return (
-    <div className="sticky bottom-4 z-40 mx-4 mb-10 flex items-center gap-3 rounded-2xl border border-border bg-surface-elevated px-3 py-3 shadow-pop desk:mx-auto desk:max-w-[680px] dark:border-neon/30">
+    <div className="sticky bottom-4 z-40 mx-4 mb-10 flex items-center gap-3 rounded-2xl border border-border bg-surface-elevated px-3 py-3 shadow-pop desk:mx-auto desk:max-w-[680px]">
       <Button variant="guide" onClick={onVoltar} disabled={passo === 0}>
         ← Voltar
       </Button>

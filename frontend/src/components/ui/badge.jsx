@@ -3,16 +3,17 @@ import { cn } from "@/lib/utils"
 import { Slot } from "radix-ui"
 
 const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] [&>svg]:pointer-events-none [&>svg]:size-3",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-bold whitespace-nowrap transition-[color,box-shadow] [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground",
         secondary: "bg-surface-muted text-text-muted",
-        // Neon: ponto de status brilhante + texto na cor do texto (neon nunca vira texto pequeno no claro)
-        neon: "border-neon/45 bg-neon/10 text-foreground",
+        // Selos sobre as imagens: azul claro (status), amarelo ("Novo") e vermelho (desconto)
+        soft: "bg-primary-soft text-primary-text",
+        accent: "bg-accent text-accent-foreground",
         outline: "border-border-strong text-foreground",
-        destructive: "bg-destructive text-white",
+        destructive: "bg-danger text-danger-foreground",
       },
     },
     defaultVariants: {
