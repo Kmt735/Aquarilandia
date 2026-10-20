@@ -5,7 +5,7 @@ import { iconeServico } from '@/lib/icones'
 export default function ServiceCard({ servico, onOrcamento }) {
   const Icone = iconeServico[servico.id]
   const icone = Icone && (
-    <span className="flex size-11 items-center justify-center rounded-xl bg-primary-soft text-primary-text dark:text-neon">
+    <span className="flex size-11 items-center justify-center rounded-xl bg-surface-tint text-primary-text">
       <Icone aria-hidden="true" className="size-5" />
     </span>
   )
@@ -21,7 +21,7 @@ export default function ServiceCard({ servico, onOrcamento }) {
   }
 
   return (
-    <div className="neon-hover flex flex-col border border-transparent bg-surface p-7 desk:p-8">
+    <div className="flex flex-col bg-surface p-7 transition-colors hover:bg-surface-tint/60 desk:p-8">
       {icone}
       <h4 className="mt-6 mb-2 text-[19px]">{servico.nome}</h4>
       <p className="mb-6 flex-1 text-[14.5px] leading-relaxed text-text-muted">{servico.descricao}</p>

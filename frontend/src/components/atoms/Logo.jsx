@@ -9,7 +9,7 @@ export default function Logo({ className = '' }) {
       <span className="flex size-10 items-center justify-center rounded-full border border-border bg-logo-tile">
         <img src={marca} srcSet={`${marca} 1x, ${marca2x} 2x`} alt="" width="34" height="34" className="size-[34px]" />
       </span>
-      <span className="font-display text-[17px] font-semibold tracking-[-0.01em] text-foreground">Aquarilândia</span>
+      <span className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-primary-dark dark:text-foreground">Aquarilândia</span>
     </Link>
   )
 }

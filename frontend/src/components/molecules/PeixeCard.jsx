@@ -13,7 +13,7 @@ export default function PeixeCard({ peixe, onWhatsApp }) {
   ]
 
   return (
-    <Card id={peixe.id} className="neon-hover gap-0 overflow-hidden rounded-card border-border bg-surface py-0 shadow-none">
+    <Card id={peixe.id} className="gap-0 overflow-hidden rounded-card border-border bg-surface py-0 shadow-none transition-[border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/40">
       <Midia proporcao="4/3" icone={Fish} />
       <div className="flex flex-1 flex-col p-5">
         <h4 className="text-[18px]">{peixe.nome}</h4>
@@ -21,7 +21,7 @@ export default function PeixeCard({ peixe, onWhatsApp }) {
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border py-4 text-[13.5px]">
           {ficha.map(([chave, valor]) => (
             <div key={chave}>
-              <dt className="text-[11px] font-semibold tracking-[.1em] text-text-muted uppercase">{chave}</dt>
+              <dt className="text-[11px] font-bold tracking-[.08em] text-text-muted uppercase">{chave}</dt>
               <dd className="mt-0.5">{valor}</dd>
             </div>
           ))}

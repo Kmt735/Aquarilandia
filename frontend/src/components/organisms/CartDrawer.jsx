@@ -1,6 +1,7 @@
-import { MessageCircle, ShoppingCart } from 'lucide-react'
+import { ShoppingCart } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import Button from '../atoms/Button'
+import WhatsAppIcon from '../icons/WhatsAppIcon'
 import CartItem from '../molecules/CartItem'
 import Hint from '../molecules/Hint'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -22,8 +23,8 @@ export default function CartDrawer() {
     <Sheet open={painel === 'carrinho'} onOpenChange={(aberto) => !aberto && fecharPaineis()}>
       <SheetContent side="right" className="w-[400px] max-w-full gap-0 border-border bg-surface p-0 sm:max-w-[400px]">
         <SheetHeader className="border-b border-border px-5 py-5">
-          <SheetTitle className="flex items-center gap-2.5 font-display text-[20px]">
-            <ShoppingCart aria-hidden="true" className="size-5 text-primary-text dark:text-neon" />
+          <SheetTitle className="flex items-center gap-2.5 font-display text-[21px] font-extrabold">
+            <ShoppingCart aria-hidden="true" className="size-5 text-primary-text" />
             Seu carrinho
           </SheetTitle>
           <SheetDescription className="sr-only">Itens do carrinho e finalização pelo WhatsApp</SheetDescription>
@@ -65,10 +66,10 @@ export default function CartDrawer() {
         <div className="border-t border-border px-5 py-5">
           <div className="mb-4 flex justify-between text-[15px] font-semibold">
             <span>Total</span>
-            <span className="tabular-nums dark:text-neon">{formatarPreco(total)}</span>
+            <span className="text-primary-text tabular-nums">{formatarPreco(total)}</span>
           </div>
           <Button variant="whatsapp" disabled={!linhas.length} onClick={() => abrirWhatsApp('enviando seu pedido')}>
-            <MessageCircle aria-hidden="true" />
+            <WhatsAppIcon />
             Finalizar pedido pelo WhatsApp
           </Button>
         </div>

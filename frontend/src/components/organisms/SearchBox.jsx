@@ -1,8 +1,9 @@
-import { MessageCircle, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import Button from '../atoms/Button'
 import Kbd from '../atoms/Kbd'
+import WhatsAppIcon from '../icons/WhatsAppIcon'
 import SearchResult from '../molecules/SearchResult'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import useUI from '../../hooks/useUI'
@@ -28,7 +29,7 @@ export default function SearchBox() {
     <Dialog open onOpenChange={(aberto) => !aberto && fecharPaineis()}>
       <DialogContent
         showCloseButton={false}
-        className="top-[96px] translate-y-0 gap-0 rounded-2xl border-border bg-surface-elevated p-3 sm:max-w-[580px]"
+        className="top-[96px] translate-y-0 gap-0 rounded-[20px] border-border bg-surface-elevated p-3 sm:max-w-[580px]"
       >
       <DialogTitle className="sr-only">Buscar</DialogTitle>
       <DialogDescription className="sr-only">Busque produtos, peixes ou categorias</DialogDescription>
@@ -42,7 +43,7 @@ export default function SearchBox() {
         onChange={(e) => setConsulta(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && resultados[0] && abrir(resultados[0])}
         placeholder="Buscar produtos, peixes ou categorias…"
-        className="w-full rounded-xl border border-border-strong bg-surface py-3.5 pr-4 pl-11 text-[15px] text-foreground outline-none placeholder:text-text-muted focus:border-primary dark:focus:border-neon/70 dark:focus:shadow-[0_0_10px_-3px_var(--neon-glow)]"
+        className="w-full rounded-full border border-border-strong bg-surface py-3.5 pr-4 pl-11 text-[16px] text-foreground outline-none placeholder:text-text-muted focus:border-primary focus:ring-[3px] focus:ring-primary/20 dark:focus:border-primary-text"
       />
       </div>
 
@@ -64,13 +65,14 @@ export default function SearchBox() {
           ainda não esteja cadastrado aqui.
           <br />
           <Button
+            variant="accent"
             className="mt-3"
             onClick={() => {
               fecharPaineis()
               abrirWhatsApp(`perguntando sobre “${termo}”`)
             }}
           >
-            <MessageCircle aria-hidden="true" />
+            <WhatsAppIcon />
             Perguntar no WhatsApp
           </Button>
         </div>

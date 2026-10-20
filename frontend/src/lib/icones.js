@@ -1,6 +1,5 @@
 import {
   BookOpen,
-  Box,
   Building2,
   Castle,
   Droplets,
@@ -8,32 +7,34 @@ import {
   FlaskConical,
   Folder,
   Hammer,
-  Leaf,
+  LeafyGreen,
   Lightbulb,
   MessageCircle,
   Mountain,
   Package,
   PencilRuler,
+  Shell,
   Sprout,
-  Thermometer,
+  ThermometerSun,
   Waves,
   Wheat,
   Wrench,
 } from 'lucide-react'
+import AquarioIcon from '@/components/icons/AquarioIcon'
 
 // Ícones da interface (Lucide) no lugar dos emojis guardados nos dados — os dados não mudam.
 export const iconeCategoria = {
-  Aquários: Box,
+  Aquários: AquarioIcon,
   Filtros: Droplets,
   Bombas: Waves,
   Iluminação: Lightbulb,
-  Termostatos: Thermometer,
+  Termostatos: ThermometerSun,
   Rações: Wheat,
   Condicionadores: FlaskConical,
   Substratos: Mountain,
-  Plantas: Leaf,
+  Plantas: LeafyGreen,
   Decorações: Castle,
-  Acessórios: Wrench,
+  Acessórios: Shell,
 }
 
 export const iconeServico = {

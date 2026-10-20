@@ -1,16 +1,16 @@
-import { ChevronRight, Menu, MessageCircle, Moon, Search, ShoppingCart, Sun } from 'lucide-react'
+import { ChevronRight, Menu, Moon, Search, ShoppingCart, Sun } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router'
 import IconButton from '../atoms/IconButton'
 import Logo from '../atoms/Logo'
-import SublinhadoNeon from '../atoms/SublinhadoNeon'
+import SublinhadoNav from '../atoms/SublinhadoNav'
+import CartButton from '../molecules/CartButton'
 import NavDropdown from '../molecules/NavDropdown'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import useCart from '../../hooks/useCart'
 import useTema from '../../hooks/useTema'
 import useUI from '../../hooks/useUI'
-import useWhatsApp from '../../hooks/useWhatsApp'
 import { ROTAS } from '../../utils/rotas'
 
 const links = [
@@ -21,9 +21,9 @@ const links = [
   { to: ROTAS.servicos, rotulo: 'Serviços' },
 ]
 
-// Link do menu: cinza → azul, com sublinhado neon fino no hover/foco e na página ativa
+// Link do menu: marinho → azul, com traço azul no hover/foco e na página ativa
 const classeLink = ({ isActive }) =>
-  `group/link relative py-2 text-sm font-medium transition-colors ${isActive ? 'text-primary-text' : 'text-text-muted hover:text-primary-text'}`
+  `group/link relative py-2 text-[15px] font-bold whitespace-nowrap transition-colors ${isActive ? 'text-primary-text' : 'text-foreground hover:text-primary-text'}`
 
 function BotaoTema({ escuro, onClick }) {
   const rotulo = escuro ? 'Usar tema claro' : 'Usar tema escuro'
@@ -38,7 +38,6 @@ export default function SiteNav() {
   const { pathname } = useLocation()
   const { abrirPainel } = useUI()
   const { quantidade, bump } = useCart()
-  const abrirWhatsApp = useWhatsApp()
   const [tema, alternarTema] = useTema()
   const [menuAberto, setMenuAberto] = useState(false)
   const escuro = tema === 'dark'
@@ -48,7 +47,7 @@ export default function SiteNav() {
       <div className="mx-auto flex h-[72px] max-w-[1200px] items-center justify-between gap-4 px-4 sm:px-6 desk:px-10">
         <Logo />
 
-        <nav aria-label="Principal" className="hidden items-center gap-8 desk:flex">
+        <nav aria-label="Principal" className="hidden items-center gap-5 desk:flex xl:gap-7">
           {links.map((l) =>
             l.to === ROTAS.loja ? (
               <NavDropdown key={l.to} ativo={pathname === ROTAS.loja} />
@@ -57,7 +56,7 @@ export default function SiteNav() {
                 {({ isActive }) => (
                   <>
                     {l.rotulo}
-                    <SublinhadoNeon ativo={isActive} />
+                    <SublinhadoNav ativo={isActive} />
                   </>
                 )}
               </NavLink>
@@ -75,6 +74,7 @@ export default function SiteNav() {
             <Search />
           </IconButton>
           <IconButton
+            className="desk:hidden"
             aria-label="Abrir carrinho"
             title="Carrinho"
             badge={quantidade}
@@ -84,10 +84,7 @@ export default function SiteNav() {
             <ShoppingCart />
           </IconButton>
           <BotaoTema escuro={escuro} onClick={alternarTema} />
-          <Button className="ml-1 max-desk:hidden" onClick={() => abrirWhatsApp()}>
-            <MessageCircle />
-            Falar no WhatsApp
-          </Button>
+          <CartButton compacto className="ml-1 max-desk:hidden" onClick={() => abrirPainel('carrinho')} />
 
           <Sheet open={menuAberto} onOpenChange={setMenuAberto}>
             <SheetTrigger asChild>
@@ -110,13 +107,13 @@ export default function SiteNav() {
                     end={l.end}
                     onClick={() => setMenuAberto(false)}
                     className={({ isActive }) =>
-                      `flex items-center justify-between rounded-lg px-3 py-3.5 text-[15px] font-medium transition-colors hover:bg-surface-muted ${isActive ? 'text-primary-text' : 'text-foreground'}`
+                      `flex items-center justify-between rounded-xl px-3 py-3.5 text-[16px] font-bold transition-colors hover:bg-surface-tint ${isActive ? 'bg-surface-tint text-primary-text' : 'text-foreground'}`
                     }
                   >
                     {({ isActive }) => (
                       <>
                         <span className="flex items-center gap-2.5">
-                          <span aria-hidden="true" className={`size-1.5 rounded-full ${isActive ? 'neon-dot' : 'bg-transparent'}`} />
+                          <span aria-hidden="true" className={`size-1.5 rounded-full ${isActive ? 'bg-primary-text' : 'bg-transparent'}`} />
                           {l.rotulo}
                         </span>
                         <ChevronRight aria-hidden="true" className="size-4 text-text-muted" />
@@ -136,15 +133,12 @@ export default function SiteNav() {
                   <Search />
                   Buscar
                 </Button>
-                <Button
+                <CartButton
                   onClick={() => {
                     setMenuAberto(false)
-                    abrirWhatsApp()
+                    abrirPainel('carrinho')
                   }}
-                >
-                  <MessageCircle />
-                  Falar no WhatsApp
-                </Button>
+                />
               </div>
             </SheetContent>
           </Sheet>
