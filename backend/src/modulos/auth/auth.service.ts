@@ -1,8 +1,17 @@
 import {AppError} from "../../utils/AppError.js"
 import {clienteRepository} from "../../modulos/clientes/cliente.repository.js"
-import {gerarHash} from "../clientes/senha.js"
-import type { DadosCadastro } from "./auth.types.js"
+import {gerarHash , verificarSenha } from "../clientes/senha.js"
+import type { DadosCadastro , DadosLogin } from "./auth.types.js"
 import type { Cliente } from "../clientes/cliente.types.js"
+import {gerarToken , hashToken} from "./sessao.js"
+import { sessaoRepository } from "./sessao.repository.js"
+
+
+
+
+const DURACAO_SESSAO_MS = 7 * 24 *60 *60 *100
+const MSG_LOGIN_INVALIDO = 'Email ou senha incorretos.'
+
 
 function validarCadastro (body: unknown): DadosCadastro {
     const erros: Record<string,string> = {}
@@ -37,6 +46,24 @@ function ehEmailDuplicado(err: unknown): boolean {
   )
 }
 
+function validarLogin(body:unknown):DadosLogin {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+  }
+
+  const dados = body as Record<string, unknown>
+  const email = String(dados.email ?? '').trim().toLowerCase()
+  const senha = String(dados.senha ?? '')
+
+  const erros: Record<string, string> = {}
+  if (email === '') erros.email = 'Digite seu e-mail.'
+  if (senha === '') erros.senha = 'Digite sua senha.'
+  if (senha.length > 128) erros.senha = 'Senha inválida.'
+
+  if (Object.keys(erros).length) throw new AppError('Dados inválidos', 422, erros)
+  return { email, senha }
+}
+
 export const authService = {
   async cadastrar(body: unknown): Promise<Cliente> {
     const dados = validarCadastro(body)
@@ -57,5 +84,31 @@ export const authService = {
       if (ehEmailDuplicado(err)) throw new AppError('E-mail já cadastrado.', 409)
       throw err
     }
+  },
+  async login(
+    body: unknown,
+    contexto: { ip: string | null; userAgent: string | null }
+  ): Promise<{ cliente: Cliente; token: string; expiraEm: Date }> {
+    const dados = validarLogin(body)
+
+    const encontrado = await clienteRepository.buscarParaLogin(dados.email)
+    if (!encontrado || !encontrado.ativo) throw new AppError(MSG_LOGIN_INVALIDO, 401)
+
+    const senhaConfere = await verificarSenha(encontrado.senhaHash, dados.senha)
+    if (!senhaConfere) throw new AppError(MSG_LOGIN_INVALIDO, 401)
+
+    const token = gerarToken()
+    const expiraEm = new Date(Date.now() + DURACAO_SESSAO_MS)
+
+    await sessaoRepository.criar({
+      tokenHash: hashToken(token),
+      clienteId: encontrado.id,
+      expiraEm,
+      ip: contexto.ip,
+      userAgent: contexto.userAgent
+    })
+
+    const { senhaHash, ...cliente } = encontrado
+    return { cliente, token, expiraEm }
   }
 }

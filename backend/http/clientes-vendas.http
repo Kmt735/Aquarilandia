@@ -41,3 +41,156 @@ Origin: {{origem}}
     "telefone": "33333333333",
     "aceiteTermos": true
 }
+
+# 409 - mesmo e-mail do caso 1
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Rafaela",
+  "email": "rafa@gmail.com",
+  "senha": "343434343434",
+  "telefone": "33333333333",
+  "aceiteTermos": true
+}
+
+# 409 - mesmo e-mail com maiúsculas (prova o toLowerCase)
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Rafaela",
+  "email": "  Rafa@Gmail.COM  ",
+  "senha": "343434343434",
+  "telefone": "33333333333",
+  "aceiteTermos": true
+}
+
+# 422 - body vazio (erro nos 5 campos)
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{}
+
+# 422 - senha curta (só o campo senha)
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Teste Senha",
+  "email": "senha.curta@exemplo.com",
+  "senha": "1234567",
+  "telefone": "35999998888",
+  "aceiteTermos": true
+}
+
+# 201 - telefone com máscara (no banco deve ficar só dígitos)
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Teste Mascara",
+  "email": "mascara@exemplo.com",
+  "senha": "senha1234",
+  "telefone": "(35) 99999-8888",
+  "aceiteTermos": true
+}
+
+# 422 - aceiteTermos como string (só o campo aceiteTermos)
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Teste Termos",
+  "email": "termos@exemplo.com",
+  "senha": "senha1234",
+  "telefone": "35999998888",
+  "aceiteTermos": "true"
+}
+
+# 422 - body null (formato inválido)
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+null
+
+# ===== LOGIN =====
+
+# 200 - login certo (confira o Set-Cookie nos headers da resposta)
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "rafa@gmail.com",
+  "senha": "343434343434"
+}
+
+# 401 - senha errada
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "rafa@gmail.com",
+  "senha": "senhaerrada123"
+}
+
+# 401 - e-mail que não existe (mesma mensagem da senha errada)
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "naoexiste@exemplo.com",
+  "senha": "343434343434"
+}
+
+# 200 - e-mail com maiúsculas e espaços (prova a normalização)
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "  Rafa@Gmail.COM  ",
+  "senha": "343434343434"
+}
+
+# 422 - body vazio (erro em email e senha)
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{}
+
+# 401 - conta inativa
+# Antes: no Adminer, mude o "ativo" da rafa@gmail.com para false.
+# Depois do teste, volte para true.
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "rafa@gmail.com",
+  "senha": "343434343434"
+}
