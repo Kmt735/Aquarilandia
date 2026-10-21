@@ -18,3 +18,6 @@ export interface NovoCliente {
     senhaHash:string
 }
 
+export interface ClienteComSenha extends Cliente {
+    senhaHash : string
+}
