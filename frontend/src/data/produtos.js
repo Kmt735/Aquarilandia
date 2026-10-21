@@ -1,3 +1,4 @@
+import { peixes } from './peixes'
 export const produtos = [
   {
     id: 'aquario-vidro-40l',
@@ -57,4 +58,4 @@ export const produtos = [
   },
 ]
 
-export const buscarProduto = (id) => produtos.find((p) => p.id === id)
+export const buscarProduto = (id) => produtos.find((p) => p.id === id) ?? peixes.find((p) => p.id === id)
