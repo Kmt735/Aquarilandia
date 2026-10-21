@@ -2,7 +2,7 @@ import { categorias } from '../data/categorias'
 import { peixes } from '../data/peixes'
 import { produtos } from '../data/produtos'
 import { formatarPreco, normalizar } from './format'
-import { ROTAS, urlLoja } from './rotas'
+import { ROTAS, urlLoja, urlPeixe } from './rotas'
 
 export const indiceBusca = [
   ...produtos.map((p) => ({
@@ -18,8 +18,7 @@ export const indiceBusca = [
     rotulo: p.nome,
     sub: p.cientifico,
     icone: '🐟',
-    to: ROTAS.peixes,
-    state: { destaque: p.id },
+    to: urlPeixe(p.id),
   })),
   ...categorias.map((c) => ({
     tipo: 'Categoria',

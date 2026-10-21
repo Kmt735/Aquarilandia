@@ -13,3 +13,5 @@ export function urlLoja({ categoria, disponibilidade } = {}) {
   const query = params.toString()
   return query ? `${ROTAS.loja}?${query}` : ROTAS.loja
 }
+
+export const urlPeixe = (id) => `${ROTAS.peixes}/${id}`

@@ -11,6 +11,7 @@ export const peixes = [
       'Corpo achatado e redondo, como um disco, com nadadeiras longas que acompanham o formato do corpo. Tem muitos padrões e cores, de listras turquesa a tons de vermelho e marrom. Vive melhor em grupo e é muito sensível à qualidade da água.',
     tamanhoAdulto: '15 a 20 cm',
     cores: 'Turquesa, vermelho, marrom e laranja (variam bastante entre as linhagens)',
+    ph: 'X',
     agua: 'Doce · 28-30°C',
     temperamento: 'Pacífico',
     aquarioMinimo: '150L',
@@ -31,6 +32,7 @@ export const peixes = [
       'O macho se destaca pelas nadadeiras longas e coloridas, que abrem como um leque quando ele se exibe. Aparece em azul, vermelho, branco e várias misturas. As fêmeas são menores e têm cores mais discretas.',
     tamanhoAdulto: '6 a 7 cm',
     cores: 'Azul, vermelho, branco e combinações',
+    ph: 'X',
     agua: 'Doce · 24-27°C',
     temperamento: 'Territorial',
     aquarioMinimo: '20L',
@@ -46,6 +48,7 @@ export const peixes = [
     categoria: 'Peixes',
     preco: 40,
     icone: '🥇',
+    ph: 'X',
     foto: '/peixes/kinguio-ranchu.jpg',
     descricao:
       'Corpo curto e arredondado, com o dorso curvo e sem nadadeira dorsal. É conhecido pelo "capuz", um crescimento carnudo sobre a cabeça. A cauda é curta, em formato de leque.',
@@ -78,3 +81,5 @@ export const filtrosPeixe = [
 
 export const atendeFiltro = (peixe, filtro) =>
   filtro === 'disp' ? peixe.disponivel : Boolean(peixe.caracteristicas[filtro])
+
+export const buscarPeixe = (id) => peixes.find((p) => p.id === id)
