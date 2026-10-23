@@ -10,6 +10,7 @@ import PeixesPage from './pages/PeixesPage'
 import PrimeiroAquarioPage from './pages/PrimeiroAquarioPage'
 import ServicosPage from './pages/ServicosPage'
 import { ROTAS } from './utils/rotas'
+import PeixePage from './pages/PeixePage'
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
                 <Route index element={<HomePage />} />
                 <Route path={ROTAS.loja} element={<LojaPage />} />
                 <Route path={ROTAS.peixes} element={<PeixesPage />} />
+                <Route path={`${ROTAS.peixes}/:id`} element={<PeixePage />} />
                 <Route path={ROTAS.primeiroAquario} element={<PrimeiroAquarioPage />} />
                 <Route path={ROTAS.servicos} element={<ServicosPage />} />
                 <Route path="*" element={<Navigate to={ROTAS.inicio} replace />} />

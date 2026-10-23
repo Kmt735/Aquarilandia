@@ -35,6 +35,7 @@ export const iconeCategoria = {
   Plantas: LeafyGreen,
   Decorações: Castle,
   Acessórios: Shell,
+  Peixes: Fish,
 }
 
 export const iconeServico = {

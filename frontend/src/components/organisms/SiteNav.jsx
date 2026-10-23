@@ -43,8 +43,7 @@ export default function SiteNav() {
   const escuro = tema === 'dark'
 
   return (
-    <header className="sticky top-0 z-[150] border-b border-border bg-surface">
-      <div className="mx-auto flex h-[72px] max-w-[1200px] items-center justify-between gap-4 px-4 sm:px-6 desk:px-10">
+    <header className="sticky top-0 z-40 border-b border-border bg-surface">      <div className="mx-auto flex h-[72px] max-w-[1200px] items-center justify-between gap-4 px-4 sm:px-6 desk:px-10">
         <Logo />
 
         <nav aria-label="Principal" className="hidden items-center gap-5 desk:flex xl:gap-7">
