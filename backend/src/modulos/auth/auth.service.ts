@@ -9,7 +9,7 @@ import { sessaoRepository } from "./sessao.repository.js"
 
 
 
-const DURACAO_SESSAO_MS = 7 * 24 *60 *60 *100
+const DURACAO_SESSAO_MS = 7 * 24 *60 *60 *1000
 const MSG_LOGIN_INVALIDO = 'Email ou senha incorretos.'
 
 

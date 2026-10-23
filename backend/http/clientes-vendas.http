@@ -194,3 +194,16 @@ Origin: {{origem}}
   "email": "rafa@gmail.com",
   "senha": "343434343434"
 }
+
+# ===== AUTENTICAR (rota temporária /teste-sessao) =====
+
+# 200 - logado (rode antes o "200 - login certo")
+###
+GET {{api}}/auth/teste-sessao
+Origin: {{origem}}
+
+# 401 - cookie inventado
+###
+GET {{api}}/auth/teste-sessao
+Origin: {{origem}}
+Cookie: sid=tokeninventado123
