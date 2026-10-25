@@ -52,3 +52,8 @@ export interface Orcamento extends NovoOrcamento {
   id: string
   criadoEm: string
 }
+
+export interface UsuarioLogado {
+  id: number
+  papel: 'cliente' | 'admin'
+}
