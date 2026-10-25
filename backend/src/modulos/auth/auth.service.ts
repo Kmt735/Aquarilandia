@@ -8,10 +8,10 @@ import { sessaoRepository } from "./sessao.repository.js"
 
 
 
-
+const detalhesEmailEmUso = {email: 'Este e-mail já está cadastrado.'}
 const DURACAO_SESSAO_MS = 7 * 24 *60 *60 *1000
 const MSG_LOGIN_INVALIDO = 'Email ou senha incorretos.'
-
+const msgCadastroRecusado = 'Não foi possível criar a conta.'
 
 function validarCadastro (body: unknown): DadosCadastro {
     const erros: Record<string,string> = {}
@@ -69,7 +69,7 @@ export const authService = {
     const dados = validarCadastro(body)
 
     const clienteExistente = await clienteRepository.buscarPorEmail(dados.email)
-    if (clienteExistente) throw new AppError('E-mail já cadastrado.', 409)
+    if (clienteExistente) throw new AppError(msgCadastroRecusado, 409,detalhesEmailEmUso)
 
     const senhaHash = await gerarHash(dados.senha)
 
@@ -81,7 +81,7 @@ export const authService = {
         senhaHash
       })
     } catch (err) {
-      if (ehEmailDuplicado(err)) throw new AppError('E-mail já cadastrado.', 409)
+      if (ehEmailDuplicado(err)) throw new AppError(msgCadastroRecusado, 409 ,detalhesEmailEmUso)
       throw err
     }
   },
