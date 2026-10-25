@@ -24,11 +24,11 @@ function validarCadastro (body: unknown): DadosCadastro {
     const telefone = String (dados.telefone ?? '').trim().replace(/\D/g, '')
     const aceiteTermos = dados.aceiteTermos 
 
-    if(nome.length < 2 || nome.length > 120) erros.nome = 'Digite seu nome (entre 2 e 120 caracteres).'
-    if(!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || email.length > 160) erros.email = 'Digite um e-mail válido.'
-    if(senha.length < 8 || senha.length > 128) erros.senha = 'Digite uma senha com 8 a 128 caracteres.'
-    if(telefone.length !== 11) erros.telefone = 'Telefone incompleto ou inválido. Exemplo: (32) 99999-0000'
-    if(aceiteTermos !== true) erros.aceiteTermos = 'Você precisa aceitar os termos de uso.'
+    if(nome.length < 2 || nome.length > 120) erros.nome = 'Digite seu nome (pelo menos 2 letras).'
+    if(!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || email.length > 160) erros.email = 'Digite um e-mail válido. Exemplo: nome@email.com.'
+    if(senha.length < 8 || senha.length > 128) erros.senha = 'A senha precisa ter pelo menos 8 caracteres.'
+    if(telefone.length !== 11) erros.telefone = 'Digite um celular com DDD. Exemplo: (32) 99999-0000.'
+    if(aceiteTermos !== true) erros.aceiteTermos = 'Para criar a conta, aceite os termos de uso e a política de privacidade.'
 
     if(Object.keys(erros).length) throw new AppError('Dados inválidos', 422, erros)
     return {nome,email,senha,telefone,aceiteTermos:true}
