@@ -1,5 +1,5 @@
 @api=http://localhost:3333/api
-@origem=http//localhost:5173
+@origem=http://localhost:5173
 
 
 get {{api}}/orcamentos 
@@ -42,7 +42,7 @@ Origin: {{origem}}
     "aceiteTermos": true
 }
 
-# 409 - mesmo e-mail do caso 1
+# 409 - e-mail repetido (com detalhes.email)
 ###
 POST {{api}}/auth/cadastro
 Content-Type: application/json
@@ -197,13 +197,15 @@ Origin: {{origem}}
 
 # ===== AUTENTICAR (rota temporária /teste-sessao) =====
 
+# Blocos desativados: a rota /auth/teste-sessao foi removida. Reativar na task #16 trocando o caminho para /clientes/me.
 # 200 - logado (rode antes o "200 - login certo")
-###
-GET {{api}}/auth/teste-sessao
-Origin: {{origem}}
+# ###
+# GET {{api}}/auth/teste-sessao
+# Origin: {{origem}}
 
 # 401 - cookie inventado
-###
-GET {{api}}/auth/teste-sessao
-Origin: {{origem}}
-Cookie: sid=tokeninventado123
+# ###
+# # @no-cookie-jar
+# GET {{api}}/auth/teste-sessao
+# Origin: {{origem}}
+# Cookie: sid=tokeninventado123
