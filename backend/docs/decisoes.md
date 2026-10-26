@@ -8,6 +8,106 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-39 — Cadastro transacional de produto e ficha, com estoque inicial zero
+- **Data:** 25/10/2026
+- **Decisão:** `POST /api/produtos` reutiliza sessão/admin/Origin de categorias. Recebe `categoriaId`, `nome`,
+  preço inteiro em centavos, descrição/marca opcionais e `ficha: { tipo, dados }`. As 11 categorias com tabela
+  exigem sua ficha completa obrigatória; categorias sem tabela aceitam ficha ausente/nula. A categoria vem do
+  banco com `FOR SHARE`, para seu discriminador não mudar entre validação e gravação.
+- **Motivo:** produto e ficha devem confirmar juntos, sem cadastro paralelo de peixes. O helper compartilhado
+  `comTransacao`, até então somente documentado, foi implementado. INSERTs e leitura do mesmo DTO público
+  usam o client transacional. Falha provoca rollback; falha de rollback descarta a conexão.
+- **Impacto:** limites/defaults/enums/nulos seguem o schema; casas decimais excedentes não são arredondadas.
+  `201` devolve o mesmo detalhe público existente. Categoria inexistente/incompatível e dados inválidos são `400`;
+  duplicidade de nome científico é `409` e não deixa produto órfão. Erros seguem o formato local, diferente do PDF.
+  Estoque inicial é sempre zero; `estoque` explícito aceita somente `0`. Entradas positivas dependerão de movimento
+  rastreável pelo futuro módulo de estoque (motivo, responsável, movimento e saldo na mesma transação).
+  Não altera baixa de estoque/vendas: PDF e D-16/D-21 ainda divergem nesse ponto, exigindo decisão conjunta.
+  Não muda schema, frontend ou login, nem implementa PATCH/DELETE de produtos. DTO/regras em `api.md` e comparação
+  do pull/trabalho local em [`revisao-pull-cadastro-produtos.md`](revisao-pull-cadastro-produtos.md).
+  A configuração CORS compartilhada passa a emitir `credentials: true` com a mesma origem fixa, corrigindo
+  a divergência de implementação com o contrato de sessão por cookie; preflight tem teste HTTP.
+
+### D-38 — Categorias com leitura por ID e escritas administrativas persistentes
+- **Data:** 25/10/2026
+- **Decisão:** detalhe público por ID e POST/PATCH/DELETE somente com a sessão existente e papel atual `admin`.
+  Os middlewares novos `exigirAdmin` e `exigirOrigem` complementam `autenticar`; exigem `Origin = CORS_ORIGIN`
+  nas três escritas, conforme a convenção CSRF local. Sem sessão válida retorna `401`; sem permissão, `403`.
+- **Motivo:** completar o contrato sem refazer autenticação. O DTO continua `{ id, nome, slug }`; validações de
+  ID/corpo usam `400`, preservando o formato local de erros em vez de migrar globalmente para o do PDF.
+  Nome e slug são validados com os limites do schema. As constraints únicas resolvem duplicidades com `409`.
+- **Impacto:** exclusão física somente sem produtos; `produtos_categoria_id_fkey` protege inclusive contra
+  vínculos inativos e concorrentes, traduzindo a violação para `409`. Não há consulta prévia como única proteção.
+  Os 11 slugs usados como discriminadores de ficha não podem ser renomeados (`409`, condição no UPDATE), mas
+  seus nomes podem mudar; outras categorias permitem editar ambos. Isso preserva detalhes/filtros/atalhos de
+  peixes sem reorganizar seu modelo. O PDF não fixa essa regra; renomear slugs estruturais exige evoluir os
+  mapeamentos em outra tarefa. DELETE continua permitido sem vínculos, inclusive nessas categorias.
+  Contrato completo em `api.md`, com exceções ao soft delete/validação `422` genéricos. Sem mudança de schema,
+  frontend, login ou CRUD de produtos. Sessões, permissões, concorrência e regressões têm testes no PostgreSQL.
+
+### D-37 — Filtros técnicos de produtos por categoria e ficha existente
+- **Data:** 25/10/2026
+- **Decisão:** os filtros técnicos do PDF restringem as categorias aplicáveis, exigem ficha e combinam-se por
+  interseção com os filtros gerais. Usam `EXISTS` parametrizados para não duplicar produtos; total, paginação,
+  ordenação estável, DTO público e exclusão de inativos são preservados.
+- **Motivo:** o PDF usa conceitos que nem sempre têm coluna direta. `tipo_agua` em aquários/rações/condicionadores
+  inclui `ambos` em consultas doce/marinho; salobra fica restrita aos peixes. Decorações têm somente
+  `seguro_marinho`: doce é o padrão da consulta, marinho exige a flag e salobra não é inferida.
+  `indicado_plantado` é a classificação `tipo = 'fertil'`, sem usar `altera_ph`; `false` seleciona outros tipos.
+- **Impacto:** ambiguidades e regras completas em `api.md`. Intervalos de volume/vazão são inclusivos;
+  valores inválidos/faixas invertidas retornam `400`, enquanto interseções válidas vazias retornam `200` vazio.
+  Sem mudança de schema, detalhes, atalhos de peixes, frontend ou liberação administrativa de inativos.
+
+### D-36 — Peixes como atalhos persistentes de produto com ficha
+- **Data:** 25/10/2026
+- **Decisão:** `/api/peixes` e `/api/peixes/:id` exigem produto ativo, categoria `peixes` e ficha existente.
+  Compartilham ID, projeções públicas e ficha com produtos. Lista `{ itens, total }`, paginação 1/20 (teto 100)
+  e ordem nome/ID. Filtros seguem o PDF, com faixas inclusivas de temperatura/pH e limites de tamanho/volume.
+- **Motivo:** cumprir os atalhos de leitura sem criar outro cadastro ou inventar ficha ausente. Produto sem
+  ficha não aparece no catálogo de peixes e retorna `404` nesse detalhe; o produto genérico mantém `ficha: null`.
+- **Impacto:** filtros parametrizados e DTO completo documentados em `api.md`; só os mocks de peixes do backend
+  foram removidos, após conferir seus consumidores. O frontend mantém seus dados locais. Projeções SQL e ID
+  são compartilhados com produtos; comportamentos de categorias/produtos são preservados por regressão.
+  Sem migração de schema, cadastro ou filtros técnicos gerais de produtos. Erros mantêm o formato local.
+
+### D-35 — Detalhe de produto com ID numérico e ficha da categoria
+- **Data:** 25/10/2026
+- **Decisão:** `GET /api/produtos/:id` usa o mesmo ID numérico e DTO básico da listagem, acrescentando
+  `ficha: { tipo, dados } | null`. A consulta seleciona somente produto ativo e a ficha correspondente à
+  categoria vinculada no banco, com campos explícitos em camelCase para as 11 tabelas especializadas.
+- **Motivo:** cumprir o detalhe com ficha previsto no PDF sem criar restrições que o schema ainda não exige.
+  Acessórios e produtos sem linha de detalhe retornam `200` com `ficha: null`; cadastro completo será tratado
+  no futuro CRUD. Não há fallback para arrays nem seleção de outra ficha por parâmetros do cliente.
+- **Impacto:** removidos o mock de produtos do backend e seu tipo antigo; o frontend mantém seus próprios dados.
+  Inativos/inexistentes retornam `404`, IDs malformados retornam `400` e falhas de banco seguem o `500` genérico.
+  O formato de erro local é preservado, divergência documentada em `api.md`. Listagem, schema e rotas de peixes
+  não são migrados por este incremento; testes verificam todas as fichas e a coerência listagem/detalhe.
+
+### D-34 — Listagem pública de produtos persistente e restrita a ativos
+- **Data:** 25/10/2026
+- **Decisão:** `GET /api/produtos` retorna `{ itens, total }` do PostgreSQL, com paginação 1/20 (teto 100),
+  filtros gerais do PDF por slug, busca, faixa de preço em centavos e ordenação fechada por nome/preço.
+  Toda ordenação desempata por `id`; total e página são calculados no mesmo snapshot e excluem inativos.
+- **Motivo:** implementar o próximo corte do contrato, sem migrar a consulta individual nem fichas.
+  Os textos de busca usam comparação parcial sem distinguir caixa e escapam os curingas como texto literal.
+- **Impacto:** controller/service/repository/types de produto em `modulos/catalogo`, somente para listagem.
+  O DTO público é documentado em `api.md`; a disponibilidade é apenas uma projeção de `estoque > 0`.
+  `incluir_inativos=true` é recusado com `400`, até existir autorização administrativa compartilhada.
+  Os erros permanecem no formato existente. O frontend não consome a rota e continua nos mocks; o detalhe
+  legado também continua com ID textual e preço em reais, incompatibilidade explícita para o próximo incremento.
+
+### D-33 — Categorias persistentes com paginação e envelope do PDF
+- **Data:** 25/10/2026
+- **Decisão:** `GET /api/categorias` consulta a tabela `categorias`, retorna `{ itens, total }` com
+  itens `{ id, nome, slug }` e ordena por `id`. Query `pagina`/`limite` com padrões 1/20 e teto local de 100.
+- **Motivo:** o incremento foi explicitamente solicitado com o contrato de listas do
+  [`API_Aquarilandia_Rotas.pdf`](../../API_Aquarilandia_Rotas.pdf), páginas 1–2. Ele diverge da exceção anterior
+  de array simples em `api.md`; a alteração vale somente para categorias. O formato de erros permanece o da
+  API existente (`AppError`/`errorHandler`), sem a migração global para `erro`/`mensagem` proposta no PDF.
+- **Impacto:** apenas categorias ganham controller/service/repository em `modulos/catalogo`; o restante do
+  catálogo não é reorganizado. O frontend ainda usa seu array local e não consome a rota. A consulta calcula
+  página e total no mesmo snapshot, inclusive para páginas vazias. Sem mudança no schema ou nos seeds.
+
 ### D-01 — Banco PostgreSQL
 - **Data:** 15/10/2026
 - **Decisão:** o banco é PostgreSQL. MongoDB foi considerado e descartado.
