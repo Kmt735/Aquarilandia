@@ -134,7 +134,8 @@ export interface FiltrosCliente { busca?: string; pagina: number; limite: number
 | `PATCH` | `/clientes/:id` | Atualizar parcialmente | `200` + objeto atualizado |
 | `DELETE` | `/clientes/:id` | Remover (soft delete) | `204` sem corpo |
 
-Exceção: endereços do cliente são excluídos de verdade (dado pessoal); a venda guarda cópia do endereço de entrega.
+Exceções: endereços do cliente são excluídos de verdade (dado pessoal); a venda guarda cópia do endereço de entrega.
+Categorias também são excluídas de verdade, somente quando não há nenhum produto vinculado (ativo ou inativo).
 
 Não usamos `PUT`. Atualização é sempre `PATCH`.
 
@@ -191,13 +192,17 @@ POST   /api/orcamentos                          (público, rate limit)
 
 **Dev 2 — catálogo / estoque**
 ```
-GET    /api/categorias                                                        (público)
-GET    /api/produtos                 ?categoria=&busca=&emEstoque=&pagina=&limite=   (público)
+GET    /api/categorias               ?pagina=&limite=                         (público)
+GET    /api/categorias/:id                                                    (público)
+POST   /api/categorias                                                        (admin)
+PATCH  /api/categorias/:id                                                    (admin)
+DELETE /api/categorias/:id                                                    (admin — somente sem produtos vinculados)
+GET    /api/produtos                 ?categoria=&busca=&preco_min=&preco_max=&ordem=&pagina=&limite=   (público)
 GET    /api/produtos/:id                                                      (público)
 POST   /api/produtos                                                          (admin)
 PATCH  /api/produtos/:id                                                      (admin)
 DELETE /api/produtos/:id                                                      (admin)
-GET    /api/peixes                   ?tipoAgua=&temperamento=&dificuldade=&temperatura=   (público)
+GET    /api/peixes                   ?temperatura=&ph=&tamanho_max=&aquario_litros=&dificuldade=&temperamento=&tipo_agua=&busca=&pagina=&limite=   (público)
 GET    /api/peixes/:id                                                        (público)
 GET    /api/servicos                                                          (público)
 
@@ -220,7 +225,7 @@ POST   /api/estoque/movimentacoes    (entrada / ajuste manual)               (ad
 - **Datas**: string ISO 8601 em UTC (`"2026-10-15T14:30:00.000Z"`). Filtro só por dia: `?de=2026-10-01&ate=2026-10-31`.
 - **Enums**: string minúscula em `snake_case`, igual ao `CHECK` do banco: `"semi_agressivo"`, `"aguardando_pagamento"`.
 - **Campo vazio**: `null` (não omitir, não `""`).
-- **Sucesso** devolve o recurso direto, sem envelope (`{ id, nome, ... }` ou `[...]`).
+- **Sucesso** devolve o recurso direto, sem envelope (`{ id, nome, ... }` ou `[...]`), exceto nas listagens paginadas.
 
 ### Paginação
 
@@ -238,7 +243,490 @@ GET /api/clientes?pagina=1&limite=20
 }
 ```
 - `pagina` começa em **1**. `limite` padrão **20**, máximo **100**.
-- Listas pequenas e fixas (`/categorias`, `/servicos`) retornam array simples.
+- `/servicos` continua retornando array simples nesta implementação.
+
+### Categorias — contrato implementado em 25/10/2026
+
+`GET /api/categorias` consulta o PostgreSQL e segue o envelope de listas do
+[`API_Aquarilandia_Rotas.pdf`](../API_Aquarilandia_Rotas.pdf), página 1, e o acesso público da página 2:
+
+```http
+GET /api/categorias?pagina=1&limite=1
+```
+```json
+{
+  "itens": [{ "id": 1, "nome": "Peixes", "slug": "peixes" }],
+  "total": 12
+}
+```
+
+- Cada item contém somente `id`, `nome` e `slug`. A ordem é `id` crescente.
+- `total` conta todas as categorias, independentemente da página. Página além do fim retorna `itens: []`.
+- `pagina` e `limite` são parâmetros de query, não campos da resposta. Os padrões são 1 e 20, conforme o PDF.
+- Ambos devem ser inteiros positivos em notação decimal, sem zeros à esquerda; `limite` máximo 100,
+  preservando o teto local. São recusados valores repetidos, vazios, fracionários, fora do intervalo
+  seguro de inteiros (inclusive o deslocamento calculado) e parâmetros não previstos.
+- Query inválida retorna `400 { "erro": "Parâmetros inválidos", "detalhes": { ... } }` sem consultar o banco.
+- Falha do banco segue o handler existente: `500 { "erro": "Erro interno do servidor" }`, sem detalhes internos.
+
+**Divergências resolvidas neste incremento:** o PDF propõe `{ itens, total }` para listas; este documento antes
+dispensava paginação para categorias e usava `{ dados, total, pagina, limite }` nas demais listas. A instrução
+do incremento prioriza o PDF para categorias. Essa escolha não migra as outras rotas. O PDF também propõe
+erros com código em `erro` e texto em `mensagem`; a rota mantém `AppError`/`errorHandler` e o formato atual
+da API, conforme solicitado, sem introduzir uma mudança global nos erros.
+
+**Consumidores:** não há chamada HTTP à rota no frontend atual; navegação, filtros e busca importam
+`frontend/src/data/categorias.js`. Esses dados têm `icone`/`dica` e filtram produtos mockados pelo nome.
+Uma futura integração deve ler `itens`, percorrer as páginas quando necessário e definir a apresentação
+de ícones/dicas. Não tratar a resposta como array nem enviar `slug` aos filtros legados sem adaptá-los.
+A listagem de produtos segue o incremento abaixo. As demais rotas permanecem no formato atual.
+Testes e execução: [`testes/README.md`](testes/README.md).
+
+### Categorias — detalhe e administração implementados em 25/10/2026
+
+As quatro rotas complementam a listagem existente, conforme a página 2 do
+[`API_Aquarilandia_Rotas.pdf`](../API_Aquarilandia_Rotas.pdf). O DTO de leitura, criação e edição é sempre
+`{ id, nome, slug }`, com ID numérico do PostgreSQL. A listagem mantém `{ itens, total }`, paginação e ordem por ID.
+
+| Método e caminho | Acesso | Corpo | Sucesso |
+|---|---|---|---|
+| `GET /api/categorias/:id` | Público | — | `200` com a categoria |
+| `POST /api/categorias` | Admin | `{ nome, slug }` | `201` com a categoria criada |
+| `PATCH /api/categorias/:id` | Admin | `{ nome?, slug? }`, ao menos um campo | `200` com a categoria atualizada |
+| `DELETE /api/categorias/:id` | Admin | — | `204` sem corpo |
+
+```http
+POST /api/categorias
+Origin: http://localhost:5173
+Cookie: sid=<token da sessão admin>
+Content-Type: application/json
+
+{ "nome": "Acessórios de manutenção", "slug": "acessorios-manutencao" }
+```
+```json
+{ "id": 13, "nome": "Acessórios de manutenção", "slug": "acessorios-manutencao" }
+```
+
+**Autorização:** as três escritas passam por `autenticar`, pelo novo `exigirAdmin` e por `exigirOrigem`, nessa
+ordem. A sessão é o cookie `sid` existente, cujo hash é consultado em `sessoes` junto ao papel atual em `clientes`.
+Sem sessão válida, vencida, revogada ou com cliente inativo: `401`. Cliente autenticado sem papel `admin`: `403`.
+Admin com `Origin` ausente ou diferente de `CORS_ORIGIN`: `403`, aplicando a proteção CSRF já prevista na seção 11.
+Não há papel vindo do corpo, query ou header, nem novo login/cadastro. Os middlewares novos são usados somente
+nas escritas de categorias neste incremento; não se afirma que as demais rotas já apliquem toda a convenção.
+
+**Validação e edição:**
+
+- IDs: inteiros de 1 a 2147483647, em decimal sem zeros à esquerda, como em produtos/peixes. ID malformado: `400`;
+  categoria inexistente: `404` em GET/PATCH/DELETE.
+- `nome`: string com 2–80 caracteres Unicode após remover espaços nas pontas, sem caracteres de controle.
+- `slug`: string com 1–80 caracteres após remover espaços nas pontas, letras minúsculas ASCII/números,
+  com hífens simples entre grupos. Não é gerado automaticamente nem convertido para minúsculas.
+- Somente `nome` e `slug` são aceitos. Campos desconhecidos, `null`, tipos inválidos, POST incompleto e PATCH
+  vazio retornam `400 { erro: "Dados inválidos", detalhes: { ... } }`. Campos omitidos no PATCH são preservados.
+- `categorias_nome_key` e `categorias_slug_key` são a autoridade de unicidade: violação `23505` retorna `409`
+  com detalhe do campo. Não há consulta prévia sujeita a corrida. Nomes seguem a comparação do banco,
+  sem normalização de caixa ou acentos; o mesmo valor do próprio registro pode ser reenviado na edição.
+- Os slugs estruturais `peixes`, `aquarios`, `filtros`, `bombas`, `iluminacao`, `termostatos`, `racoes`,
+  `condicionadores`, `substratos`, `plantas` e `decoracoes` não podem ser renomeados: `409` com detalhe de `slug`.
+  Seus nomes continuam editáveis. A condição faz parte do próprio UPDATE para preservar os discriminadores
+  de fichas/filtros e os atalhos de peixes, que já dependem desses valores. Outras categorias permitem editar
+  ambos os campos. O PDF não define essa regra; mudar esses identificadores exige uma evolução conjunta dos
+  mapeamentos, fora deste incremento. A exclusão continua seguindo somente a regra de vínculos abaixo.
+
+**Exclusão e concorrência:** `categorias` não possui coluna de desativação. O DELETE é físico, parametrizado e
+feito diretamente no banco. `produtos_categoria_id_fkey` impede excluir uma categoria com qualquer produto,
+inclusive inativo; a violação `23503` é traduzida para `409`, sem detalhes internos. A mesma garantia vale se uma
+inserção concorrente confirmar um vínculo enquanto o DELETE aguarda. Não há cascata, exclusão de produtos ou
+checagem prévia como única proteção. Sem registro, retorna `404`.
+
+**Diferenças de contrato:** o PDF não detalha corpos, regras de slug ou limites dos campos; esses foram definidos
+acima a partir do schema e das consultas existentes. O prefixo local permanece `/api`. A regra genérica local
+de soft delete não se aplica a categorias, pois o PDF e este incremento exigem exclusão sem produtos e o schema
+não oferece desativação. A validação de corpo usa `400` conforme o PDF, como exceção ao `422` genérico local.
+O erro permanece `{ erro: "mensagem", detalhes?: { ... } }`, em vez de `{ erro: "codigo", mensagem: "texto" }`
+do PDF. Falhas inesperadas continuam `500 { erro: "Erro interno do servidor" }`.
+
+Testes HTTP e com sessões/PostgreSQL reais verificam o ciclo completo e sua reflexão na listagem,
+unicidade concorrente, FK com produtos ativos/inativos e inserção concorrente, além das regressões de produtos
+e peixes. Não há mudança de schema/seed nem de consumidores do frontend.
+
+### Produtos — listagem pública implementada em 25/10/2026
+
+`GET /api/produtos` consulta `produtos` e `categorias` no PostgreSQL, sempre com `produtos.ativo = true`.
+Segue o envelope e os filtros gerais do [`API_Aquarilandia_Rotas.pdf`](../API_Aquarilandia_Rotas.pdf), páginas 1–3.
+O seed atual cria categorias, mas não produtos: sem cadastro no banco, a resposta é `{ "itens": [], "total": 0 }`.
+
+Exemplo ilustrativo para um banco com três produtos ativos correspondentes ao filtro:
+
+```http
+GET /api/produtos?categoria=filtros&ordem=preco&pagina=1&limite=1
+```
+```json
+{
+  "itens": [{
+    "id": 42,
+    "categoriaId": 3,
+    "categoria": "filtros",
+    "nome": "Filtro externo",
+    "descricao": "Compacto silencioso",
+    "marca": "Aqua",
+    "preco": 8990,
+    "imagemUrl": null,
+    "emEstoque": true
+  }],
+  "total": 3
+}
+```
+
+**DTO adotado:** somente os campos do exemplo. IDs são numéricos; `categoria` é o slug obtido pelo relacionamento
+com `categorias`; preço é o `INTEGER` do banco, sem conversão de unidade (`8990` = R$ 89,90).
+`descricao`, `marca` e `imagemUrl` preservam `null`. `emEstoque` deriva de `estoque > 0`; não expõe a quantidade
+nem implementa operações de estoque. Ler `imagem_url` não adiciona gerenciamento de imagens.
+Não há `icone`, ficha técnica, `ativo` ou datas neste DTO público.
+
+| Parâmetro | Regra |
+|---|---|
+| `pagina`, `limite` | Mesmo padrão de categorias: 1/20, inteiros positivos, limite máximo 100 e deslocamento seguro. |
+| `categoria` | Slug com 1–80 caracteres, letras minúsculas ASCII/números separados por hífens; nunca o nome de exibição. Slug válido inexistente retorna lista vazia. |
+| `busca` | Texto após `trim`, de 1–150 caracteres; trecho do nome, descrição ou marca, sem diferenciar caixa. Não remove acentos. `%`, `_` e `!` são literais. |
+| `preco_min`, `preco_max` | Limites inclusivos, em centavos inteiros de 0 a 2147483647 (tipo `INTEGER` do schema). Mínimo não pode superar máximo. |
+| `ordem` | `nome` (padrão), `preco` (crescente) ou `-preco` (decrescente); todas desempatam por `id` crescente. |
+| `incluir_inativos` | Ausente ou `false`: consulta pública. `true`: `400` com detalhe explícito de funcionalidade administrativa indisponível. Outros valores também são inválidos. |
+
+- Valores numéricos usam notação decimal sem zeros à esquerda; valores repetidos, vazios, fora dos limites,
+  parâmetros desconhecidos ou inválidos retornam `400`, antes de consultar o banco. Os filtros técnicos estão descritos abaixo.
+- `total` é a quantidade de produtos **ativos que atendem a todos os filtros**, antes da paginação; página além
+  do fim mantém esse total e retorna `itens: []`. Página e contagem compartilham o snapshot de uma consulta SQL.
+- Os filtros usam parâmetros SQL; a ordenação vem de uma lista fechada de fragmentos, nunca do texto livre recebido.
+- Erros mantêm o contrato de categorias e o handler existente: `400 { erro, detalhes }` para parâmetros inválidos
+  e `500 { "erro": "Erro interno do servidor" }` para falha do banco, sem informação interna na resposta.
+
+**Pendências frente ao PDF:** os filtros técnicos previstos para a listagem estão implementados na seção abaixo.
+`incluir_inativos=true` depende de `autenticar`/`exigirAdmin`; não basta enviar cookie ou indicar um papel na query.
+Não há consulta administrativa de inativos, nem alteração global para erros `{ erro: codigo, mensagem }`.
+`GET /api/produtos/:id` agora usa os mesmos IDs e campos básicos, conforme o incremento de detalhe abaixo.
+
+**Consumidores:** não há consumidor HTTP atual da listagem no frontend; loja, busca, destaque e carrinho usam
+`frontend/src/data/produtos.js`. Uma futura integração deve ler `itens`, paginar, formatar centavos dividindo por
+100, usar categoria por slug e tratar o novo DTO. `disponibilidade`/`emEstoque` não são filtros gerais do PDF e
+agora retornam `400` nessa rota; os filtros locais do frontend continuam funcionando com seus próprios mocks.
+Os dados fixos de produtos do backend foram removidos no incremento de detalhe abaixo.
+
+### Produtos — filtros técnicos implementados em 25/10/2026
+
+Os filtros da página 3 do [`API_Aquarilandia_Rotas.pdf`](../API_Aquarilandia_Rotas.pdf) usam as colunas existentes
+das fichas, sem mudar schema ou DTO. Exemplo:
+
+```http
+GET /api/produtos?categoria=aquarios&tipo_agua=doce&volume_min=60&volume_max=100&ordem=preco
+```
+
+| Filtro | Categorias e regra implementada |
+|---|---|
+| `tipo_agua` | `doce`, `salobra` ou `marinho`. Peixes usam igualdade de `peixes.tipo_agua`. Aquários, rações e condicionadores usam `tipo_agua` exato ou `ambos` para consultas doce/marinho; não há representação de salobra nessas tabelas. Decorações seguem a convenção abaixo. |
+| `volume_min`, `volume_max` | Somente aquários com `aquarios.volume_litros >= volume_min` e/ou `<= volume_max`. Limites inclusivos, em litros. |
+| `vazao_min` | Somente filtros ou bombas com `vazao_lh >= vazao_min`. Limite inclusivo, em L/h. |
+| `indicado_plantado` | Somente substratos. `true` exige `substratos.tipo = 'fertil'`; `false` exige tipo diferente de `fertil`. |
+| `precisa_co2` | Somente plantas com `plantas.precisa_co2` igual ao booleano recebido. |
+| `iluminacao` | Somente plantas com `plantas.iluminacao_exigida` igual a `baixa`, `media` ou `alta`. Não filtra a categoria de equipamentos de iluminação. |
+
+**Ambiguidades do contrato e regras escolhidas:**
+
+- O PDF não explica `ambos`, valor do schema para aquários, rações e condicionadores. Interpretamos como
+  compatibilidade com água doce **e** marinha. Não inferimos compatibilidade com salobra. A query recebe um
+  tipo de água concreto; `tipo_agua=ambos` retorna `400`, assim como valores fora dos enums.
+- Decorações não têm coluna `tipo_agua`, apenas `seguro_marinho`. A convenção de consulta considera água doce
+  como padrão para fichas de decoração existentes; marinho exige `seguro_marinho = true`; salobra não inclui
+  decorações por ausência de informação no modelo. A flag verdadeira também não exclui a decoração da busca doce.
+- Não existe coluna `indicado_plantado`. Usamos o tipo explícito `fertil` como classificação para esse filtro.
+  `false` inclui os demais tipos cadastrados (areia, cascalho, argila e coral), sem usar `altera_ph` como substituto.
+  Essa classificação não expressa todas as possibilidades de uso de um substrato com plantas. Uma regra mais
+  detalhada depende de definição da equipe e eventual evolução do modelo, não incluída neste incremento.
+
+**Combinações e integridade:** todos os filtros são combinados por **E** com categoria, busca, preço e entre si.
+Filtro técnico sempre exige uma ficha da categoria aplicável. Produto de outra categoria não passa por possuir
+uma ficha indevidamente vinculada em outra tabela. Produtos sem ficha continuam disponíveis sem filtro técnico,
+mas são excluídos quando não há a ficha necessária para avaliar o filtro. Booleano `false` não significa ausência
+de filtro e também restringe a categoria. As consultas usam `EXISTS`, evitando duplicar itens na listagem.
+
+Combinações válidas com interseção vazia retornam `200 { "itens": [], "total": 0 }`, por exemplo
+`categoria=plantas&volume_min=60` ou `tipo_agua=doce&vazao_min=400`. Nenhum filtro é ignorado silenciosamente.
+Combinar água e volume em aquários ou CO2 e iluminação em plantas aplica todas as condições.
+
+**Validação:** volumes e vazão são inteiros de 1 a 2147483647, coerentes com os tipos/limites positivos do schema.
+Volume mínimo maior que máximo retorna `400` com detalhe em `volume_max`. Booleanos aceitam somente `true` e
+`false`; iluminação e tipo de água usam os valores exatos acima. Valores repetidos, vazios, notação exponencial,
+decimais nesses campos inteiros e parâmetros malformados retornam `400` antes de acessar o banco. Os erros
+mantêm o formato local `{ erro, detalhes? }`, sem mudança global para o formato proposto no PDF.
+
+**Paginação e acesso:** envelope `{ itens, total }`, DTO público, preço em centavos, ordenações nome/preço e
+desempate por ID permanecem iguais. `total` considera todos os filtros e apenas ativos antes de paginar;
+página vazia preserva a contagem filtrada. Todos os valores usam parâmetros SQL e a ordenação continua fechada.
+`incluir_inativos=true` segue recusado com `400` enquanto não houver autorização administrativa implementada.
+Os detalhes de produto e os dois atalhos de peixes não mudam neste incremento. Não há alteração de frontend.
+
+### Produtos — cadastro administrativo implementado em 25/10/2026
+
+`POST /api/produtos` usa os mesmos `autenticar`, `exigirAdmin` e `exigirOrigem` das escritas de categorias.
+Exige cookie `sid` válido, papel atual `admin` e `Origin = CORS_ORIGIN`. Responde `401` sem sessão válida e
+`403` para cliente ou Origin ausente/incorreto. Não há novo login nem cadastro separado de peixes.
+
+**Entrada adotada** (o PDF, página 2, define produto + ficha, mas não especifica os campos do corpo):
+
+```json
+{
+  "categoriaId": 1,
+  "nome": "Betta ornamental",
+  "descricao": null,
+  "marca": null,
+  "preco": 2500,
+  "estoque": 0,
+  "ficha": {
+    "tipo": "peixes",
+    "dados": {
+      "nomeCientifico": "Betta splendens",
+      "tipoAgua": "doce",
+      "tamanhoAdultoCm": 6.5,
+      "tempMinC": 24.5,
+      "tempMaxC": 28.5,
+      "phMin": 6,
+      "phMax": 7.5,
+      "aquarioMinLitros": 20,
+      "temperamento": "semi_agressivo",
+      "dificuldade": "iniciante"
+    }
+  }
+}
+```
+
+O ID do exemplo pressupõe o seed; consulte categorias para obter o ID real. `categoriaId`, `nome` e `preco`
+são obrigatórios. `categoriaId` deve ser número inteiro de 1 a 2147483647. Nome é texto não vazio de até 150
+caracteres Unicode. `preco` é número inteiro de 0 a 2147483647 **centavos**, sem conversão de reais.
+`descricao` e `marca` são opcionais/nulos; marca tem até 80 caracteres. Textos são aparados nas pontas;
+vazios e caractere nulo são recusados. TEXT não recebe teto adicional além do parser JSON existente.
+
+`estoque` é opcional e aceita exclusivamente o número `0`. O INSERT fixa zero independentemente do corpo;
+qualquer outro valor retorna `400` com explicação da futura movimentação. O produto nasce ativo pelo default
+do schema, sem imagem (`imagemUrl: null`), e `emEstoque: false`. Não são aceitos `id`, `ativo`, `imagemUrl`,
+`emEstoque`, datas, slug no lugar de `categoriaId` ou campos desconhecidos, inclusive dentro de ficha/dados.
+
+**Ficha por categoria:** `ficha.tipo` é o slug da categoria consultada **no banco**. Nas 11 categorias abaixo,
+ficha é obrigatória; incompatibilidade, ausência ou `null` retornam `400`. Acessórios e categorias novas sem
+discriminador especializado aceitam ficha omitida/`null` e recusam fichas de outras categorias.
+
+| Tipo | Campos obrigatórios em `ficha.dados` | Padrões quando omitidos |
+|---|---|---|
+| `peixes` | `nomeCientifico`, `tipoAgua`, `tamanhoAdultoCm`, `tempMinC`, `tempMaxC`, `phMin`, `phMax`, `aquarioMinLitros`, `temperamento`, `dificuldade` | `cardumeMinimo: 1` |
+| `aquarios` | `volumeLitros`, `comprimentoCm`, `larguraCm`, `alturaCm`, `material`, `tipoAgua` | — |
+| `filtros` | `tipo`, `vazaoLh` | — |
+| `bombas` | `tipo`, `vazaoLh` | — |
+| `iluminacao` | `tecnologia`, `potenciaW` | — |
+| `termostatos` | `potenciaW` | `ajustavel: true` |
+| `racoes` | `formato`, `pesoG`, `tipoAgua` | — |
+| `condicionadores` | `tipo`, `tipoAgua` | — |
+| `substratos` | `tipo`, `pesoKg` | `alteraPh: false` |
+| `plantas` | `nome`, `posicao`, `iluminacaoExigida`, `dificuldade` | `precisaCo2: false` |
+| `decoracoes` | `material` | `materialNatural: false`, `seguroMarinho: false` |
+
+Os demais campos públicos de cada ficha constam na tabela de detalhe abaixo; são opcionais e normalizados
+para `null`. Campos com default não aceitam `null`. Booleanos exigem `true`/`false` JSON; números exigem tipo
+numérico, sem coerção de strings. Enums exigem os valores exatos dos CHECKs do schema (sem tradução de rótulos).
+As definições completas de colunas, enums, nulabilidade e defaults estão em `src/modulos/catalogo/ficha.definicoes.ts`,
+verificadas por tipos contra `FichaTecnica` e por testes com PostgreSQL.
+
+Limites respeitam `INTEGER`, `VARCHAR` e `NUMERIC(p,s)` do banco:
+
+- Contagens, litros, ml, g, vazão, saídas e temperatura de cor: inteiros positivos até 2147483647.
+- Dimensões e potências `NUMERIC(6,1)`: até 99999.9, com uma casa decimal; dimensões e potência obrigatória
+  são positivas. Potência opcional de filtros/bombas aceita zero.
+- Tamanho adulto: 0.1–9999.9 cm; temperaturas: -999.9–999.9 °C; pH: 0–14, com uma casa decimal.
+- Altura manométrica: 0.01–99.99 m; peso de substrato: 0.01–999.99 kg, com duas casas decimais.
+- `nomeCientifico`, `origem` e nome de planta: até 120 caracteres; granulometria: 20; cor: 40.
+- Não há arredondamento silencioso: casas excedentes, valores não finitos, máximos menores que mínimos
+  (temperatura, pH e volume do termostato) ou outros dados inválidos retornam `400 { erro, detalhes }`.
+  Quando um limite opcional é nulo, o par segue a semântica do CHECK SQL e não exige o outro limite.
+
+**Transação e resposta:** o service usa o helper compartilhado `comTransacao`, previsto neste documento e
+agora implementado. Consulta a categoria com `FOR SHARE`, impedindo alteração/exclusão até concluir a gravação.
+Produto, ficha e leitura do DTO usam a **mesma conexão**. Só retorna `201` após COMMIT, com o mesmo objeto
+de `GET /api/produtos/:id`, incluindo a ficha completa/defaults/nulos. Falha de ficha ou leitura provoca rollback;
+uma conexão cujo rollback falhou é descartada. O produto confirmado aparece na lista e, sendo peixe, nos atalhos.
+
+Categoria inexistente é `400` com detalhe de `categoriaId`, consistente com os status de POST no PDF.
+`peixes.nome_cientifico` é único: violação da constraint retorna `409`, inclusive para criações concorrentes,
+e o produto intermediário é desfeito. Não se inventa unicidade de nome para produtos comuns. Falhas inesperadas
+mantêm `500` genérico. O formato de erro local continua diferente de `{ erro: codigo, mensagem }` do PDF;
+`400` de validação é uma exceção ao `422` genérico local, como nos incrementos anteriores do catálogo.
+
+**Estoque futuro, ainda não implementado:** entradas devem passar por `POST /api/estoque/movimentacoes`,
+com quantidade, motivo e responsável da sessão, gravando movimento e saldo na mesma transação. Este cadastro
+apenas inicia o saldo em zero; não oferece entrada positiva nem cria o módulo de estoque. A divergência entre
+PDF (baixa no pagamento) e decisões locais (baixa na criação da venda) permanece para decisão conjunta,
+sem afetar este cadastro. Revisão do último pull: [`docs/revisao-pull-cadastro-produtos.md`](docs/revisao-pull-cadastro-produtos.md).
+
+### Produtos — detalhe público implementado em 25/10/2026
+
+`GET /api/produtos/:id` consulta o produto ativo e sua ficha técnica no PostgreSQL, conforme a página 2 do
+[`API_Aquarilandia_Rotas.pdf`](../API_Aquarilandia_Rotas.pdf). O ID é o mesmo inteiro numérico da listagem,
+entre 1 e 2147483647 (`SERIAL`). IDs textuais, zero, negativos, decimais, notação exponencial, espaços e zeros
+à esquerda retornam `400 { erro, detalhes: { id: ... } }`, sem consultar o banco. Não há fallback para mocks.
+
+Exemplo ilustrativo de resposta `200` para `GET /api/produtos/42`:
+
+```json
+{
+  "id": 42,
+  "categoriaId": 2,
+  "categoria": "aquarios",
+  "nome": "Aquário 40 L",
+  "descricao": null,
+  "marca": null,
+  "preco": 24990,
+  "imagemUrl": null,
+  "emEstoque": true,
+  "ficha": {
+    "tipo": "aquarios",
+    "dados": {
+      "volumeLitros": 40,
+      "comprimentoCm": 50,
+      "larguraCm": 25,
+      "alturaCm": 32,
+      "material": "vidro",
+      "tipoAgua": "doce"
+    }
+  }
+}
+```
+
+**Formato:** objeto direto, sem envelope. Os campos básicos são exatamente os de `ProdutoPublico` da listagem,
+com preço em centavos e `emEstoque = estoque > 0`. O único campo adicional é `ficha`, que é `null` ou
+`{ tipo, dados }`. `tipo` é o slug da categoria; os campos de `dados` são uma seleção explícita da tabela
+correspondente, convertidos para camelCase. `NUMERIC`/`INTEGER` são números JSON, booleanos são booleanos e
+campos opcionais preservam `null`. Enums mantêm os valores do schema. Não são expostos `produto_id`, saldo
+quantitativo, `ativo`, datas ou outras colunas internas, mesmo que uma tabela ganhe novas colunas.
+
+| Categoria / tabela | Campos de `ficha.dados` |
+|---|---|
+| `peixes` | `nomeCientifico`, `origem`, `tipoAgua`, `tamanhoAdultoCm`, `tempMinC`, `tempMaxC`, `phMin`, `phMax`, `aquarioMinLitros`, `temperamento`, `nivelNatacao`, `cardumeMinimo`, `dieta`, `dificuldade` |
+| `aquarios` | `volumeLitros`, `comprimentoCm`, `larguraCm`, `alturaCm`, `material`, `tipoAgua` |
+| `filtros` | `tipo`, `vazaoLh`, `aquarioMaxLitros`, `potenciaW`, `voltagem`, `midiasInclusas` |
+| `bombas` | `tipo`, `vazaoLh`, `alturaMaxM`, `saidas`, `potenciaW`, `voltagem` |
+| `iluminacao` | `tecnologia`, `potenciaW`, `comprimentoCm`, `espectro`, `temperaturaCorK`, `voltagem` |
+| `termostatos` | `potenciaW`, `aquarioMinLitros`, `aquarioMaxLitros`, `tempMinC`, `tempMaxC`, `ajustavel`, `voltagem` |
+| `racoes` | `formato`, `pesoG`, `tipoAgua`, `indicadaPara` |
+| `condicionadores` | `tipo`, `volumeMl`, `dosagem`, `principioAtivo`, `tipoAgua` |
+| `substratos` | `tipo`, `pesoKg`, `granulometriaMm`, `cor`, `alteraPh` |
+| `plantas` | `nome`, `posicao`, `iluminacaoExigida`, `precisaCo2`, `crescimento`, `dificuldade`, `tempMinC`, `tempMaxC` |
+| `decoracoes` | `material`, `materialNatural`, `comprimentoCm`, `larguraCm`, `alturaCm`, `seguroMarinho` |
+
+Unidades seguem os nomes dos campos: cm, L, L/h, m, W, K, g, kg e ml. `granulometriaMm` permanece texto
+(por exemplo, `"1-3 mm"`), conforme o schema. `plantas.nome` permanece `ficha.dados.nome`; não é convertido
+em nome científico sem definição no modelo. Tipos e nulabilidade: `src/modulos/catalogo/ficha.types.ts`.
+
+**Ausência de ficha:** acessórios não têm tabela própria. O schema também não obriga que um produto de uma
+categoria especializada tenha sua linha de detalhe. Nesses casos, ou para uma categoria sem mapeamento,
+o produto ativo retorna `200` com `ficha: null`. Não são inventados dados e a ausência de ficha não torna o
+produto inexistente. A validação de completude no futuro cadastro continua pendente, sem alterar o schema agora.
+
+**Categoria e acesso:** a seleção da ficha usa o slug da categoria vinculada ao produto, nunca a query.
+Uma ficha indevidamente associada em outra tabela é ignorada. Produto inexistente ou inativo retorna o mesmo
+`404 { "erro": "Produto não encontrado" }`, mesmo com ficha, cookie ou `incluir_inativos=true` na query.
+A leitura usa uma única consulta, `p.id = $1 AND p.ativo`; falha do banco retorna o `500` genérico existente.
+
+**Diferenças frente ao PDF:** o PDF exige ficha, mas não nomeia seu campo ou define ausência; o envelope
+`ficha: { tipo, dados } | null` é a decisão deste incremento. O PDF lista `200/404` para detalhe; adotamos também
+`400` para ID inválido, coerente com a API local. Os erros continuam com `AppError`/`errorHandler` no formato
+`{ erro, detalhes? }`, em vez de `{ erro: codigo, mensagem }`. Nenhuma mudança global de erros foi feita.
+
+**Consumidores e pendências:** não há consumidor HTTP atual do detalhe no frontend. Seus helpers continuam
+usando os próprios mocks e IDs textuais, e não foram migrados para esta API. Os testes que consultavam o detalhe
+legado foram adaptados. Os atalhos de peixes seguem o incremento abaixo e os filtros técnicos de produtos
+estão documentados na seção própria acima. Sem CRUD ou mudança de schema.
+
+### Peixes — atalhos públicos implementados em 25/10/2026
+
+Conforme a página 3 do [`API_Aquarilandia_Rotas.pdf`](../API_Aquarilandia_Rotas.pdf), peixe é produto da categoria
+`peixes`; não existe um ID ou cadastro público separado. `GET /api/peixes` e `GET /api/peixes/:id` consultam
+`produtos`, `categorias` e `peixes`, exigindo produto ativo, slug `peixes` e ficha existente (`INNER JOIN`).
+
+**DTO das duas rotas:** cada item da lista e o objeto do detalhe são `PeixePublico`: os mesmos campos básicos
+de produto mais `ficha: { tipo: "peixes", dados: ... }`, completa e não nula. O detalhe é idêntico ao objeto
+obtido por `GET /api/produtos/:id` para esse produto. As projeções SQL de produto/ficha e a validação do ID são
+compartilhadas para evitar divergências. `preco` está em centavos e `emEstoque` deriva de `estoque > 0`.
+Um produto ativo com saldo zero continua aparecendo com `emEstoque: false`.
+
+Exemplo ilustrativo de objeto retornado por `GET /api/peixes/42`:
+
+```json
+{
+  "id": 42,
+  "categoriaId": 1,
+  "categoria": "peixes",
+  "nome": "Betta",
+  "descricao": null,
+  "marca": null,
+  "preco": 2000,
+  "imagemUrl": null,
+  "emEstoque": true,
+  "ficha": {
+    "tipo": "peixes",
+    "dados": {
+      "nomeCientifico": "Betta splendens",
+      "origem": null,
+      "tipoAgua": "doce",
+      "tamanhoAdultoCm": 6.5,
+      "tempMinC": 24.5,
+      "tempMaxC": 28.5,
+      "phMin": 6,
+      "phMax": 7.5,
+      "aquarioMinLitros": 20,
+      "temperamento": "semi_agressivo",
+      "nivelNatacao": null,
+      "cardumeMinimo": 1,
+      "dieta": null,
+      "dificuldade": "iniciante"
+    }
+  }
+}
+```
+
+A lista usa `{ "itens": [ ...objetos com esse mesmo DTO... ], "total": 0 }`; o exemplo acima não descreve
+um registro de seed. `total` é o número de peixes públicos com ficha que atendem a **todos** os filtros,
+antes da paginação. Ordem fixa por nome crescente e, em caso de empate, ID crescente. Página além do fim
+retorna `itens: []` preservando o total filtrado. Página e total usam o mesmo snapshot de uma consulta.
+
+| Parâmetro | Semântica e validação |
+|---|---|
+| `pagina`, `limite` | Inteiros positivos sem zeros à esquerda, padrões 1/20, máximo 100 itens e deslocamento seguro; mesmo padrão das outras listas. |
+| `temperatura` | °C; `temp_min_c <= valor <= temp_max_c`, inclusivo. Decimal finito de -999.9 a 999.9, intervalo representável no schema `NUMERIC(4,1)`. |
+| `ph` | `ph_min <= valor <= ph_max`, inclusivo; decimal de 0 a 14. Zero é filtro válido. |
+| `tamanho_max` | Adulto com `tamanho_adulto_cm <= valor`, em cm; decimal maior que zero e até 9999.9, conforme `NUMERIC(5,1)`. |
+| `aquario_litros` | `aquario_min_litros <= valor`, em litros; inteiro de 1 a 2147483647. Verifica apenas o volume mínimo da ficha. |
+| `dificuldade` | `iniciante`, `intermediario` ou `avancado`. |
+| `temperamento` | `pacifico`, `semi_agressivo` ou `agressivo`. |
+| `tipo_agua` | `doce`, `salobra` ou `marinho`. |
+| `busca` | Após `trim`, 1–150 caracteres; trecho do nome popular (`produtos.nome`) **ou** científico (`peixes.nome_cientifico`), sem diferenciar caixa. Não busca descrição/marca nem remove acentos. |
+
+Decimais usam ponto, sem notação exponencial ou vírgula. A consulta não arredonda os filtros à precisão
+armazenada: por exemplo, `24.49` não atende a uma faixa iniciada em `24.5`. Temperaturas negativas são
+valores de consulta permitidos pelo tipo SQL, não recomendações de manutenção. Curingas `%`, `_` e `!` na
+busca são texto literal. Valores repetidos, vazios, inválidos ou parâmetros não previstos retornam `400`
+antes de consultar o banco. Não há aliases legados `filtros=doce,disp`, `tipoAgua`, `facil` ou `salgada`.
+Todos os valores usam parâmetros SQL; não há seleção de categoria ou ordenação por texto livre.
+
+**Ficha ausente e acesso:** produto da categoria `peixes` sem linha de ficha é omitido da lista/total e retorna
+`404 { "erro": "Peixe não encontrado" }` em `/api/peixes/:id`. O detalhe genérico de produto continua retornando
+`200` com `ficha: null`; essa diferença é intencional. ID inexistente, produto inativo ou de outra categoria
+também retorna `404` no atalho, inclusive se houver uma linha de peixe indevidamente vinculada a esse produto.
+Cookie, `categoria` ou `incluir_inativos` na query do detalhe não ampliam acesso. Na listagem, esses parâmetros
+não previstos retornam `400`. IDs seguem a mesma validação numérica de produtos (1 a 2147483647).
+
+**Erros e consumidores:** preservados `AppError`/`errorHandler`, `400 { erro, detalhes }`, `404 { erro }` e
+`500 { "erro": "Erro interno do servidor" }`. O formato do PDF `{ erro: codigo, mensagem }` continua pendente;
+o `400` para ID inválido segue a convenção local, embora o PDF só liste `200/404` para o detalhe. Os mocks de
+peixes do backend e seus tipos antigos foram removidos após verificar seus únicos consumidores no catálogo.
+O frontend não faz chamadas HTTP a essas rotas e não foi alterado: continua com seus próprios mocks, IDs e
+filtros locais. O seed cria categorias, mas nenhum produto/ficha; sem registros reais, os atalhos retornam vazio/404.
 
 ---
 

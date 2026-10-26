@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser'
 
 export const app = express()
 
-app.use(cors({ origin: env.corsOrigin }))
+app.use(cors({ origin: env.corsOrigin, credentials: true }))
 app.use(express.json())
 app.use(cookieParser())
 app.use('/api', routes)
