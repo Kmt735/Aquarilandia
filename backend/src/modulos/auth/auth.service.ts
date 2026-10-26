@@ -110,5 +110,13 @@ export const authService = {
 
     const { senhaHash, ...cliente } = encontrado
     return { cliente, token, expiraEm }
+  },
+  async logout(token:string): Promise<void>{
+    await sessaoRepository.excluirPorTokenHash(hashToken(token))
+  },
+  async buscarSessao(clienteId: number): Promise<Cliente>{
+    const cliente = await clienteRepository.buscarPorId(clienteId)
+    if(!cliente) throw new AppError('Faça login para continuar.',401)
+    return cliente
   }
 }

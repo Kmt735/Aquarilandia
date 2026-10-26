@@ -1,6 +1,13 @@
-import type { Request, Response } from "express";
+import type { CookieOptions, Request, Response  } from "express";
 import { authService } from "./auth.service.js";
+import { env } from '../../config/env.js'
 
+   const opcoesCookie: CookieOptions = {
+     httpOnly: true,
+     secure: env.nodeEnv === 'production',
+     sameSite: 'lax',
+     path: '/',
+   }
 export const authController = {
     async cadastrar (req: Request, res: Response): Promise<void>{
         const cliente = await authService.cadastrar(req.body)
@@ -21,5 +28,13 @@ export const authController = {
     })
 
     res.status(200).json(cliente)
-  }
+  },
+  async logout(req: Request, res: Response): Promise<void> {
+  await authService.logout(req.cookies.sid)
+  res.clearCookie('sid', opcoesCookie)
+  res.status(204).end()
+  },
+  async buscarSessao(req: Request, res: Response): Promise<void> {
+  res.json(await authService.buscarSessao(req.usuario!.id))
+  },  
 }
