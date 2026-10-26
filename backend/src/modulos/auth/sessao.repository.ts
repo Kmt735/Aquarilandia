@@ -24,4 +24,8 @@ export const sessaoRepository = {
     return rows[0] ?? null
   },
 
+  async excluirPorTokenHash(tokenHash: string): Promise<void>{
+    await db.query(`DELETE FROM sessoes WHERE token_hash = $1 `,[tokenHash])
+  }
+
 }

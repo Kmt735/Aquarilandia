@@ -19,6 +19,10 @@ export const clienteRepository = {
              ` SELECT ${colunas}, senha_hash AS "senhaHash" FROM clientes WHERE email = $1`, [email] 
         )
         return rows[0] ?? null
-    }
+    },
+    async buscarPorId(id:number): Promise<Cliente | null>{
+        const { rows } = await db.query<Cliente>(`SELECT ${colunas} FROM clientes WHERE id = $1 AND ativo `,[id])
+        return rows[0] ?? null
+    } 
 }
 
