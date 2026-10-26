@@ -6,7 +6,7 @@ import { authRoutes } from '../modulos/auth/auth.routes.js'
 import { clienteRoutes } from '../modulos/clientes/cliente.routes.js'
 import { freteRoutes } from '../modulos/vendas/frete.routes.js'
 import { vendaRoutes } from '../modulos/vendas/venda.routes.js'
-import { webhookRoutes } from '../modulos/vendas/webhook.routes.js'
+import { pagamentoRoutes } from '../modulos/pagamentos/pagamento.routes.js'
 
 export const routes = Router()
 
@@ -24,4 +24,4 @@ routes.use('/auth', authRoutes)
 routes.use('/clientes', clienteRoutes)
 routes.use('/frete', freteRoutes)
 routes.use('/vendas', vendaRoutes)
-routes.use('/webhook', webhookRoutes)
+routes.use('/pagamentos', pagamentoRoutes)

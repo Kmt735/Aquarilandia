@@ -1,4 +1,4 @@
-import type { UsuarioLogado } from '../modulos/auth/auth.types.js'
+import type { UsuarioLogado } from './index.js'
 
 declare global{
     namespace Express{

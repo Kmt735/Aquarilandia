@@ -1,4 +1,3 @@
-import { PapelCliente } from '../clientes/cliente.types.js'
 
 export interface DadosCadastro {
     nome: string
@@ -19,9 +18,4 @@ export interface NovaSessao {
     expiraEm:Date
     ip:string | null
     userAgent:string | null
-}
-
-export interface UsuarioLogado {
-    id: number
-    papel: PapelCliente
 }
