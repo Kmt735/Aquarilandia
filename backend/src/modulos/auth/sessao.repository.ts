@@ -1,5 +1,6 @@
 import { db } from '../../config/db.js'
-import type { NovaSessao,UsuarioLogado } from './auth.types.js'
+import type { NovaSessao } from './auth.types.js'
+import type { UsuarioLogado } from '../../types/index.js'
 
 const colunasUsuario = 'c.id, c.papel'
 export const sessaoRepository = {
@@ -10,9 +11,21 @@ export const sessaoRepository = {
         )
     },
 
-    async buscarUsuarioPorTokenHash(tokenHash:string): Promise<UsuarioLogado | null>{
-        const { rows } = await db.query<UsuarioLogado>(` SELECT ${colunasUsuario} FROM sessoes AS s JOIN clientes AS c ON c.id= s.cliente_id WHERE token_hash = $1 AND expira_em > now() AND ativo = true  `, [tokenHash])
-        return rows[0] ?? null
-    }
+    async buscarUsuarioPorTokenHash(tokenHash: string): Promise<UsuarioLogado | null> {
+    const { rows } = await db.query<UsuarioLogado>(
+      `SELECT ${colunasUsuario}
+       FROM sessoes s
+       JOIN clientes c ON c.id = s.cliente_id
+       WHERE s.token_hash = $1
+         AND s.expira_em > now()
+         AND c.ativo`,
+      [tokenHash],
+    )
+    return rows[0] ?? null
+  },
+
+  async excluirPorTokenHash(tokenHash: string): Promise<void>{
+    await db.query(`DELETE FROM sessoes WHERE token_hash = $1 `,[tokenHash])
+  }
 
 }

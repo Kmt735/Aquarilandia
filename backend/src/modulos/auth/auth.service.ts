@@ -8,10 +8,10 @@ import { sessaoRepository } from "./sessao.repository.js"
 
 
 
-
+const detalhesEmailEmUso = {email: 'Este e-mail já está cadastrado.'}
 const DURACAO_SESSAO_MS = 7 * 24 *60 *60 *1000
 const MSG_LOGIN_INVALIDO = 'Email ou senha incorretos.'
-
+const msgCadastroRecusado = 'Não foi possível criar a conta.'
 
 function validarCadastro (body: unknown): DadosCadastro {
     const erros: Record<string,string> = {}
@@ -24,11 +24,11 @@ function validarCadastro (body: unknown): DadosCadastro {
     const telefone = String (dados.telefone ?? '').trim().replace(/\D/g, '')
     const aceiteTermos = dados.aceiteTermos 
 
-    if(nome.length < 2 || nome.length > 120) erros.nome = 'Digite seu nome (entre 2 e 120 caracteres).'
-    if(!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || email.length > 160) erros.email = 'Digite um e-mail válido.'
-    if(senha.length < 8 || senha.length > 128) erros.senha = 'Digite uma senha com 8 a 128 caracteres.'
-    if(telefone.length !== 11) erros.telefone = 'Telefone incompleto ou inválido. Exemplo: (32) 99999-0000'
-    if(aceiteTermos !== true) erros.aceiteTermos = 'Você precisa aceitar os termos de uso.'
+    if(nome.length < 2 || nome.length > 120) erros.nome = 'Digite seu nome (pelo menos 2 letras).'
+    if(!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || email.length > 160) erros.email = 'Digite um e-mail válido. Exemplo: nome@email.com.'
+    if(senha.length < 8 || senha.length > 128) erros.senha = 'A senha precisa ter pelo menos 8 caracteres.'
+    if(telefone.length !== 11) erros.telefone = 'Digite um celular com DDD. Exemplo: (32) 99999-0000.'
+    if(aceiteTermos !== true) erros.aceiteTermos = 'Para criar a conta, aceite os termos de uso e a política de privacidade.'
 
     if(Object.keys(erros).length) throw new AppError('Dados inválidos', 422, erros)
     return {nome,email,senha,telefone,aceiteTermos:true}
@@ -69,7 +69,7 @@ export const authService = {
     const dados = validarCadastro(body)
 
     const clienteExistente = await clienteRepository.buscarPorEmail(dados.email)
-    if (clienteExistente) throw new AppError('E-mail já cadastrado.', 409)
+    if (clienteExistente) throw new AppError(msgCadastroRecusado, 409,detalhesEmailEmUso)
 
     const senhaHash = await gerarHash(dados.senha)
 
@@ -81,7 +81,7 @@ export const authService = {
         senhaHash
       })
     } catch (err) {
-      if (ehEmailDuplicado(err)) throw new AppError('E-mail já cadastrado.', 409)
+      if (ehEmailDuplicado(err)) throw new AppError(msgCadastroRecusado, 409 ,detalhesEmailEmUso)
       throw err
     }
   },
@@ -110,5 +110,13 @@ export const authService = {
 
     const { senhaHash, ...cliente } = encontrado
     return { cliente, token, expiraEm }
+  },
+  async logout(token:string): Promise<void>{
+    await sessaoRepository.excluirPorTokenHash(hashToken(token))
+  },
+  async buscarSessao(clienteId: number): Promise<Cliente>{
+    const cliente = await clienteRepository.buscarPorId(clienteId)
+    if(!cliente) throw new AppError('Faça login para continuar.',401)
+    return cliente
   }
 }

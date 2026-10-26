@@ -8,6 +8,8 @@
     "build": "tsc",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test testes/*.test.mjs",
+    "test:integration": "node --import tsx --test testes/integracao/*.test.mjs",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d --wait",

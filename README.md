@@ -58,13 +58,31 @@ A conexão vem de `DATABASE_URL` no `.env`; o pool fica em `src/config/db.ts`. O
 | Método | Rota | Descrição |
 | --- | --- | --- |
 | GET | `/api/health` | Status da API |
-| GET | `/api/categorias` | Categorias da loja |
-| GET | `/api/produtos?categoria=&disponibilidade=in\|out` | Produtos (com filtros) |
-| GET | `/api/produtos/:id` | Um produto |
-| GET | `/api/peixes?filtros=doce,facil,disp` | Peixes (com filtros) |
-| GET | `/api/peixes/:id` | Um peixe |
+| GET | `/api/categorias?pagina=1&limite=20` | Categorias do PostgreSQL, resposta `{ itens, total }` |
+| GET | `/api/categorias/:id` | Categoria por ID numérico, `{ id, nome, slug }` ou `404` |
+| POST | `/api/categorias` | Admin: cria `{ nome, slug }`, retorna `201` |
+| PATCH | `/api/categorias/:id` | Admin: altera nome/slug permitidos, retorna `200` |
+| DELETE | `/api/categorias/:id` | Admin: exclui sem produtos vinculados, `204`; conflito `409` |
+| GET | `/api/produtos?categoria=&busca=&preco_min=&preco_max=&ordem=&pagina=1&limite=20` | Produtos ativos, filtros gerais e técnicos por ficha; resposta `{ itens, total }` e centavos |
+| GET | `/api/produtos/:id` | Produto ativo do PostgreSQL, ID numérico, centavos e ficha técnica da categoria |
+| POST | `/api/produtos` | Admin: cria produto e ficha na mesma transação, estoque inicial zero, retorna `201` |
+| GET | `/api/peixes?temperatura=&ph=&tamanho_max=&aquario_litros=&dificuldade=&temperamento=&tipo_agua=&busca=&pagina=1&limite=20` | Produtos ativos da categoria peixes com ficha, resposta `{ itens, total }` |
+| GET | `/api/peixes/:id` | Mesmo ID e detalhe do produto, restrito a peixes com ficha |
 | GET | `/api/servicos` | Serviços |
 | POST | `/api/orcamentos` | Cria pedido de orçamento (`nome`, `telefone`, `servico`, `mensagem?`) |
 | GET | `/api/orcamentos` | Lista orçamentos recebidos |
 
-As rotas do catálogo ainda leem os dados em memória (`src/data/`); o banco já está pronto para recebê-las. Com os dois rodando, o Vite já encaminha `/api` para o backend.
+As rotas de categorias, a listagem e o detalhe de produtos e os atalhos de peixes já consultam o PostgreSQL.
+Escritas de categorias exigem o cookie `sid` de admin e `Origin` igual a `CORS_ORIGIN`.
+O cadastro de produtos usa as mesmas proteções e exige a ficha da categoria especializada.
+Serviços ainda leem os dados em memória (`src/data/`). O detalhe de produto inclui `ficha: { tipo, dados }` ou `null` quando
+não existe ficha. O frontend continua usando seus próprios dados locais. O seed cria categorias, mas não
+produtos. Com os dois rodando, o Vite encaminha
+`/api` para o backend. Contrato de categorias: [`backend/api.md`](backend/api.md#categorias--contrato-implementado-em-25102026).
+Administração de categorias: [`backend/api.md`](backend/api.md#categorias--detalhe-e-administração-implementados-em-25102026).
+Contrato da listagem de produtos: [`backend/api.md`](backend/api.md#produtos--listagem-pública-implementada-em-25102026).
+Filtros técnicos e ambiguidades do modelo: [`backend/api.md`](backend/api.md#produtos--filtros-técnicos-implementados-em-25102026).
+Contrato do detalhe: [`backend/api.md`](backend/api.md#produtos--detalhe-público-implementado-em-25102026).
+Contrato do cadastro: [`backend/api.md`](backend/api.md#produtos--cadastro-administrativo-implementado-em-25102026).
+Contrato dos atalhos de peixes: [`backend/api.md`](backend/api.md#peixes--atalhos-públicos-implementados-em-25102026).
+Verificações dos incrementos: [`backend/testes/README.md`](backend/testes/README.md).
