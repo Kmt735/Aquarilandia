@@ -17,6 +17,7 @@ catalogoRoutes.delete('/categorias/:id', autenticar, exigirAdmin, exigirOrigem, 
 catalogoRoutes.get('/produtos', produtoController.listar)
 catalogoRoutes.get('/produtos/:id', produtoController.buscarPorId)
 catalogoRoutes.post('/produtos', autenticar, exigirAdmin, exigirOrigem, produtoController.criar)
+catalogoRoutes.patch('/produtos/:id', autenticar, exigirAdmin, exigirOrigem, produtoController.atualizar)
 catalogoRoutes.get('/peixes', peixeController.listar)
 catalogoRoutes.get('/peixes/:id', peixeController.buscarPorId)
 catalogoRoutes.get('/servicos', catalogoController.servicos)

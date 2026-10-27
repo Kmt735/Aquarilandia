@@ -1,8 +1,16 @@
 @api=http://localhost:3333/api
 @origem=http//localhost:5173
+@sessaoAdmin=SUBSTITUA_PELO_TOKEN_DA_SESSAO_ADMIN
 
 
-get {{api}}/orcamentos 
+# 401 sem sessão; confirme que o cliente HTTP não envia cookies salvos automaticamente.
+GET {{api}}/orcamentos
+Cookie:
+
+###
+# 200 somente com sessão administrativa válida; cliente autenticado recebe 403.
+GET {{api}}/orcamentos
+Cookie: sid={{sessaoAdmin}}
 
 
 ###

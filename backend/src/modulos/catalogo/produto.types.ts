@@ -42,3 +42,12 @@ export interface DetalheProduto extends ProdutoPublico {
 export type NovoProduto = Pick<ProdutoPublico, 'categoriaId' | 'nome' | 'descricao' | 'marca' | 'preco'> & {
   ficha: FichaTecnica | null
 }
+
+// A forma é validada antes do lock; os valores só são aceitos após validar o estado final.
+export interface AtualizacaoProduto {
+  nome?: unknown
+  descricao?: unknown
+  marca?: unknown
+  preco?: unknown
+  ficha?: { dados: Record<string, unknown> }
+}

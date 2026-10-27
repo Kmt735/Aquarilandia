@@ -29,5 +29,7 @@ export const orcamentoService = {
     return orcamento
   },
 
-  listar: () => orcamentos,
+  listar: (): Orcamento[] => orcamentos.map(({ id, criadoEm, nome, telefone, servico, mensagem }) => (
+    { id, criadoEm, nome, telefone, servico, mensagem }
+  )),
 }

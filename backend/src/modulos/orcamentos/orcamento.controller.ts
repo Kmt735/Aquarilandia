@@ -7,6 +7,6 @@ export const orcamentoController = {
   },
 
   listar(_req: Request, res: Response) {
-    res.json(orcamentoService.listar())
+    res.set('Cache-Control', 'no-store').json(orcamentoService.listar())
   },
 }

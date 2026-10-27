@@ -6,6 +6,14 @@ export const notFound: RequestHandler = (req, res) => {
 }
 
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+  if (err?.type === 'entity.too.large') {
+    res.status(413).json({ erro: 'Corpo da requisição excede o limite de 100 KiB' })
+    return
+  }
+  if (err?.type === 'encoding.unsupported') {
+    res.status(415).json({ erro: 'Codificação de corpo não suportada. Envie JSON sem compressão.' })
+    return
+  }
   if (err instanceof AppError) {
     res.status(err.statusCode).json({ erro: err.message, detalhes: err.detalhes })
     return

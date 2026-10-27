@@ -8,6 +8,40 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-41 — Leitura de orçamentos exige sessão e papel atual de admin
+- **Data:** 26/10/2026
+- **Decisão:** manter o POST de criação público e colocar uma guarda comum `autenticar, exigirAdmin` depois
+  dele no router de orçamentos. GET/HEAD da lista e demais caminhos do módulo exigem sessão válida (`401`)
+  e papel atual de admin (`403` para cliente), consultados a cada requisição pelo mecanismo existente.
+- **Motivo:** corrigir a exposição confirmada de nome, telefone e mensagem, sem depender de CORS/frontend
+  e sem reimplementar autenticação ou o restante do CRUD do outro responsável.
+- **Impacto:** lista continua array em memória, mas projeta somente ID/data/nome/telefone/serviço/mensagem
+  e envia `Cache-Control: no-store`. Erros não incluem a lista nem detalhes de sessão. Detalhe, PATCH de
+  status/resposta e DELETE permanecem ausentes (`404` para admin), já atrás da guarda. Futuras escritas
+  administrativas deverão adicionar `exigirOrigem`; este incremento não cria handlers de alteração.
+  Formato paginado do PDF, persistência, filtros e rate limit continuam pendentes. Testes HTTP/PG verificam
+  visitante, cliente, admin, troca de papel, sessão revogada/inativa/vencida e preservação da criação pública.
+  A correção em orçamentos foi explicitamente autorizada pelo responsável nesta rodada, preservando o PATCH
+  de produtos e as implementações de autenticação/catálogo. Detalhes em `api.md`; achado S-01 atualizado.
+
+### D-40 — PATCH de produto e ficha com categoria fixa e estado final validado
+- **Data:** 26/10/2026
+- **Decisão:** o PATCH usa sessão/admin/Origin do POST e aceita somente nome, descrição, marca, preço e
+  `ficha: { dados: { ... } }`. Categoria, `ficha.tipo`, ID, ativo, estoque e imagem são protegidos, mesmo se
+  enviados com o mesmo valor. Omitidos permanecem; `null` só limpa campos anuláveis. Não há remoção de ficha.
+- **Motivo:** editar produto e ficha juntos sem sobrescrever campos de outra edição. `FOR NO KEY UPDATE`
+  serializa edições sem bloquear leituras de FK; categoria usa `FOR SHARE`. O estado é consultado após o lock,
+  combinado com o corpo e validado pelas regras existentes das 11 categorias. SQL grava só os campos enviados.
+- **Impacto:** transação inclui atualização de timestamp e DTO final; falhas e duplicidade científica desfazem
+  tudo. Sucesso `200`, inativos/inexistentes `404`, inválidos `400`, duplicidade `409`, erro inesperado `500`.
+  Legados especializados sem ficha exigem preenchimento completo para reparar o estado pelo PATCH; leituras
+  antigas seguem permitindo `ficha: null`. Num mesmo campo vence a última edição serializada, sem `If-Match`.
+  Contrato em `api.md`. Sem schema, DELETE, imagens, movimentações, frontend ou alterações em auth/orçamentos.
+  Parser compartilhado passa a explicitar 100 KiB e responder `413` sem logar o corpo. Descompressão foi
+  desabilitada (`415`) como mitigação oficial do alerta body-parser, mantendo dependências/lockfile.
+  Falhas de outros módulos e riscos de configuração estão separados em
+  [`seguranca-backend-2026-10-26.md`](seguranca-backend-2026-10-26.md), sem serem declarados resolvidos.
+
 ### D-39 — Cadastro transacional de produto e ficha, com estoque inicial zero
 - **Data:** 25/10/2026
 - **Decisão:** `POST /api/produtos` reutiliza sessão/admin/Origin de categorias. Recebe `categoriaId`, `nome`,
