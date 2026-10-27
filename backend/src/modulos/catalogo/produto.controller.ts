@@ -101,6 +101,10 @@ function lerFiltros(query: Request['query']): FiltrosProdutos {
 }
 
 export const produtoController = {
+  async atualizar(req: Request<{ id: string }>, res: Response): Promise<void> {
+    res.json(await produtoService.atualizar(lerIdCatalogo(req.params.id), req.body))
+  },
+
   async criar(req: Request, res: Response): Promise<void> {
     res.status(201).json(await produtoService.criar(req.body))
   },

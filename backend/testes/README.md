@@ -1,5 +1,7 @@
 # Testes do catálogo
 
+As suítes incluem também a proteção administrativa de orçamentos.
+
 Execute em `backend/`, com Node.js 22 e as dependências do lockfile:
 
 ```bash
@@ -27,6 +29,10 @@ A suíte de cadastro de produtos também simula o client retornado por `db.conne
 COMMIT, ROLLBACK, liberação/descarte da conexão, uso de parâmetros e ausência de queries fora da transação.
 Cobre as 11 fichas, obrigatoriedade, enums, limites e casas decimais, defaults, campos desconhecidos, estoque
 zero, associação de categoria, sessão/admin/Origin e erros sem detalhes internos.
+A suíte de edição verifica whitelist em todos os níveis (incluindo chaves de protótipo), campos protegidos,
+PATCH parcial, `null`, preservação de omitidos, faixas do estado final, 404 de inativos, duplicidade e rollback.
+Verifica também 413 de payload acima de 100 KiB e 415 de corpo comprimido antes de sessão/banco, sem logar
+conteúdo do corpo, em PATCH/POST/login. Os testes não exploram o DoS do body-parser para derrubar processos.
 
 ## Integração com PostgreSQL
 
@@ -86,5 +92,26 @@ Confirma a espera de lock ao cadastrar em uma categoria com exclusão concorrent
 de cadastro/login trazidas pelo último pull, cookie/sessão, promoção de papel exclusivamente na fixture SQL,
 revogação, health e regressões de consultas/filtros. Valores extremos de teste não são recomendações biológicas.
 
+A integração de edição cria outro schema exclusivo com os três scripts. Cobre todas as 11 fichas, campos
+anuláveis, centavos e limites, estoque preservado, timestamp, reparo de ficha legada, duplicidade e rollback
+real do produto/ficha/timestamp. Duas requisições PATCH concorrentes são sincronizadas com locks observados
+em `pg_stat_activity`, comprovando que campos diferentes são preservados. Outro caso altera uma faixa numa
+transação concorrente e exige validação contra o novo estado. Também verifica a compatibilidade do lock com
+a FK ao excluir categoria concorrente, além das leituras de produtos/peixes/categorias. Os locks auxiliares,
+triggers e fixtures existem somente no schema de testes e são removidos junto com ele.
+
 A resposta das listas de categorias, produtos e peixes é `{ itens, total }`; `pagina` e `limite` são parâmetros da requisição. A escolha do
 contrato, suas divergências e os consumidores legados estão registrados em `../api.md` e `../docs/decisoes.md`.
+
+## Controle de acesso a orçamentos
+
+`orcamentos-acesso.test.mjs` exercita a aplicação HTTP com a consulta de sessão simulada. Cria fixtures
+públicas e verifica `401`/`403` sem dados pessoais, admin, projeção explícita de campos, `no-store`, tentativa
+de reutilizar ETag, HEAD, rebaixamento/revogação e erros genéricos. Confere que somente POST é público e que
+detalhe/PATCH de resposta/DELETE continuam sem handler para admin, atrás da guarda.
+
+`integracao/orcamentos-acesso.test.mjs` cria schema exclusivo com `10_clientes.sql`, contas e sessões reais.
+Orçamentos permanecem no array do processo de teste; não se inventa tabela. Altera papel/ativo e remove sessões
+no PostgreSQL para confirmar bloqueio imediato com o mesmo cookie. Verifica sessão inválida/vencida e falha
+real da tabela de sessões; o POST público continua funcionando mesmo sem essa tabela. Schema e processo são
+descartados ao final, sem alterar dados do projeto. As demais suítes preservam catálogo, PATCH de produtos e login.
