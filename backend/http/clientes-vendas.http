@@ -209,3 +209,16 @@ Origin: {{origem}}
 # GET {{api}}/auth/teste-sessao
 # Origin: {{origem}}
 # Cookie: sid=tokeninventado123
+
+# ===== RATE LIMIT =====
+# Login: rode este bloco 6 vezes seguidas (senha errada).
+# Esperado: 401 nas 5 primeiras e 429 na 6ª, com {"erro":"Muitas tentativas..."}.
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "rafa@gmail.com",
+  "senha": "senhaerrada123"
+}
