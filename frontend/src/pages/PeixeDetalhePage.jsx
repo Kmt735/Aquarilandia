@@ -12,13 +12,13 @@ import useWhatsApp from '../hooks/useWhatsApp'
 import { formatarPreco } from '../utils/format'
 import { ROTAS } from '../utils/rotas'
 
-export default function PeixePage() {
+export default function PeixeDetalhePage() {
   const { id } = useParams()
   const peixe = buscarPeixe(id)
   const { adicionar } = useCart()
   const abrirWhatsApp = useWhatsApp()
 
-  if (!peixe) {
+  if (!peixe) { 
     return (
       <PageTemplate eyebrow="Peixes" titulo="Peixe não encontrado">
         <div className="px-4 pt-10 sm:px-6 desk:px-10">

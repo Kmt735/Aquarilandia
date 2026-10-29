@@ -3,15 +3,30 @@ import { useState } from 'react'
 import Button from '../atoms/Button'
 import Input from '../atoms/Input'
 import Select from '../atoms/Select'
-import Spinner from '../atoms/Spinner'
 import Textarea from '../atoms/Textarea'
 import FormField from '../molecules/FormField'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { linkWhatsApp } from '../../data/contato'
 import useUI from '../../hooks/useUI'
 import { opcoesServico } from '../../data/servicos'
 import { mascararTelefone, telefoneValido } from '../../utils/telefone'
 
-// H5 · Prevenção de erros  ·  H9 · Mensagens claras  ·  H1 · Status do envio
+function montarMensagem({ nome, telefone, servico, mensagem }) {
+  return [
+    'Olá!',
+    'Gostaria de pedir um orçamento pelo site da Aquarilândia.',
+    '',
+    '',
+    `*Nome*: ${nome.trim()}`,
+    `*Serviço*: ${servico}`,
+    mensagem.trim() ? `*Detalhes*: ${mensagem.trim()}` : null,
+    '',
+    `Aguardo o retorno. Obrigado(a)!`,
+  ]
+    .filter((linha) => linha !== null)
+    .join('\n')
+}
+
 export default function QuoteModal() {
   const { fecharPaineis, servicoOrcamento } = useUI()
   const [form, setForm] = useState({
@@ -21,7 +36,7 @@ export default function QuoteModal() {
     mensagem: '',
   })
   const [tocados, setTocados] = useState(() => new Set())
-  const [status, setStatus] = useState('editando') // 'editando' | 'enviando' | 'enviado'
+  const [status, setStatus] = useState('editando') // 'editando' | 'enviado'
 
   const validos = {
     nome: form.nome.trim().length >= 2,
@@ -34,9 +49,10 @@ export default function QuoteModal() {
   const atualizar = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }))
   const tocar = (campo) => setTocados((t) => new Set(t).add(campo))
 
+  const abrirWhatsApp = () => window.open(linkWhatsApp(montarMensagem(form)), '_blank', 'noopener,noreferrer')
   const enviar = () => {
-    setStatus('enviando')
-    setTimeout(() => setStatus('enviado'), 1200)
+    abrirWhatsApp()
+    setStatus('enviado')
   }
 
   return (
@@ -50,12 +66,17 @@ export default function QuoteModal() {
       {status === 'enviado' ? (
         <div className="pt-4 pb-1 text-center">
           <CircleCheck aria-hidden="true" className="mx-auto mb-3 size-11 text-primary-text" />
-          <h4 className="mb-2 text-[20px]">Pedido recebido!</h4>
+          <h4 className="mb-2 text-[20px]">Quase lá!</h4>
           <p className="mb-5 text-[14.5px] leading-relaxed text-text-muted">
-            Obrigado, {form.nome.trim().split(' ')[0]}! Recebemos seu pedido de {form.servico.toLowerCase()}. Vamos
-            responder no WhatsApp {form.telefone}.
+            Abrimos o WhatsApp da loja com o seu pedido de {form.servico.toLowerCase()}, {form.nome.trim().split(' ')[0]}.
+            É só tocar em enviar por lá para a gente receber. Se a conversa não abriu, use o primeiro botão.
           </p>
-          <Button onClick={fecharPaineis}>Fechar</Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+            <Button onClick={abrirWhatsApp}>Abrir o WhatsApp de novo</Button>
+            <Button variant="ghost" onClick={fecharPaineis}>
+              Fechar
+            </Button>
+          </div>
         </div>
       ) : (
         <div>
@@ -121,18 +142,13 @@ export default function QuoteModal() {
             />
           </FormField>
 
-          <Button variant="submit" disabled={!tudoValido || status === 'enviando'} onClick={enviar}>
-            {status === 'enviando' ? (
-              <>
-                <Spinner />
-                Enviando…
-              </>
-            ) : (
-              'Enviar pedido de orçamento'
-            )}
+          <Button variant="submit" disabled={!tudoValido} onClick={enviar}>
+            Enviar pelo WhatsApp
           </Button>
           <div className="mt-3 text-center text-[12.5px] text-text-muted">
-            {tudoValido ? 'Tudo certo! Pode enviar.' : 'Preencha os campos marcados com * para enviar.'}
+            {tudoValido
+              ? 'Tudo certo! Vamos abrir o WhatsApp da loja com o seu pedido.'
+              : 'Preencha os campos marcados com * para enviar.'}
           </div>
         </div>
       )}

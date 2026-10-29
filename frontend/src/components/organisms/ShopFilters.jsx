@@ -1,12 +1,12 @@
 import FilterGroup from '../molecules/FilterGroup'
-import { categorias, disponibilidades } from '../../data/categorias'
+import { categorias, disponibilidades, faixasPreco } from '../../data/categorias'
 
 const itensCategoria = [
   { valor: '', rotulo: 'Todos os produtos' },
   ...categorias.map((c) => ({ valor: c.nome, rotulo: c.nome, dica: c.dica })),
 ]
 
-export default function ShopFilters({ categoria, disponibilidade, onCategoria, onDisponibilidade }) {
+export default function ShopFilters({ categoria, disponibilidade, preco, onCategoria, onDisponibilidade, onPreco }) {
   return (
     <aside
       aria-label="Filtros"
@@ -23,6 +23,12 @@ export default function ShopFilters({ categoria, disponibilidade, onCategoria, o
         itens={disponibilidades}
         ativo={disponibilidade}
         onSelecionar={(valor) => onDisponibilidade(valor === disponibilidade ? null : valor)}
+      />
+      <FilterGroup
+        titulo="Preço"
+        itens={faixasPreco}
+        ativo={preco}
+        onSelecionar={(valor) => onPreco(valor === preco ? null : valor)}
       />
     </aside>
   )
