@@ -13,6 +13,22 @@ const DURACAO_SESSAO_MS = 7 * 24 *60 *60 *1000
 const MSG_LOGIN_INVALIDO = 'Email ou senha incorretos.'
 const msgCadastroRecusado = 'Não foi possível criar a conta.'
 
+// Regras compartilhadas entre o cadastro e o criar-admin; recebem o valor já normalizado
+function erroNome(nome: string): string | null {
+  if (nome.length < 2 || nome.length > 120) return 'Digite seu nome (pelo menos 2 letras).'
+  return null
+}
+
+function erroEmail(email: string): string | null {
+  if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || email.length > 160) return 'Digite um e-mail válido. Exemplo: nome@email.com.'
+  return null
+}
+
+function erroSenha(senha: string): string | null {
+  if (senha.length < 8 || senha.length > 128) return 'A senha precisa ter pelo menos 8 caracteres.'
+  return null
+}
+
 function validarCadastro (body: unknown): DadosCadastro {
     const erros: Record<string,string> = {}
 
@@ -24,9 +40,12 @@ function validarCadastro (body: unknown): DadosCadastro {
     const telefone = String (dados.telefone ?? '').trim().replace(/\D/g, '')
     const aceiteTermos = dados.aceiteTermos 
 
-    if(nome.length < 2 || nome.length > 120) erros.nome = 'Digite seu nome (pelo menos 2 letras).'
-    if(!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || email.length > 160) erros.email = 'Digite um e-mail válido. Exemplo: nome@email.com.'
-    if(senha.length < 8 || senha.length > 128) erros.senha = 'A senha precisa ter pelo menos 8 caracteres.'
+    const msgNome = erroNome(nome)
+    if(msgNome) erros.nome = msgNome
+    const msgEmail = erroEmail(email)
+    if(msgEmail) erros.email = msgEmail
+    const msgSenha = erroSenha(senha)
+    if(msgSenha) erros.senha = msgSenha
     if(telefone.length !== 11) erros.telefone = 'Digite um celular com DDD. Exemplo: (32) 99999-0000.'
     if(aceiteTermos !== true) erros.aceiteTermos = 'Para criar a conta, aceite os termos de uso e a política de privacidade.'
 
