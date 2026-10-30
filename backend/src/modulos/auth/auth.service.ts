@@ -1,4 +1,5 @@
 import { AppError } from '../../utils/AppError.js'
+import { comTransacao } from '../../utils/transacao.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
 import type { Cliente } from '../clientes/cliente.types.js'
 import {
@@ -86,6 +87,25 @@ function validarLogin(body:unknown):DadosLogin {
   return { email, senha }
 }
 
+// Senhas sem trim, como no cadastro: espaço também é caractere da senha
+function validarTrocaSenha(body: unknown): { senhaAtual: string; novaSenha: string } {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+  }
+
+  const dados = body as Record<string, unknown>
+  const senhaAtual = String(dados.senhaAtual ?? '')
+  const novaSenha = String(dados.novaSenha ?? '')
+
+  const erros: Record<string, string> = {}
+  if (senhaAtual === '') erros.senhaAtual = 'Digite sua senha atual.'
+  const msgNovaSenha = erroSenha(novaSenha)
+  if (msgNovaSenha) erros.novaSenha = msgNovaSenha
+
+  if (Object.keys(erros).length) throw new AppError('Dados inválidos', 422, erros)
+  return { senhaAtual, novaSenha }
+}
+
 export const authService = {
   async cadastrar(body: unknown): Promise<Cliente> {
     const dados = validarCadastro(body)
@@ -160,5 +180,28 @@ export const authService = {
     const cliente = await clienteRepository.buscarPorId(clienteId)
     if(!cliente) throw new AppError('Faça login para continuar.',401)
     return cliente
+  },
+  async trocarSenha(clienteId: number, tokenAtual: string, body: unknown): Promise<void> {
+    const dados = validarTrocaSenha(body)
+
+    const hashAtual = await clienteRepository.buscarHashSenha(clienteId)
+    if (!hashAtual) throw new AppError('Faça login para continuar.', 401)
+
+    // Nenhuma senha válida passa de 128 (erroSenha): mais que isso está errada, sem rodar o argon2 à toa
+    const senhaConfere = dados.senhaAtual.length <= 128 && (await verificarSenha(hashAtual, dados.senhaAtual))
+    if (!senhaConfere) throw new AppError('Dados inválidos', 422, { senhaAtual: 'Senha atual incorreta.' })
+
+    // Depois de conferir: só aqui a senhaAtual recebida é de fato a senha atual
+    if (dados.novaSenha === dados.senhaAtual) {
+      throw new AppError('Dados inválidos', 422, { novaSenha: 'A nova senha precisa ser diferente da atual.' })
+    }
+
+    const novoHash = await gerarHash(dados.novaSenha)
+
+    // Senha nova e queda das outras sessões juntas: nunca uma sem a outra
+    await comTransacao(async (client) => {
+      await clienteRepository.atualizarSenha(clienteId, novoHash, client)
+      await sessaoRepository.excluirOutrasDoCliente(clienteId, hashToken(tokenAtual), client)
+    })
   },
 }

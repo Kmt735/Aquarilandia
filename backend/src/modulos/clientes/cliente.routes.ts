@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { autenticar } from '../../middlewares/autenticar.js'
 import { exigirOrigem } from '../../middlewares/exigirOrigem.js'
+import { limiteTrocaSenha } from '../../middlewares/rateLimit.js'
 import { clienteController } from './cliente.controller.js'
 
 export const clienteRoutes = Router()
@@ -9,3 +10,4 @@ export const clienteRoutes = Router()
 // exigirOrigem vem antes do autenticar: recusa o pedido de outro site sem consultar a sessão no banco.
 clienteRoutes.get('/me', autenticar, clienteController.buscarMeusDados)
 clienteRoutes.patch('/me', exigirOrigem, autenticar, clienteController.atualizarMeusDados)
+clienteRoutes.patch('/me/senha', exigirOrigem, autenticar, limiteTrocaSenha, clienteController.trocarMinhaSenha)

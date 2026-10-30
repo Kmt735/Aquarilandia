@@ -1,4 +1,5 @@
 import{db} from '../../config/db.js'
+import type { Queryable } from '../../utils/transacao.js'
 import type { AtualizacaoCliente, Cliente, ClienteComSenha, NovoCliente } from './cliente.types.js'
 
 const colunas = ' id, nome, email, telefone, papel, ativo, criado_em AS "criadoEm", atualizado_em AS "atualizadoEm" '
@@ -56,6 +57,17 @@ export const clienteRepository = {
             valores,
         )
         return rows[0] ?? null
+    },
+    // só para a troca de senha; nunca devolver em resposta
+    async buscarHashSenha(id: number): Promise<string | null> {
+        const { rows } = await db.query<{ senhaHash: string }>(
+            'SELECT senha_hash AS "senhaHash" FROM clientes WHERE id = $1 AND ativo',
+            [id],
+        )
+        return rows[0]?.senhaHash ?? null
+    },
+    async atualizarSenha(id: number, senhaHash: string, executor: Queryable = db): Promise<void> {
+        await executor.query('UPDATE clientes SET senha_hash = $2, atualizado_em = now() WHERE id = $1', [id, senhaHash])
     },
 }
 
