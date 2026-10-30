@@ -2,7 +2,8 @@
 @origem=http://localhost:5173
 
 
-get {{api}}/orcamentos 
+# 200 só logado como admin (crie com npm run criar-admin e faça login antes); sem login 401, cliente 403
+get {{api}}/orcamentos
 
 
 ###
