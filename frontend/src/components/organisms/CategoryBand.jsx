@@ -1,12 +1,12 @@
-import { ChevronDown, Store } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import WaterWave from '../atoms/WaterWave'
 import CategoryCard from '../molecules/CategoryCard'
 import SectionHead from '../molecules/SectionHead'
 import { iconeCategoria } from '@/lib/icones'
-import { categorias } from '../../data/categorias'
+import { categoriasMenu } from '../../data/categorias'
 import { descricaoCategoria } from '../../data/glossario'
-import { ROTAS, urlLoja } from '../../utils/rotas'
+import { ROTAS, urlCategoria } from '../../utils/rotas'
 
 const VISIVEIS_CELULAR = 5
 
@@ -23,15 +23,12 @@ export default function CategoryBand() {
         <div className="mx-auto max-w-[1200px] px-4 pt-4 pb-6 sm:px-6 desk:px-10 desk:pb-8">
           <SectionHead id="titulo-categorias" eyebrow="Loja" titulo="Encontre pelo que você precisa" link={{ to: ROTAS.loja, rotulo: 'Ver loja completa' }} />
           <ul id="lista-categorias" className="grid gap-3 sm:grid-cols-2 desk:grid-cols-4">
-            {categorias.map((c, i) => (
+            {categoriasMenu.map((c, i) => (
               <li key={c.nome} className={!todas && i >= VISIVEIS_CELULAR ? 'max-sm:hidden' : ''}>
-                <CategoryCard icone={iconeCategoria[c.nome]} rotulo={c.nome} descricao={descricaoCategoria[c.nome]} to={urlLoja({ categoria: c.nome })} />
+                <CategoryCard icone={iconeCategoria[c.nome]} rotulo={c.nome} descricao={descricaoCategoria[c.nome]} to={urlCategoria(c.nome)} />
               </li>
             ))}
-            {/* 11 categorias + este card = 12: a grade de 4 colunas fecha sem vazio */}
-            <li className={todas ? '' : 'max-sm:hidden'}>
-              <CategoryCard icone={Store} rotulo="Ver tudo" descricao="Todos os produtos da loja, com filtros." to={ROTAS.loja} />
-            </li>
+            {/* Peixes + 11 categorias = 12: a grade de 4 colunas fecha sem vazio ("Ver loja completa" fica no cabeçalho) */}
           </ul>
           <button
             type="button"
@@ -40,7 +37,7 @@ export default function CategoryBand() {
             onClick={() => setTodas((t) => !t)}
             className="mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-full border border-border-control text-pequeno font-bold text-primary-text sm:hidden"
           >
-            {todas ? 'Mostrar menos' : `Ver todas as ${categorias.length} categorias`}
+            {todas ? 'Mostrar menos' : `Ver todas as ${categoriasMenu.length} categorias`}
             <ChevronDown aria-hidden="true" className={`size-4 transition-transform ${todas ? 'rotate-180' : ''}`} />
           </button>
         </div>

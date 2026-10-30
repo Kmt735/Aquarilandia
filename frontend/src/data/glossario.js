@@ -3,6 +3,7 @@
 
 // Uma linha por categoria da loja, ao lado do nome
 export const descricaoCategoria = {
+  Peixes: 'Peixes vivos, com temperamento e cuidados de cada um.',
   Aquários: 'O tanque de vidro onde os peixes vão morar.',
   Filtros: 'Limpam a água o tempo todo, sem você ver.',
   Bombas: 'Movimentam a água e ajudam a oxigenar.',

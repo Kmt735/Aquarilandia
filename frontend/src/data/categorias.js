@@ -16,6 +16,9 @@ export const categorias = [
   { nome: 'Acessórios', icone: '🎒' },
 ]
 
+// Peixes são uma categoria do catálogo, mas com página própria (filtros de ficha técnica)
+export const categoriasMenu = [{ nome: 'Peixes', icone: '🐟' }, ...categorias]
+
 // Cards da home: o rótulo pode agrupar categorias, mas o filtro aplicado é `categoria`
 export const categoriasDestaque = [
   { rotulo: 'Aquários', icone: '🧊', categoria: 'Aquários' },

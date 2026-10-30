@@ -30,7 +30,7 @@ export default function CompararPeixesPage() {
     .slice(0, 3)
 
   return (
-    <PageTemplate titulo="Comparar peixes" trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Peixes', to: ROTAS.peixes }, { rotulo: 'Comparar' }]}>
+    <PageTemplate titulo="Comparar peixes" trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Loja', to: ROTAS.loja }, { rotulo: 'Peixes', to: ROTAS.peixes }, { rotulo: 'Comparar' }]}>
       <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6 desk:px-10">
         {peixes.length < 2 ? (
           <EmptyState icone={<Columns3 />} titulo="Escolha pelo menos 2 peixes" acoes={<Button asChild><Link to={ROTAS.peixes}>Escolher peixes</Link></Button>}>

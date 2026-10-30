@@ -10,19 +10,18 @@ import NavDropdown from '../molecules/NavDropdown'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { iconeCategoria } from '@/lib/icones'
-import { categorias } from '../../data/categorias'
+import { categoriasMenu } from '../../data/categorias'
 import useAuth from '../../hooks/useAuth'
 import useCart from '../../hooks/useCart'
 import useTema from '../../hooks/useTema'
 import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
 import { formatarPreco } from '../../utils/format'
-import { ROTAS, urlLoja } from '../../utils/rotas'
+import { ROTAS, urlCategoria } from '../../utils/rotas'
 
 const links = [
   { to: ROTAS.inicio, rotulo: 'Início', end: true },
   { to: ROTAS.loja, rotulo: 'Loja' },
-  { to: ROTAS.peixes, rotulo: 'Peixes' },
   { to: ROTAS.primeiroAquario, rotulo: 'Meu Primeiro Aquário' },
   { to: ROTAS.servicos, rotulo: 'Serviços' },
 ]
@@ -68,7 +67,7 @@ export default function SiteNav() {
         <nav aria-label="Principal" className="hidden items-center gap-5 desk:flex xl:gap-7">
           {links.map((l) =>
             l.to === ROTAS.loja ? (
-              <NavDropdown key={l.to} ativo={pathname.startsWith(ROTAS.loja)} />
+              <NavDropdown key={l.to} ativo={pathname.startsWith(ROTAS.loja) || pathname.startsWith(ROTAS.peixes)} />
             ) : (
               <NavLink key={l.to} to={l.to} end={l.end} className={classeLink}>
                 {({ isActive }) => (
@@ -134,11 +133,11 @@ export default function SiteNav() {
                                 Ver loja completa
                               </NavLink>
                             </li>
-                            {categorias.map((c) => {
+                            {categoriasMenu.map((c) => {
                               const Icone = iconeCategoria[c.nome]
                               return (
                                 <li key={c.nome}>
-                                  <Link to={urlLoja({ categoria: c.nome })} onClick={fechar} className="flex min-h-11 items-center gap-2.5 rounded-xl px-3 text-pequeno font-semibold hover:bg-surface-tint hover:text-primary-text">
+                                  <Link to={urlCategoria(c.nome)} onClick={fechar} className="flex min-h-11 items-center gap-2.5 rounded-xl px-3 text-pequeno font-semibold hover:bg-surface-tint hover:text-primary-text">
                                     <Icone aria-hidden="true" className="size-4 text-primary-text" />
                                     {c.nome}
                                   </Link>

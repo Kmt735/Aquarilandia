@@ -73,7 +73,7 @@ export default function PeixeDetalhePage() {
   const { dados: peixe, carregando, erro, recarregar } = useConsulta(() => obterPeixe(id), [id])
   useTituloPagina(peixe?.nome ?? (erro ? 'Peixe não encontrado' : 'Peixe'))
 
-  const trilha = [{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Peixes', to: ROTAS.peixes }, { rotulo: peixe?.nome ?? '…' }]
+  const trilha = [{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Loja', to: ROTAS.loja }, { rotulo: 'Peixes', to: ROTAS.peixes }, { rotulo: peixe?.nome ?? '…' }]
 
   if (carregando) {
     return (

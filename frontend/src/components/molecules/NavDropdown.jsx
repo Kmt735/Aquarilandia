@@ -9,9 +9,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { iconeCategoria } from '@/lib/icones'
-import { categorias } from '../../data/categorias'
+import { categoriasMenu } from '../../data/categorias'
 import { descricaoCategoria } from '../../data/glossario'
-import { urlLoja } from '../../utils/rotas'
+import { urlCategoria, urlLoja } from '../../utils/rotas'
 
 // Submenu "Loja" com TODAS as categorias e a linha que explica cada uma
 export default function NavDropdown({ ativo }) {
@@ -27,12 +27,12 @@ export default function NavDropdown({ ativo }) {
         <SublinhadoNav ativo={ativo} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" sideOffset={14} className="grid w-[560px] grid-cols-2 gap-0.5 rounded-card border-border-strong p-2 shadow-pop">
-        {categorias.map((c) => {
+        {categoriasMenu.map((c) => {
           const Icone = iconeCategoria[c.nome]
           return (
             <DropdownMenuItem
               key={c.nome}
-              onSelect={() => navigate(urlLoja({ categoria: c.nome }))}
+              onSelect={() => navigate(urlCategoria(c.nome))}
               className="items-start gap-2.5 rounded-xl px-2.5 py-2 text-foreground focus:bg-surface-tint focus:text-primary-text"
             >
               <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary-text">

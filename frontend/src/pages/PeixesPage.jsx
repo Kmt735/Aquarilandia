@@ -74,7 +74,7 @@ export default function PeixesPage() {
     <PageTemplate
       titulo="Peixes"
       descricao="Cada peixe mostra temperamento, aquário mínimo e temperatura. Peixes vivos são entregues só em São João del Rei."
-      trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Peixes' }]}
+      trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Loja', to: ROTAS.loja }, { rotulo: 'Peixes' }]}
     >
       <CatalogoLayout
         busca={f.busca}
