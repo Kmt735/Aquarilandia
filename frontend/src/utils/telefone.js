@@ -1,14 +1,10 @@
+// Celular com DDD: 11 dígitos, máscara (32) 99999-0000 (regra do backend)
 export function mascararTelefone(valor) {
   const digitos = valor.replace(/\D/g, '').slice(0, 11)
-  if (digitos.length > 7) {
-    const corte = digitos.length === 11 ? 7 : 6
-    return `(${digitos.slice(0, 2)}) ${digitos.slice(2, corte)}-${digitos.slice(corte)}`
-  }
+  if (digitos.length > 7) return `(${digitos.slice(0, 2)}) ${digitos.slice(2, 7)}-${digitos.slice(7)}`
   if (digitos.length > 2) return `(${digitos.slice(0, 2)}) ${digitos.slice(2)}`
-  return digitos
+  if (digitos.length > 0) return `(${digitos}`
+  return ''
 }
 
-export function telefoneValido(valor) {
-  const total = valor.replace(/\D/g, '').length
-  return total === 10 || total === 11
-}
+export const telefoneValido = (valor) => valor.replace(/\D/g, '').length === 11
