@@ -1,33 +1,52 @@
+import { CalendarClock, Receipt } from 'lucide-react'
+import { Link } from 'react-router'
 import Button from '../atoms/Button'
 import { iconeServico } from '@/lib/icones'
+import { A_DEFINIR } from '../../data/loja'
+import { ROTAS } from '../../utils/rotas'
 
-// Célula da grade de serviços (bordas compartilhadas). Sem `onOrcamento` vira a versão resumida.
-export default function ServiceCard({ servico, onOrcamento }) {
+// Serviço: ícone, descrição, referência de valor/prazo (item 36) e o CTA primário "Solicitar orçamento" (item 4)
+export default function ServiceCard({ servico, onOrcamento, compacto = false, nivelTitulo = 2 }) {
   const Icone = iconeServico[servico.id]
-  const icone = Icone && (
-    <span className="flex size-11 items-center justify-center rounded-xl bg-surface-tint text-primary-text">
-      <Icone aria-hidden="true" className="size-5" />
-    </span>
-  )
-
-  if (!onOrcamento) {
-    return (
-      <div className="p-7">
-        {icone}
-        <h4 className="mt-5 mb-2 text-[18px]">{servico.nome}</h4>
-        <p className="text-[14px] leading-normal text-text-muted">{servico.resumo}</p>
-      </div>
-    )
-  }
+  const Titulo = `h${nivelTitulo}`
 
   return (
-    <div className="flex flex-col bg-surface p-7 transition-colors hover:bg-surface-tint/60 desk:p-8">
-      {icone}
-      <h4 className="mt-6 mb-2 text-[19px]">{servico.nome}</h4>
-      <p className="mb-6 flex-1 text-[14.5px] leading-relaxed text-text-muted">{servico.descricao}</p>
-      <Button variant="guide" className="self-start" onClick={onOrcamento}>
-        Solicitar orçamento
-      </Button>
-    </div>
+    <article className="relative flex h-full flex-col rounded-card border border-border-strong bg-surface p-6 transition-[border-color,box-shadow] duration-(--dur-media) hover:border-primary-text/50 hover:shadow-glow">
+      <span className="flex size-12 items-center justify-center rounded-xl bg-primary-soft text-primary-text">
+        {Icone && <Icone aria-hidden="true" className="size-6" />}
+      </span>
+      <Titulo className="mt-5 mb-2 text-h4">
+        {compacto ? (
+          <Link to={ROTAS.servicos} className="after:absolute after:inset-0 after:content-[''] hover:text-primary-text">
+            {servico.nome}
+          </Link>
+        ) : (
+          servico.nome
+        )}
+      </Titulo>
+      <p className="flex-1 text-corpo text-text-muted">{compacto ? (servico.resumo ?? servico.descricao) : servico.descricao}</p>
+
+      {!compacto && (
+        <dl className="mt-5 grid gap-2 border-t border-border pt-4 text-pequeno">
+          <div className="flex items-center gap-2">
+            <Receipt aria-hidden="true" className="size-4 text-primary-text" />
+            <dt className="text-text-muted">Valor:</dt>
+            <dd className="font-semibold">sob orçamento</dd>
+          </div>
+          <div className="flex items-center gap-2">
+            <CalendarClock aria-hidden="true" className="size-4 text-primary-text" />
+            <dt className="text-text-muted">Prazo médio:</dt>
+            <dd className="font-semibold">{servico.prazo ?? A_DEFINIR}</dd>
+          </div>
+        </dl>
+      )}
+
+      {onOrcamento && (
+        <Button largo className="mt-5" onClick={onOrcamento}>
+          Solicitar orçamento
+          <span className="sr-only">: {servico.nome}</span>
+        </Button>
+      )}
+    </article>
   )
 }

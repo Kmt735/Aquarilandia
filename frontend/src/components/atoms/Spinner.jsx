@@ -1,5 +1,8 @@
-export default function Spinner() {
+export default function Spinner({ className = '' }) {
   return (
-    <span className="mr-[7px] inline-block size-[13px] animate-spin-fast rounded-full border-2 border-current border-r-transparent align-[-2px]" />
+    <span
+      aria-hidden="true"
+      className={`inline-block size-4 animate-spin-fast rounded-full border-2 border-current border-r-transparent ${className}`}
+    />
   )
 }

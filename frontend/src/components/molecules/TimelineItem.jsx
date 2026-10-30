@@ -1,29 +1,31 @@
 import { Check } from 'lucide-react'
-import Tip from '../atoms/Tip'
+import Termo from '../atoms/Termo'
 
-export default function TimelineItem({ ref, numero, passo, guiando, estado, ultimo }) {
-  const opacidade = !guiando ? '' : estado === 'atual' ? 'opacity-100' : estado === 'feito' ? 'opacity-75' : 'opacity-40'
+export default function TimelineItem({ ref, numero, passo, estado, ultimo }) {
   const numeroCls =
     estado === 'atual'
-      ? 'border-primary bg-primary text-primary-foreground ring-4 ring-primary-soft'
+      ? 'border-primary bg-primary text-primary-foreground shadow-glow'
       : estado === 'feito'
-        ? 'border-primary/40 bg-primary-soft text-primary-text'
-        : 'border-border-strong bg-surface text-primary-text'
+        ? 'border-primary-text bg-primary-soft text-primary-text'
+        : 'border-border-control bg-surface text-primary-text'
 
   return (
-    <div ref={ref} className={`relative flex gap-6 transition-opacity ${ultimo ? '' : 'pb-11'} ${opacidade}`}>
-      {!ultimo && <span aria-hidden="true" className="absolute top-12 bottom-1 left-[21px] w-px bg-border-strong" />}
-      <div
-        className={`flex size-11 shrink-0 items-center justify-center rounded-full border font-display text-[16px] font-extrabold tabular-nums ${numeroCls}`}
-      >
-        {estado === 'feito' ? <Check aria-label={`Etapa ${numero} concluída`} className="size-4" /> : numero}
+    <div ref={ref} className={`relative flex gap-5 ${ultimo ? '' : 'pb-9'}`}>
+      {!ultimo && <span aria-hidden="true" className="absolute top-12 bottom-1 left-[21px] w-0.5 rounded-full bg-border-strong" />}
+      <div className={`flex size-11 shrink-0 items-center justify-center rounded-full border-2 font-display text-corpo font-extrabold tabular-nums ${numeroCls}`}>
+        {estado === 'feito' ? <Check aria-hidden="true" className="size-4" /> : numero}
       </div>
-      <div className="pt-2">
-        <h4 className="mb-1.5 text-[18px]">
+      <div className={`pt-2 ${estado === 'atual' ? '' : ''}`}>
+        <h3 className="mb-1 text-h4">
+          <span className="sr-only">Etapa {numero}{estado === 'feito' ? ' (concluída)' : estado === 'atual' ? ' (etapa atual)' : ''}: </span>
           {passo.titulo}
-          {passo.dica && <Tip texto={passo.dica} />}
-        </h4>
-        <p className="max-w-[520px] text-[14.5px] leading-relaxed text-text-muted">{passo.descricao}</p>
+        </h3>
+        <p className="max-w-[560px] text-corpo text-text-muted">{passo.descricao}</p>
+        {passo.termo && (
+          <p className="mt-1.5 text-pequeno text-text-muted">
+            Termo novo: <Termo id={passo.termo} />
+          </p>
+        )}
       </div>
     </div>
   )
