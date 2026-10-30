@@ -24,6 +24,7 @@ export function urlLoja({ categoria, disponibilidade } = {}) {
   return query ? `${ROTAS.loja}?${query}` : ROTAS.loja
 }
 
+export const urlCategoria = (nome) => (nome === 'Peixes' ? ROTAS.peixes : urlLoja({ categoria: nome }))
 export const urlPeixe = (id) => `${ROTAS.peixes}/${id}`
 export const urlProduto = (id) => `${ROTAS.loja}/${id}`
 export const urlItem = (item) => (item.tipo === 'peixe' ? urlPeixe(item.id) : urlProduto(item.id))

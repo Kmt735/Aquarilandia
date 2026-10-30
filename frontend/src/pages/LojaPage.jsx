@@ -1,9 +1,10 @@
+import { useNavigate } from 'react-router'
 import FilterGroup from '../components/molecules/FilterGroup'
 import Paginacao from '../components/molecules/Paginacao'
 import CatalogoLayout from '../components/organisms/CatalogoLayout'
 import GradeItens from '../components/organisms/GradeItens'
 import PageTemplate from '../components/templates/PageTemplate'
-import { categorias, faixasPreco } from '../data/categorias'
+import { categoriasMenu, faixasPreco } from '../data/categorias'
 import { descricaoCategoria } from '../data/glossario'
 import useConsulta from '../hooks/useConsulta'
 import useDestaque from '../hooks/useDestaque'
@@ -11,7 +12,7 @@ import useFiltrosUrl from '../hooks/useFiltrosUrl'
 import { listarProdutos } from '../services/catalogo'
 import { ordenarItens, paginar } from '../utils/catalogo'
 import { normalizar } from '../utils/format'
-import { ROTAS } from '../utils/rotas'
+import { ROTAS, urlCategoria } from '../utils/rotas'
 
 const POR_PAGINA = 9
 const DISPONIBILIDADE = [
@@ -19,10 +20,12 @@ const DISPONIBILIDADE = [
   { valor: 'in', rotulo: 'Disponível' },
   { valor: 'out', rotulo: 'Sob encomenda' },
 ]
+const categoriasOrdenadas = categoriasMenu.map((c) => c.nome).sort((a, b) => a.localeCompare(b, 'pt-BR'))
 
 export default function LojaPage() {
   const [f, aplicar, limpar] = useFiltrosUrl(['categoria', 'disponibilidade', 'preco', 'ordem', 'busca', 'pagina'])
   const { dados, carregando, erro, recarregar } = useConsulta(listarProdutos)
+  const navigate = useNavigate()
   useDestaque()
 
   const faixa = faixasPreco.find((x) => x.valor === f.preco)
@@ -48,10 +51,11 @@ export default function LojaPage() {
       <FilterGroup
         titulo="Categoria"
         nome="categoria"
-        itens={[{ valor: '', rotulo: 'Todas as categorias' }, ...categorias.map((c) => ({ valor: c.nome, rotulo: c.nome }))]}
+        itens={[{ valor: '', rotulo: 'Todas as categorias' }, ...categoriasOrdenadas.map((nome) => ({ valor: nome, rotulo: nome }))]}
         descricoes={descricaoCategoria}
         ativo={f.categoria}
-        onSelecionar={(v) => aplicar({ categoria: v })}
+        // Peixes têm página própria, com os filtros da ficha técnica
+        onSelecionar={(v) => (v === 'Peixes' ? navigate(urlCategoria(v)) : aplicar({ categoria: v }))}
       />
       <FilterGroup titulo="Disponibilidade" nome="disponibilidade" itens={DISPONIBILIDADE} ativo={f.disponibilidade} onSelecionar={(v) => aplicar({ disponibilidade: v })} />
       <FilterGroup
