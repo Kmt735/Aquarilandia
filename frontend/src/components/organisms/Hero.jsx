@@ -1,51 +1,60 @@
+import { MapPin } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import Button from '../atoms/Button'
 import Eyebrow from '../atoms/Eyebrow'
 import Highlight from '../atoms/Highlight'
-import WhatsAppIcon from '../icons/WhatsAppIcon'
 import IlustracaoAquario from '../molecules/IlustracaoAquario'
-import useWhatsApp from '../../hooks/useWhatsApp'
+import useReducedMotion from '../../hooks/useReducedMotion'
 import { ROTAS } from '../../utils/rotas'
 
+const BOLHAS = [
+  { left: '8%', size: 10, dur: 16, delay: 0 },
+  { left: '22%', size: 6, dur: 13, delay: 5 },
+  { left: '58%', size: 8, dur: 18, delay: 2 },
+  { left: '84%', size: 12, dur: 15, delay: 8 },
+]
+
+// Uma mensagem + 2 CTAs (item 29 · atenção). O WhatsApp fica só no botão flutuante.
 export default function Hero() {
   const navigate = useNavigate()
-  const abrirWhatsApp = useWhatsApp()
+  const reduzido = useReducedMotion()
 
   return (
-    <section className="bg-surface-tint">
-      <div className="mx-auto grid max-w-[1200px] items-center gap-12 px-4 pt-12 pb-10 sm:px-6 desk:grid-cols-[1fr_1.05fr] desk:gap-14 desk:px-10 desk:pt-16 desk:pb-14">
+    <section aria-labelledby="titulo-hero" className="luz-luminaria relative overflow-hidden bg-surface-tint">
+      {!reduzido && (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+          {BOLHAS.map((b) => (
+            <span
+              key={b.left}
+              className="absolute -bottom-4 animate-bolha-sobe rounded-full border-2 border-primary-text/40"
+              style={{ left: b.left, width: b.size, height: b.size, animationDuration: `${b.dur}s`, animationDelay: `${b.delay}s` }}
+            />
+          ))}
+        </div>
+      )}
+      <div className="relative mx-auto grid max-w-[1200px] items-center gap-8 px-4 pt-10 pb-6 sm:px-6 desk:grid-cols-[1.1fr_1fr] desk:gap-12 desk:px-10 desk:pt-16 desk:pb-8">
         <div>
           <Eyebrow>Peixes nacionais e importados</Eyebrow>
-          <h1 className="mt-5 mb-5 text-[44px] leading-[1.04] text-primary-dark desk:text-[64px] dark:text-foreground">
+          <h1 id="titulo-hero" className="mt-5 mb-4 text-display text-primary-dark dark:text-foreground">
             Seu aquário é um <Highlight>ecossistema.</Highlight>
           </h1>
-          <p className="mb-8 max-w-[460px] text-[18px] leading-relaxed text-text-muted">
+          <p className="mb-7 max-w-[480px] text-corpo-lg text-text-muted">
             Peixes, plantas e projetos de aquários. A qualidade que você já conhece, agora pertinho de você.
           </p>
           <div className="flex flex-wrap gap-3">
-            <Button onClick={() => navigate(ROTAS.loja)}>Ver produtos</Button>
-            <Button variant="ghost" onClick={() => navigate(ROTAS.primeiroAquario)}>
+            <Button tamanho="lg" onClick={() => navigate(ROTAS.loja)}>
+              Ver produtos
+            </Button>
+            <Button tamanho="lg" variant="secundario" onClick={() => navigate(ROTAS.primeiroAquario)}>
               Sou iniciante →
             </Button>
           </div>
+          <p className="mt-6 flex items-center gap-2 text-pequeno text-text-muted">
+            <MapPin aria-hidden="true" className="size-4 text-primary-text" />
+            Loja física em São João del Rei/MG
+          </p>
         </div>
-
-        {/* Ilustração no lugar da foto principal, com o atalho do WhatsApp flutuando por cima */}
-        <div className="relative mx-auto w-full max-w-[560px] pb-6 desk:pb-0">
-          <IlustracaoAquario className="w-full" />
-          <button
-            type="button"
-            onClick={() => abrirWhatsApp()}
-            className="absolute bottom-0 left-2 flex items-center gap-3 rounded-card border border-border bg-surface py-2.5 pr-5 pl-2.5 text-left shadow-pop transition-transform duration-200 hover:-translate-y-0.5 sm:left-6 desk:-left-6 desk:bottom-10"
-          >
-            <span className="flex size-10 items-center justify-center rounded-full bg-accent text-accent-foreground">
-              <WhatsAppIcon className="size-5" />
-            </span>
-            <span className="font-display text-[15.5px] font-extrabold text-primary-dark dark:text-foreground">
-              Falar no WhatsApp
-            </span>
-          </button>
-        </div>
+        <IlustracaoAquario className="mx-auto w-full max-w-[420px] max-sm:hidden desk:max-w-[520px]" />
       </div>
     </section>
   )

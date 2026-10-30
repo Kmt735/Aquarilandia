@@ -1,8 +1,10 @@
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router'
 import WhatsAppFloat from '../atoms/WhatsAppFloat'
-import Footer from '../organisms/Footer'
+import Carregando from '../molecules/Carregando'
+import AviseMeModal from '../organisms/AviseMeModal'
 import CartDrawer from '../organisms/CartDrawer'
+import Footer from '../organisms/Footer'
 import QuoteModal from '../organisms/QuoteModal'
 import SearchBox from '../organisms/SearchBox'
 import SiteNav from '../organisms/SiteNav'
@@ -14,6 +16,7 @@ export default function MainLayout() {
   const { pathname } = useLocation()
   const { painel, abrirPainel, fecharPaineis } = useUI()
   const abrirWhatsApp = useWhatsApp()
+  const noCheckout = pathname.startsWith('/checkout') || pathname.startsWith('/pagamento')
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
@@ -23,7 +26,7 @@ export default function MainLayout() {
   useEffect(() => {
     const teclar = (e) => {
       if (e.key === 'Escape') fecharPaineis()
-      const digitando = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)
+      const digitando = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable
       if (e.key === '/' && !digitando) {
         e.preventDefault()
         abrirPainel('busca')
@@ -36,16 +39,20 @@ export default function MainLayout() {
   return (
     <>
       <SiteNav />
-      <main key={pathname} className="animate-fade">
-        <Outlet />
+      <main id="conteudo" tabIndex={-1} key={pathname} className="animate-fade outline-none">
+        <Suspense fallback={<Carregando />}>
+          <Outlet />
+        </Suspense>
       </main>
       <Footer />
 
       <CartDrawer />
       {painel === 'busca' && <SearchBox />}
       {painel === 'orcamento' && <QuoteModal />}
+      {painel === 'avise-me' && <AviseMeModal />}
       <ToastStack />
-      <WhatsAppFloat onClick={() => abrirWhatsApp()} />
+      {/* No checkout o WhatsApp sai do caminho: a atenção fica na compra (item 29) */}
+      {!noCheckout && <WhatsAppFloat onClick={() => abrirWhatsApp()} />}
     </>
   )
 }

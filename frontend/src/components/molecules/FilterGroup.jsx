@@ -1,29 +1,36 @@
-import Tip from '../atoms/Tip'
-
-export default function FilterGroup({ titulo, itens, ativo, onSelecionar }) {
+// Grupo de filtros de escolha única: rádio nativo (teclado e leitor de tela de graça), com cara de lista
+export default function FilterGroup({ titulo, nome, itens, ativo, onSelecionar, descricoes }) {
   return (
-    <div className="mb-7 last:mb-0">
-      <h5 className="mb-2.5 font-sans text-[11.5px] font-bold tracking-[.12em] text-text-muted uppercase">{titulo}</h5>
-      <ul>
+    <fieldset className="mb-6 last:mb-0">
+      <legend className="mb-2 text-legenda font-bold tracking-[.08em] text-text-muted uppercase">{titulo}</legend>
+      <ul className="flex flex-col gap-0.5">
         {itens.map((item) => {
-          const selecionado = ativo === item.valor
+          const selecionado = (ativo ?? '') === item.valor
+          const id = `${nome}-${item.valor || 'todos'}`
           return (
-            <li key={item.valor} className="flex items-center">
-              <button
-                type="button"
-                aria-pressed={selecionado}
-                onClick={() => onSelecionar(item.valor)}
-                className={`relative -mx-2 rounded-full px-3 py-1.5 text-left text-[14.5px] transition-colors ${
+            <li key={item.valor}>
+              <input
+                type="radio"
+                id={id}
+                name={nome}
+                value={item.valor}
+                checked={selecionado}
+                onChange={() => onSelecionar(item.valor)}
+                className="peer sr-only"
+              />
+              <label
+                htmlFor={id}
+                className={`flex min-h-11 cursor-pointer flex-col justify-center rounded-xl px-3 py-1.5 text-pequeno transition-colors peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-text ${
                   selecionado ? 'bg-primary-soft font-bold text-primary-text' : 'text-foreground hover:bg-surface-tint hover:text-primary-text'
                 }`}
               >
                 {item.rotulo}
-              </button>
-              {item.dica && <Tip texto={item.dica} />}
+                {descricoes?.[item.valor] && <span className="text-legenda font-normal text-text-muted">{descricoes[item.valor]}</span>}
+              </label>
             </li>
           )
         })}
       </ul>
-    </div>
+    </fieldset>
   )
 }

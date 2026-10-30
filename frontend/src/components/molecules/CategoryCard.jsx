@@ -1,21 +1,18 @@
-import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router'
 
-export default function CategoryCard({ icone: Icone, rotulo, to }) {
+// Categoria com ícone consistente + uma linha que explica o termo (itens 2, 22, 32)
+export default function CategoryCard({ icone: Icone, rotulo, descricao, to }) {
   return (
     <Link
       to={to}
-      className="group flex min-h-[132px] flex-col justify-between gap-4 rounded-card bg-surface p-4 text-foreground transition-transform duration-200 hover:-translate-y-1 focus-visible:outline-white sm:p-5"
+      className="group flex h-full items-start gap-3.5 rounded-card border border-border-strong bg-surface p-4 transition-[border-color,box-shadow,transform] duration-(--dur-media) ease-saida hover:-translate-y-0.5 hover:border-primary-text/50 hover:shadow-glow"
     >
-      <span className="flex size-12 items-center justify-center rounded-xl bg-surface-tint text-primary-text transition-colors duration-200 group-hover:bg-primary group-hover:text-primary-foreground">
-        {Icone && <Icone aria-hidden="true" className="size-6" />}
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary-text transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+        {Icone && <Icone aria-hidden="true" className="size-5" />}
       </span>
-      <span className="flex items-center justify-between gap-2 font-display text-[16px] leading-tight font-extrabold text-primary-dark dark:text-foreground">
-        {rotulo}
-        <ArrowRight
-          aria-hidden="true"
-          className="size-4 shrink-0 text-primary-text transition-transform max-sm:hidden duration-200 group-hover:translate-x-0.5"
-        />
+      <span className="min-w-0">
+        <span className="block font-display text-corpo font-extrabold text-foreground group-hover:text-primary-text">{rotulo}</span>
+        {descricao && <span className="mt-0.5 block text-legenda text-text-muted">{descricao}</span>}
       </span>
     </Link>
   )
