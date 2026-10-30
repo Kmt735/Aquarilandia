@@ -1,3 +1,11 @@
-import {Router} from 'express';
+import { Router } from 'express'
+import { autenticar } from '../../middlewares/autenticar.js'
+import { exigirOrigem } from '../../middlewares/exigirOrigem.js'
+import { clienteController } from './cliente.controller.js'
 
-export const clienteRoutes = Router();
+export const clienteRoutes = Router()
+
+// Rotas /me ficam antes de qualquer /:id (api.md, seção 3).
+// exigirOrigem vem antes do autenticar: recusa o pedido de outro site sem consultar a sessão no banco.
+clienteRoutes.get('/me', autenticar, clienteController.buscarMeusDados)
+clienteRoutes.patch('/me', exigirOrigem, autenticar, clienteController.atualizarMeusDados)
