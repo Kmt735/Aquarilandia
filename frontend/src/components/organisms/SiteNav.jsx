@@ -1,35 +1,43 @@
-import { ChevronRight, Menu, Moon, Search, ShoppingCart, Sun } from 'lucide-react'
+import { ChevronRight, Menu, Moon, Search, ShoppingCart, Sun, UserRound } from 'lucide-react'
 import { useState } from 'react'
-import { NavLink, useLocation } from 'react-router'
+import { Link, NavLink, useLocation } from 'react-router'
 import IconButton from '../atoms/IconButton'
 import Logo from '../atoms/Logo'
 import SublinhadoNav from '../atoms/SublinhadoNav'
+import WhatsAppIcon from '../icons/WhatsAppIcon'
 import CartButton from '../molecules/CartButton'
 import NavDropdown from '../molecules/NavDropdown'
-import { Button } from '@/components/ui/button'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { iconeCategoria } from '@/lib/icones'
+import { categorias } from '../../data/categorias'
+import useAuth from '../../hooks/useAuth'
 import useCart from '../../hooks/useCart'
 import useTema from '../../hooks/useTema'
 import useUI from '../../hooks/useUI'
-import { ROTAS } from '../../utils/rotas'
+import useWhatsApp from '../../hooks/useWhatsApp'
+import { formatarPreco } from '../../utils/format'
+import { ROTAS, urlLoja } from '../../utils/rotas'
 
 const links = [
   { to: ROTAS.inicio, rotulo: 'Início', end: true },
   { to: ROTAS.loja, rotulo: 'Loja' },
   { to: ROTAS.peixes, rotulo: 'Peixes' },
-  { to: ROTAS.primeiroAquario, rotulo: 'Primeiro Aquário' },
+  { to: ROTAS.primeiroAquario, rotulo: 'Meu Primeiro Aquário' },
   { to: ROTAS.servicos, rotulo: 'Serviços' },
 ]
 
-// Link do menu: marinho → azul, com traço azul no hover/foco e na página ativa
 const classeLink = ({ isActive }) =>
-  `group/link relative py-2 text-[15px] font-bold whitespace-nowrap transition-colors ${isActive ? 'text-primary-text' : 'text-foreground hover:text-primary-text'}`
+  `group/link relative flex min-h-11 items-center text-pequeno font-bold whitespace-nowrap transition-colors ${isActive ? 'text-primary-text' : 'text-foreground hover:text-primary-text'}`
 
-function BotaoTema({ escuro, onClick }) {
+const classeLinkMobile = ({ isActive }) =>
+  `flex min-h-12 items-center justify-between rounded-xl px-3 text-corpo font-bold transition-colors hover:bg-surface-tint ${isActive ? 'bg-surface-tint text-primary-text' : 'text-foreground'}`
+
+function BotaoTema({ escuro, onClick, className }) {
   const rotulo = escuro ? 'Usar tema claro' : 'Usar tema escuro'
   return (
-    <IconButton aria-label={rotulo} title={rotulo} aria-pressed={escuro} onClick={onClick}>
-      {escuro ? <Sun /> : <Moon />}
+    <IconButton aria-label={rotulo} title={rotulo} onClick={onClick} className={className}>
+      {escuro ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
     </IconButton>
   )
 }
@@ -37,19 +45,30 @@ function BotaoTema({ escuro, onClick }) {
 export default function SiteNav() {
   const { pathname } = useLocation()
   const { abrirPainel } = useUI()
-  const { quantidade, bump } = useCart()
+  const { usuario } = useAuth()
+  const { quantidade, total, bump } = useCart()
   const [tema, alternarTema] = useTema()
+  const abrirWhatsApp = useWhatsApp()
   const [menuAberto, setMenuAberto] = useState(false)
   const escuro = tema === 'dark'
+  const fechar = () => setMenuAberto(false)
+  const conta = usuario ? { rotulo: 'Minha conta', to: ROTAS.minhaConta } : { rotulo: 'Entrar', to: ROTAS.entrar }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-surface">      <div className="mx-auto flex h-[72px] max-w-[1200px] items-center justify-between gap-4 px-4 sm:px-6 desk:px-10">
+    <header className="sticky top-0 z-(--z-header) border-b border-border bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
+      <a
+        href="#conteudo"
+        className="sr-only z-(--z-toast) rounded-full bg-primary px-4 py-2 font-bold text-primary-foreground focus:not-sr-only focus:absolute focus:top-3 focus:left-3"
+      >
+        Pular para o conteúdo
+      </a>
+      <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between gap-3 px-4 sm:px-6 desk:h-[72px] desk:px-10">
         <Logo />
 
         <nav aria-label="Principal" className="hidden items-center gap-5 desk:flex xl:gap-7">
           {links.map((l) =>
             l.to === ROTAS.loja ? (
-              <NavDropdown key={l.to} ativo={pathname === ROTAS.loja} />
+              <NavDropdown key={l.to} ativo={pathname.startsWith(ROTAS.loja)} />
             ) : (
               <NavLink key={l.to} to={l.to} end={l.end} className={classeLink}>
                 {({ isActive }) => (
@@ -63,81 +82,112 @@ export default function SiteNav() {
           )}
         </nav>
 
-        <div className="flex items-center gap-2">
-          <IconButton
-            className="max-sm:hidden"
-            aria-label="Buscar (atalho: tecla /)"
-            title="Buscar — atalho: tecla /"
-            onClick={() => abrirPainel('busca')}
-          >
-            <Search />
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Item 33 · a lupa fica sempre visível, em todas as larguras */}
+          <IconButton aria-label="Buscar (atalho: tecla /)" title="Buscar — atalho: tecla /" onClick={() => abrirPainel('busca')}>
+            <Search aria-hidden="true" />
           </IconButton>
+          <BotaoTema escuro={escuro} onClick={alternarTema} className="max-desk:hidden" />
+          <Link
+            to={conta.to}
+            className="inline-flex h-11 items-center gap-2 rounded-full px-3 text-pequeno font-bold text-foreground transition-colors hover:bg-surface-tint hover:text-primary-text max-desk:hidden"
+          >
+            <UserRound aria-hidden="true" className="size-[18px]" />
+            {usuario ? `Olá, ${usuario.nome.split(' ')[0]}` : conta.rotulo}
+          </Link>
+          <CartButton className="max-desk:hidden" onClick={() => abrirPainel('carrinho')} />
           <IconButton
-            className="desk:hidden"
-            aria-label="Abrir carrinho"
+            className="border-accent bg-accent text-accent-foreground hover:bg-accent-hover hover:text-accent-foreground desk:hidden"
+            classeExterna="desk:hidden"
+            aria-label={`Abrir carrinho, ${quantidade} ${quantidade === 1 ? 'item' : 'itens'}`}
             title="Carrinho"
             badge={quantidade}
             badgeKey={bump}
             onClick={() => abrirPainel('carrinho')}
           >
-            <ShoppingCart />
+            <ShoppingCart aria-hidden="true" />
           </IconButton>
-          <BotaoTema escuro={escuro} onClick={alternarTema} />
-          <CartButton compacto className="ml-1 max-desk:hidden" onClick={() => abrirPainel('carrinho')} />
 
           <Sheet open={menuAberto} onOpenChange={setMenuAberto}>
             <SheetTrigger asChild>
               <IconButton className="desk:hidden" aria-label="Abrir menu">
-                <Menu />
+                <Menu aria-hidden="true" />
               </IconButton>
             </SheetTrigger>
-            <SheetContent side="right" className="w-[300px] gap-0 border-border bg-surface p-0 sm:max-w-sm">
-              <SheetHeader className="border-b border-border px-5 py-4">
-                <SheetTitle className="text-left">
-                  <Logo />
-                </SheetTitle>
-                <SheetDescription className="sr-only">Navegação do site</SheetDescription>
+            <SheetContent side="right" className="w-[320px] max-w-[88vw] gap-0 overflow-y-auto border-border bg-surface p-0">
+              <SheetHeader className="border-b border-border px-5 py-3.5">
+                <SheetTitle className="text-left">Menu</SheetTitle>
+                <SheetDescription className="sr-only">Navegação do site, conta e preferências</SheetDescription>
               </SheetHeader>
               <nav aria-label="Menu" className="px-3 py-2">
-                {links.map((l) => (
-                  <NavLink
-                    key={l.to}
-                    to={l.to}
-                    end={l.end}
-                    onClick={() => setMenuAberto(false)}
-                    className={({ isActive }) =>
-                      `flex items-center justify-between rounded-xl px-3 py-3.5 text-[16px] font-bold transition-colors hover:bg-surface-tint ${isActive ? 'bg-surface-tint text-primary-text' : 'text-foreground'}`
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <span className="flex items-center gap-2.5">
-                          <span aria-hidden="true" className={`size-1.5 rounded-full ${isActive ? 'bg-primary-text' : 'bg-transparent'}`} />
-                          {l.rotulo}
-                        </span>
-                        <ChevronRight aria-hidden="true" className="size-4 text-text-muted" />
-                      </>
-                    )}
-                  </NavLink>
-                ))}
+                {links.map((l) =>
+                  l.to === ROTAS.loja ? (
+                    <Accordion key={l.to} type="single" collapsible>
+                      <AccordionItem value="loja" className="border-0">
+                        <AccordionTrigger className="min-h-12 items-center rounded-xl px-3 py-0 text-corpo font-bold hover:bg-surface-tint hover:no-underline">
+                          Loja
+                        </AccordionTrigger>
+                        <AccordionContent className="pb-1">
+                          <ul className="ml-3 border-l border-border-strong pl-2">
+                            <li>
+                              <NavLink to={ROTAS.loja} end onClick={fechar} className={classeLinkMobile}>
+                                Ver loja completa
+                              </NavLink>
+                            </li>
+                            {categorias.map((c) => {
+                              const Icone = iconeCategoria[c.nome]
+                              return (
+                                <li key={c.nome}>
+                                  <Link to={urlLoja({ categoria: c.nome })} onClick={fechar} className="flex min-h-11 items-center gap-2.5 rounded-xl px-3 text-pequeno font-semibold hover:bg-surface-tint hover:text-primary-text">
+                                    <Icone aria-hidden="true" className="size-4 text-primary-text" />
+                                    {c.nome}
+                                  </Link>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  ) : (
+                    <NavLink key={l.to} to={l.to} end={l.end} onClick={fechar} className={classeLinkMobile}>
+                      {l.rotulo}
+                      <ChevronRight aria-hidden="true" className="size-4 text-text-muted" />
+                    </NavLink>
+                  ),
+                )}
               </nav>
-              <div className="mt-auto grid gap-2 border-t border-border p-5">
-                <Button
-                  variant="outline"
+              <div className="mt-auto grid gap-2 border-t border-border p-4">
+                <NavLink to={conta.to} onClick={fechar} className={classeLinkMobile}>
+                  <span className="flex items-center gap-2.5">
+                    <UserRound aria-hidden="true" className="size-5 text-primary-text" />
+                    {conta.rotulo}
+                  </span>
+                  <ChevronRight aria-hidden="true" className="size-4 text-text-muted" />
+                </NavLink>
+                <button type="button" onClick={alternarTema} className={classeLinkMobile({ isActive: false })}>
+                  <span className="flex items-center gap-2.5">
+                    {escuro ? <Sun aria-hidden="true" className="size-5 text-primary-text" /> : <Moon aria-hidden="true" className="size-5 text-primary-text" />}
+                    {escuro ? 'Usar tema claro' : 'Usar tema escuro'}
+                  </span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
-                    setMenuAberto(false)
-                    abrirPainel('busca')
+                    fechar()
+                    abrirWhatsApp()
                   }}
+                  className={classeLinkMobile({ isActive: false })}
                 >
-                  <Search />
-                  Buscar
-                </Button>
-                <CartButton
-                  onClick={() => {
-                    setMenuAberto(false)
-                    abrirPainel('carrinho')
-                  }}
-                />
+                  <span className="flex items-center gap-2.5">
+                    <WhatsAppIcon className="size-5 text-primary-text" />
+                    Tirar dúvida no WhatsApp
+                  </span>
+                </button>
+                <p className="px-3 pt-1 text-legenda text-text-muted">
+                  Carrinho: {quantidade} {quantidade === 1 ? 'item' : 'itens'}
+                  {quantidade > 0 && ` · ${formatarPreco(total)}`}
+                </p>
               </div>
             </SheetContent>
           </Sheet>

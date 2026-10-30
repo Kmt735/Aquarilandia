@@ -1,20 +1,23 @@
 import Toast from '../molecules/Toast'
 import useToast from '../../hooks/useToast'
 
+// Região viva: leitores de tela anunciam cada aviso (aria-live)
 export default function ToastStack() {
   const { toasts, dispensar } = useToast()
 
   return (
     <div
+      role="status"
       aria-live="polite"
-      className="fixed bottom-[92px] left-1/2 z-[400] flex w-max max-w-[92vw] -translate-x-1/2 flex-col items-center gap-2"
+      className="pointer-events-none fixed inset-x-4 bottom-24 z-(--z-toast) mx-auto flex max-w-[460px] flex-col items-stretch gap-2 sm:bottom-6"
     >
       {toasts.map((t) => (
         <Toast
           key={t.id}
           mensagem={t.mensagem}
+          tipo={t.tipo}
           acao={t.acao}
-          carregando={t.carregando}
+          onFechar={() => dispensar(t.id)}
           onAcao={() => {
             dispensar(t.id)
             t.onAcao?.()

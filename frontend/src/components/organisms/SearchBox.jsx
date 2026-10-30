@@ -10,77 +10,95 @@ import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
 import { buscar } from '../../utils/busca'
 
-// H4 lupa · H7 atalho "/" · H9 busca sem resultado sempre oferece uma saída
+// Item 33 lupa · H7 atalho "/" · combobox com setas ↑↓ e Enter · H9 busca vazia sempre oferece uma saída
 export default function SearchBox() {
   const [consulta, setConsulta] = useState('')
-  const { fecharPaineis } = useUI()
+  const [ativo, setAtivo] = useState(0)
+  const { fecharPaineis, devolverFoco } = useUI()
   const navigate = useNavigate()
   const abrirWhatsApp = useWhatsApp()
 
   const termo = consulta.trim()
   const resultados = buscar(consulta)
+  const indice = Math.min(ativo, Math.max(resultados.length - 1, 0))
 
   const abrir = (resultado) => {
     fecharPaineis()
     navigate(resultado.to, { state: resultado.state })
   }
 
+  const teclar = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setAtivo((indice + 1) % resultados.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setAtivo((indice - 1 + resultados.length) % resultados.length)
+    } else if (e.key === 'Enter' && resultados[indice]) {
+      e.preventDefault()
+      abrir(resultados[indice])
+    }
+  }
+
   return (
     <Dialog open onOpenChange={(aberto) => !aberto && fecharPaineis()}>
-      <DialogContent
-        showCloseButton={false}
-        className="top-[96px] translate-y-0 gap-0 rounded-[20px] border-border bg-surface-elevated p-3 sm:max-w-[580px]"
-      >
-      <DialogTitle className="sr-only">Buscar</DialogTitle>
-      <DialogDescription className="sr-only">Busque produtos, peixes ou categorias</DialogDescription>
-      <div className="relative">
-      <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-[18px] -translate-y-1/2 text-text-muted" />
-      <input
-        type="search"
-        autoFocus
-        autoComplete="off"
-        value={consulta}
-        onChange={(e) => setConsulta(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && resultados[0] && abrir(resultados[0])}
-        placeholder="Buscar produtos, peixes ou categorias…"
-        className="w-full rounded-full border border-border-strong bg-surface py-3.5 pr-4 pl-11 text-[16px] text-foreground outline-none placeholder:text-text-muted focus:border-primary focus:ring-[3px] focus:ring-primary/20 dark:focus:border-primary-text"
-      />
-      </div>
-
-      <div className="mx-1 mt-3 mb-2 text-[12px] text-text-muted">
-        {!termo && (
-          <>
-            Atalhos rápidos · aperte <Kbd>/</Kbd> em qualquer tela para buscar
-          </>
-        )}
-        {termo && resultados.length > 0 &&
-          `${resultados.length} ${resultados.length === 1 ? 'resultado' : 'resultados'} · Enter abre o primeiro`}
-      </div>
-
-      {termo && resultados.length === 0 ? (
-        <div className="px-1.5 pt-3 pb-2 text-[14px] leading-relaxed text-text-muted">
-          Não encontramos <strong className="text-foreground">“{termo}”</strong> no site.
-          <br />
-          Confira a grafia ou tente algo mais geral, como “filtro” ou “betta”. A loja pode ter o item mesmo que ele
-          ainda não esteja cadastrado aqui.
-          <br />
-          <Button
-            variant="accent"
-            className="mt-3"
-            onClick={() => {
-              fecharPaineis()
-              abrirWhatsApp(`perguntando sobre “${termo}”`)
+      <DialogContent showCloseButton={false} onCloseAutoFocus={devolverFoco} className="top-20 translate-y-0 gap-0 rounded-[20px] border-border-strong bg-surface-elevated p-3 sm:max-w-[600px]">
+        <DialogTitle className="sr-only">Buscar no site</DialogTitle>
+        <DialogDescription className="sr-only">Digite e use as setas para escolher uma sugestão.</DialogDescription>
+        <div className="relative">
+          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-text-muted" />
+          <input
+            type="search"
+            role="combobox"
+            aria-expanded={resultados.length > 0}
+            aria-controls="sugestoes-busca"
+            aria-activedescendant={resultados.length ? `sugestao-${indice}` : undefined}
+            aria-autocomplete="list"
+            aria-label="Buscar produtos, peixes ou categorias"
+            autoFocus
+            autoComplete="off"
+            value={consulta}
+            onChange={(e) => {
+              setConsulta(e.target.value)
+              setAtivo(0)
             }}
-          >
-            <WhatsAppIcon />
-            Perguntar no WhatsApp
-          </Button>
+            onKeyDown={teclar}
+            placeholder="Buscar produtos, peixes ou categorias…"
+            className="h-12 w-full rounded-full border border-border-control bg-surface pr-4 pl-12 text-corpo text-foreground outline-none placeholder:text-text-muted focus-visible:border-primary-text focus-visible:shadow-glow"
+          />
         </div>
-      ) : (
-        resultados.map((r, i) => (
-          <SearchResult key={`${r.tipo}-${r.rotulo}`} resultado={r} selecionado={i === 0 && Boolean(termo)} onClick={() => abrir(r)} />
-        ))
-      )}
+
+        <p aria-live="polite" className="mx-1 mt-3 mb-2 text-legenda text-text-muted">
+          {!termo && (
+            <>
+              Sugestões · aperte <Kbd>/</Kbd> em qualquer tela para buscar
+            </>
+          )}
+          {termo && resultados.length > 0 && `${resultados.length} ${resultados.length === 1 ? 'resultado' : 'resultados'} · use ↑ ↓ e Enter`}
+        </p>
+
+        {termo && resultados.length === 0 ? (
+          <div className="px-1.5 pt-1 pb-2 text-pequeno text-text-muted">
+            Não encontramos <strong className="text-foreground">“{termo}”</strong> no site. Confira a grafia ou tente algo mais geral, como “filtro” ou “betta”. A loja pode ter o item mesmo que ele ainda não esteja no site.
+            <Button
+              variant="secundario"
+              className="mt-3"
+              onClick={() => {
+                fecharPaineis()
+                abrirWhatsApp(`“${termo}”`)
+              }}
+            >
+              <WhatsAppIcon className="size-[18px]" />
+              Perguntar no WhatsApp
+            </Button>
+          </div>
+        ) : (
+          <ul id="sugestoes-busca" role="listbox" aria-label="Sugestões" className="flex flex-col gap-0.5">
+            {resultados.map((r, i) => (
+              <SearchResult key={`${r.tipo}-${r.rotulo}`} id={`sugestao-${i}`} resultado={r} selecionado={i === indice} onClick={() => abrir(r)} />
+            ))}
+          </ul>
+        )}
       </DialogContent>
     </Dialog>
   )
