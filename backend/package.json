@@ -13,7 +13,8 @@
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d --wait",
-    "db:psql": "docker compose exec db psql -U aquarilandia -d aquarilandia"
+    "db:psql": "docker compose exec db psql -U aquarilandia -d aquarilandia",
+    "criar-admin": "tsx --env-file-if-exists=.env scripts/criar-admin.ts"
   },
   "dependencies": {
     "argon2": "^0.45.1",
