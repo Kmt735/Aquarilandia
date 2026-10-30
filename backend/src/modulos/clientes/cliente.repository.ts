@@ -13,6 +13,14 @@ export const clienteRepository = {
         const { rows } = await db.query<Cliente>(`INSERT INTO  clientes(nome,email,telefone,senha_hash,aceitou_termos_em) VALUES ($1,$2,$3,$4,now()) RETURNING ${colunas}`, [dados.nome, dados.email, dados.telefone, dados.senhaHash])
         return rows[0]
     },
+    // papel 'admin' fixo no SQL: o inserir (cadastro público) não grava papel, então só cria cliente
+    async inserirAdmin(dados: { nome: string; email: string; senhaHash: string }): Promise<Cliente> {
+        const { rows } = await db.query<Cliente>(
+            `INSERT INTO clientes (nome, email, senha_hash, papel) VALUES ($1, $2, $3, 'admin') RETURNING ${colunas}`,
+            [dados.nome, dados.email, dados.senhaHash],
+        )
+        return rows[0]
+    },
     // funcao usada apenas no login ,pois devolve o hash da senha!!
     async buscarParaLogin (email:string): Promise<ClienteComSenha | null> {
         const { rows } = await db.query<ClienteComSenha>(

@@ -53,6 +53,29 @@ function validarCadastro (body: unknown): DadosCadastro {
     return {nome,email,senha,telefone,aceiteTermos:true}
 }
 
+// Admin não tem telefone nem aceite de termos: só nome, e-mail e senha, com as regras do cadastro
+function validarAdmin(body: unknown): { nome: string; email: string; senha: string } {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+  }
+
+  const dados = body as Record<string, unknown>
+  const nome = String(dados.nome ?? '').trim()
+  const email = String(dados.email ?? '').trim().toLowerCase()
+  const senha = String(dados.senha ?? '')
+
+  const erros: Record<string, string> = {}
+  const msgNome = erroNome(nome)
+  if (msgNome) erros.nome = msgNome
+  const msgEmail = erroEmail(email)
+  if (msgEmail) erros.email = msgEmail
+  const msgSenha = erroSenha(senha)
+  if (msgSenha) erros.senha = msgSenha
+
+  if (Object.keys(erros).length) throw new AppError('Dados inválidos', 422, erros)
+  return { nome, email, senha }
+}
+
 // true só se o erro for o UNIQUE do e-mail (dois cadastros iguais ao mesmo tempo)
 function ehEmailDuplicado(err: unknown): boolean {
   return (
@@ -101,6 +124,26 @@ export const authService = {
       })
     } catch (err) {
       if (ehEmailDuplicado(err)) throw new AppError(msgCadastroRecusado, 409 ,detalhesEmailEmUso)
+      throw err
+    }
+  },
+  // Só o script scripts/criar-admin.ts chama esta função; nenhuma rota pode chamar (D-06)
+  async criarAdmin(body: unknown): Promise<Cliente> {
+    const dados = validarAdmin(body)
+
+    const clienteExistente = await clienteRepository.buscarPorEmail(dados.email)
+    if (clienteExistente) throw new AppError(msgCadastroRecusado, 409, detalhesEmailEmUso)
+
+    const senhaHash = await gerarHash(dados.senha)
+
+    try {
+      return await clienteRepository.inserirAdmin({
+        nome: dados.nome,
+        email: dados.email,
+        senhaHash,
+      })
+    } catch (err) {
+      if (ehEmailDuplicado(err)) throw new AppError(msgCadastroRecusado, 409, detalhesEmailEmUso)
       throw err
     }
   },
