@@ -18,6 +18,8 @@ export interface NovoCliente {
     senhaHash:string
 }
 
+export type AtualizacaoCliente = Partial<Pick<Cliente, 'nome' | 'email' | 'telefone'>>
+
 export interface ClienteComSenha extends Cliente {
     senhaHash : string
 }

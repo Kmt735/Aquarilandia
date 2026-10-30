@@ -1,7 +1,15 @@
 import{db} from '../../config/db.js'
-import type { Cliente,NovoCliente,ClienteComSenha } from './cliente.types.js'
+import type { Queryable } from '../../utils/transacao.js'
+import type { AtualizacaoCliente, Cliente, ClienteComSenha, NovoCliente } from './cliente.types.js'
 
 const colunas = ' id, nome, email, telefone, papel, ativo, criado_em AS "criadoEm", atualizado_em AS "atualizadoEm" '
+
+// Única origem dos nomes de coluna do UPDATE dinâmico: chaves vindas do objeto recebido nunca viram SQL
+const colunasAtualizaveis: Record<keyof AtualizacaoCliente, string> = {
+    nome: 'nome',
+    email: 'email',
+    telefone: 'telefone',
+}
 
 
 export const clienteRepository = {
@@ -31,6 +39,35 @@ export const clienteRepository = {
     async buscarPorId(id:number): Promise<Cliente | null>{
         const { rows } = await db.query<Cliente>(`SELECT ${colunas} FROM clientes WHERE id = $1 AND ativo `,[id])
         return rows[0] ?? null
-    } 
+    },
+    async atualizar(id: number, dados: AtualizacaoCliente): Promise<Cliente | null> {
+        const sets: string[] = []
+        const valores: unknown[] = []
+        // Percorre o mapa fixo, não o objeto recebido: só nome, email e telefone podem entrar no SET
+        for (const campo of Object.keys(colunasAtualizaveis) as (keyof AtualizacaoCliente)[]) {
+            if (dados[campo] === undefined) continue
+            valores.push(dados[campo])
+            sets.push(`${colunasAtualizaveis[campo]} = $${valores.length}`)
+        }
+        sets.push('atualizado_em = now()')
+        valores.push(id)
+
+        const { rows } = await db.query<Cliente>(
+            `UPDATE clientes SET ${sets.join(', ')} WHERE id = $${valores.length} AND ativo RETURNING ${colunas}`,
+            valores,
+        )
+        return rows[0] ?? null
+    },
+    // só para a troca de senha; nunca devolver em resposta
+    async buscarHashSenha(id: number): Promise<string | null> {
+        const { rows } = await db.query<{ senhaHash: string }>(
+            'SELECT senha_hash AS "senhaHash" FROM clientes WHERE id = $1 AND ativo',
+            [id],
+        )
+        return rows[0]?.senhaHash ?? null
+    },
+    async atualizarSenha(id: number, senhaHash: string, executor: Queryable = db): Promise<void> {
+        await executor.query('UPDATE clientes SET senha_hash = $2, atualizado_em = now() WHERE id = $1', [id, senhaHash])
+    },
 }
 
