@@ -69,5 +69,11 @@ export const clienteRepository = {
     async atualizarSenha(id: number, senhaHash: string, executor: Queryable = db): Promise<void> {
         await executor.query('UPDATE clientes SET senha_hash = $2, atualizado_em = now() WHERE id = $1', [id, senhaHash])
     },
+    // Serializa as alterações de endereço do mesmo cliente (limite de 10 e troca de principal):
+    // dois pedidos simultâneos não passam juntos, o segundo espera o COMMIT do primeiro
+    async travarParaAlteracao(id: number, executor: Queryable): Promise<boolean> {
+        const { rows } = await executor.query('SELECT id FROM clientes WHERE id = $1 AND ativo FOR UPDATE', [id])
+        return rows.length > 0
+    },
 }
 

@@ -3,6 +3,7 @@ import { autenticar } from '../../middlewares/autenticar.js'
 import { exigirOrigem } from '../../middlewares/exigirOrigem.js'
 import { limiteTrocaSenha } from '../../middlewares/rateLimit.js'
 import { clienteController } from './cliente.controller.js'
+import { enderecoController } from './endereco.controller.js'
 
 export const clienteRoutes = Router()
 
@@ -11,3 +12,5 @@ export const clienteRoutes = Router()
 clienteRoutes.get('/me', autenticar, clienteController.buscarMeusDados)
 clienteRoutes.patch('/me', exigirOrigem, autenticar, clienteController.atualizarMeusDados)
 clienteRoutes.patch('/me/senha', exigirOrigem, autenticar, limiteTrocaSenha, clienteController.trocarMinhaSenha)
+clienteRoutes.get('/me/enderecos', autenticar, enderecoController.listarMeus)
+clienteRoutes.post('/me/enderecos', exigirOrigem, autenticar, enderecoController.criar)
