@@ -391,7 +391,7 @@ Não há `icone`, ficha técnica, `ativo` ou datas neste DTO público.
 | `busca` | Texto após `trim`, de 1–150 caracteres; trecho do nome, descrição ou marca, sem diferenciar caixa. Não remove acentos. `%`, `_` e `!` são literais. |
 | `preco_min`, `preco_max` | Limites inclusivos, em centavos inteiros de 0 a 2147483647 (tipo `INTEGER` do schema). Mínimo não pode superar máximo. |
 | `ordem` | `nome` (padrão), `preco` (crescente) ou `-preco` (decrescente); todas desempatam por `id` crescente. |
-| `incluir_inativos` | Ausente ou `false`: consulta pública. `true`: `400` com detalhe explícito de funcionalidade administrativa indisponível. Outros valores também são inválidos. |
+| `incluir_inativos` | Ausente ou `false`: consulta pública de ativos. `true`: sessão válida e papel atual admin (`401`/`403`); inclui ativos e inativos, conforme seção administrativa abaixo. Outros valores são `400`. |
 
 - Valores numéricos usam notação decimal sem zeros à esquerda; valores repetidos, vazios, fora dos limites,
   parâmetros desconhecidos ou inválidos retornam `400`, antes de consultar o banco. Os filtros técnicos estão descritos abaixo.
@@ -403,14 +403,70 @@ Não há `icone`, ficha técnica, `ativo` ou datas neste DTO público.
 
 **Pendências frente ao PDF:** os filtros técnicos previstos para a listagem estão implementados na seção abaixo.
 `incluir_inativos=true` depende de `autenticar`/`exigirAdmin`; não basta enviar cookie ou indicar um papel na query.
-Não há consulta administrativa de inativos, nem alteração global para erros `{ erro: codigo, mensagem }`.
+O Ciclo 2 implementa a consulta administrativa descrita abaixo. Não há alteração global para erros `{ erro: codigo, mensagem }`.
 `GET /api/produtos/:id` agora usa os mesmos IDs e campos básicos, conforme o incremento de detalhe abaixo.
 
-**Consumidores:** não há consumidor HTTP atual da listagem no frontend; loja, busca, destaque e carrinho usam
-`frontend/src/data/produtos.js`. Uma futura integração deve ler `itens`, paginar, formatar centavos dividindo por
-100, usar categoria por slug e tratar o novo DTO. `disponibilidade`/`emEstoque` não são filtros gerais do PDF e
-agora retornam `400` nessa rota; os filtros locais do frontend continuam funcionando com seus próprios mocks.
-Os dados fixos de produtos do backend foram removidos no incremento de detalhe abaixo.
+**Consumidores (Ciclos 1/2):** a camada `frontend/src/services/catalogo.js` consulta a API real, lê `itens`,
+usa IDs numéricos e mantém preços em centavos. Disponibilidade/Z–A e ordenação/preço dos peixes, quando
+não suportados pela API, são aplicados sobre todas as páginas. O carrinho salva somente IDs/quantidades e
+reconstrói preços/disponibilidade pela API pública. Não usa `incluir_inativos=true`.
+
+### Produtos — consulta administrativa de inativos e reativação (Ciclo 2)
+
+| Método/caminho | Acesso e resultado |
+|---|---|
+| `GET /api/produtos?incluir_inativos=true` | Sessão/admin; lista ativos e inativos. Mesmos filtros e paginação da listagem pública. |
+| `GET /api/produtos?incluir_inativos=true&ativo=false` | Sessão/admin; somente inativos; `ativo=true` limita aos ativos; omissão inclui ambos. |
+| `GET /api/produtos/:id?incluir_inativos=true` | Sessão/admin; objeto ativo ou inativo, ou `404` se inexistente. |
+| `POST /api/produtos/:id/reativar` | Sessão/admin/Origin; sem corpo ou `{}`; `200` com detalhe administrativo. |
+
+`incluir_inativos` deve ser um único literal `true`/`false`. `ativo` é um único booleano e só existe na
+listagem administrativa com a flag `true`; não é aceito na listagem pública ou no detalhe. Valores
+repetidos, arrays, parâmetros desconhecidos e filtros inválidos não ampliam acesso. Autorização precede
+validação dos filtros quando a flag é `true`. GET/HEAD não exigem Origin, como as demais leituras.
+GETs administrativos (inclusive erros `401`/`403`) usam `Cache-Control: no-store` e `Vary: Cookie`.
+
+DTO administrativo: o mesmo DTO público, acrescido **somente de `ativo: boolean`**. Detalhe inclui a
+mesma `ficha: {tipo,dados}|null`. Não expõe quantidade de estoque, datas, sessões ou dados de clientes.
+Envelope `{itens,total}`, padrão 1/20, limite 100; total após todos os filtros (inclusive `ativo`) e antes
+da página, no mesmo snapshot SQL. Ordenação estável por ID; valores parametrizados. Exemplo:
+
+```http
+GET /api/produtos?incluir_inativos=true&ativo=false&categoria=peixes&pagina=1&limite=20
+Cookie: sid=<sessao-admin>
+```
+
+```json
+{"itens":[{"id":42,"categoriaId":1,"categoria":"peixes","nome":"Peixe de exemplo","descricao":null,"marca":null,"preco":4999,"imagemUrl":null,"emEstoque":false,"ativo":false}],"total":1}
+```
+
+Sem sessão válida (incluindo vencida, revogada ou conta inativa): `401`. Cliente autenticado: `403`.
+O papel atual vem do mesmo repositório de sessões; body, query e headers de papel não concedem admin.
+Cookie de admin **sem a flag** continua recebendo somente os produtos públicos ativos. As rotas de
+peixes não ganham nenhum modo administrativo e continuam omitindo inativos e peixes sem ficha.
+
+**Reativação explícita:** extensão de contrato adotada neste ciclo; o PDF não define essa operação.
+O `PATCH` comum continua recusando `ativo`, estoque, categoria e outros campos protegidos; produto
+inativo continua `404` no PATCH. A nova operação rejeita campos de corpo/query (`400`), valida o ID
+numérico e exige exatamente `Origin = CORS_ORIGIN`, além de sessão e admin. Respostas usam `no-store`.
+
+- Inativo existente: `200` com `ativo:true`, preservando ID, categoria, preço, ficha, imagem, saldo e histórico.
+- Já ativo/repetição: `200` com o mesmo estado, **sem novo UPDATE nem alteração de timestamp**.
+- Inexistente: `404`; ID/corpo/query inválido: `400`; sem sessão: `401`; cliente/Origin inválido: `403`.
+- Falha inesperada: `500` genérico, com rollback; mensagens/SQL internos não são devolvidos.
+- Não altera estoque. Um peixe legado sem ficha pode ser reativado como produto genérico (`ficha:null`),
+  mas continua ausente dos atalhos de peixes. Disponibilidade continua derivada do saldo existente.
+
+A transação usa `comTransacao` e `SELECT ... FOR NO KEY UPDATE` por ID, incluindo inativos. Serializa
+com DELETE, PATCH que encontre produto ativo e outras reativações; lê o DTO antes do commit, com a
+mesma conexão. DELETE depois de reativar deixa inativo; reativar depois de DELETE deixa ativo. Dois
+reativar têm sucesso, com uma escrita no máximo. PATCH que já observa inativo pode responder `404`;
+reativar não promete executar novamente uma edição rejeitada. Uma operação posterior pode mudar o
+estado depois da resposta; não há trava permanente nem reserva de unidades.
+
+O frontend não tem área administrativa ou cliente autenticado de catálogo adequado neste checkpoint;
+nenhum painel novo foi criado. Consumo administrativo deve seguir cookies/CSRF existentes, sem
+reutilizar o helper de GET público que usa `credentials: omit`.
 
 ### Produtos — filtros técnicos implementados em 25/10/2026
 
@@ -462,7 +518,7 @@ mantêm o formato local `{ erro, detalhes? }`, sem mudança global para o format
 **Paginação e acesso:** envelope `{ itens, total }`, DTO público, preço em centavos, ordenações nome/preço e
 desempate por ID permanecem iguais. `total` considera todos os filtros e apenas ativos antes de paginar;
 página vazia preserva a contagem filtrada. Todos os valores usam parâmetros SQL e a ordenação continua fechada.
-`incluir_inativos=true` segue recusado com `400` enquanto não houver autorização administrativa implementada.
+`incluir_inativos=true` usa o caminho administrativo do Ciclo 2, com sessão/admin e os mesmos filtros técnicos.
 Os detalhes de produto e os dois atalhos de peixes não mudam neste incremento. Não há alteração de frontend.
 
 ### Produtos — cadastro administrativo implementado em 25/10/2026
@@ -678,7 +734,7 @@ depois do commit excluem o inativo; uma leitura em andamento pode observar seu s
 Após sucesso, o produto sai de listagens/detalhes/totais públicos, inclusive os dois atalhos de peixes. Os DTOs
 restantes não mudam. Um cliente HTTP deve tratar `204` sem chamar `response.json()` e atualizar sua lista/contagem.
 Repetir pode retornar `404` com o mesmo efeito final de ausência pública. Acesso administrativo a inativos e
-reativação seguem pendentes, sem mudar `incluir_inativos=true` nesta rodada. O frontend ainda precisa ligar suas
+reativação foram implementados posteriormente no Ciclo 2 descrito acima. O frontend do Ciclo 1 já liga suas
 consultas reais à API; não foi modificado nesta tarefa.
 
 Mantém-se o formato local `{ erro: mensagem, detalhes? }`, diferente de `{ erro: codigo, mensagem }` do PDF.
@@ -752,7 +808,8 @@ produto inexistente. A validação de completude no futuro cadastro continua pen
 
 **Categoria e acesso:** a seleção da ficha usa o slug da categoria vinculada ao produto, nunca a query.
 Uma ficha indevidamente associada em outra tabela é ignorada. Produto inexistente ou inativo retorna o mesmo
-`404 { "erro": "Produto não encontrado" }`, mesmo com ficha, cookie ou `incluir_inativos=true` na query.
+`404 { "erro": "Produto não encontrado" }` nas consultas públicas, mesmo com ficha ou cookie de admin.
+Desde o Ciclo 2, `incluir_inativos=true` seleciona a leitura administrativa e exige sessão/admin (`401`/`403`).
 A leitura usa uma única consulta, `p.id = $1 AND p.ativo`; falha do banco retorna o `500` genérico existente.
 
 **Diferenças frente ao PDF:** o PDF exige ficha, mas não nomeia seu campo ou define ausência; o envelope
@@ -760,10 +817,9 @@ A leitura usa uma única consulta, `p.id = $1 AND p.ativo`; falha do banco retor
 `400` para ID inválido, coerente com a API local. Os erros continuam com `AppError`/`errorHandler` no formato
 `{ erro, detalhes? }`, em vez de `{ erro: codigo, mensagem }`. Nenhuma mudança global de erros foi feita.
 
-**Consumidores e pendências:** não há consumidor HTTP atual do detalhe no frontend. Seus helpers continuam
-usando os próprios mocks e IDs textuais, e não foram migrados para esta API. Os testes que consultavam o detalhe
-legado foram adaptados. Os atalhos de peixes seguem o incremento abaixo e os filtros técnicos de produtos
-estão documentados na seção própria acima. Sem CRUD ou mudança de schema.
+**Consumidores e pendências:** desde o Ciclo 1, detalhe e listagens existentes usam a API, com IDs numéricos
+sem fallback. O Ciclo 2 reconstrói o carrinho a partir do detalhe público, descartando IDs legados textuais.
+Os atalhos de peixes seguem as regras abaixo; imagens por upload e movimentações de estoque continuam fora deste ciclo.
 
 ### Peixes — atalhos públicos implementados em 25/10/2026
 

@@ -333,7 +333,7 @@ describe('PATCH /api/produtos/:id — PostgreSQL, estado final e concorrência',
   it('preserva consultas gerais e categorias, sem liberar inativos, e permite desativação administrativa', async () => {
     assert.equal((await fetch(`${origem}/api/categorias`)).status, 200)
     assert.equal((await fetch(`${origem}/api/produtos?categoria=plantas&precisa_co2=true`)).status, 200)
-    assert.equal((await fetch(`${origem}/api/produtos?incluir_inativos=true`)).status, 400)
+    assert.equal((await fetch(`${origem}/api/produtos?incluir_inativos=true`)).status, 401)
     assert.equal((await fetch(`${origem}/api/produtos/${inativo.id}`)).status, 404)
     assert.equal((await escrever('DELETE', `/api/produtos/${comum.id}`, undefined)).status, 204)
     assert.equal((await fetch(`${origem}/api/produtos/${comum.id}`)).status, 404)

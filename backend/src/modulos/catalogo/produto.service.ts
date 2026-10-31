@@ -20,6 +20,28 @@ function tratarConflito(err: unknown): never {
 }
 
 export const produtoService = {
+  listarAdministrativos: (filtros: FiltrosProdutos) => produtoRepository.listarAdministrativos(filtros),
+
+  async buscarAdministrativo(id: number) {
+    const produto = await produtoRepository.buscarAdministrativo(id)
+    if (!produto) throw new AppError('Produto não encontrado', 404)
+    return produto
+  },
+
+  async reativar(id: number, body: unknown) {
+    if (body !== undefined && (body === null || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length)) {
+      throw new AppError('Dados inválidos', 400, { body: 'Não envie campos; esta operação apenas reativa o produto do ID informado.' })
+    }
+    return comTransacao(async (client) => {
+      const atual = await produtoRepository.bloquearParaReativacao(id, client)
+      if (!atual) throw new AppError('Produto não encontrado', 404)
+      // Repetição bem sucedida não escreve, nem muda atualizado_em novamente.
+      if (!atual.ativo) await produtoRepository.reativar(id, client)
+      const produto = await produtoRepository.buscarAdministrativo(id, client)
+      if (!produto) throw new Error('Produto reativado não encontrado na transação.')
+      return produto
+    })
+  },
   async remover(id: number): Promise<void> {
     if (!await produtoRepository.desativar(id)) throw new AppError('Produto não encontrado', 404)
   },

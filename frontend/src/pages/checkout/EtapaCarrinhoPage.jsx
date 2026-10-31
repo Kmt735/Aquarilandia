@@ -13,7 +13,7 @@ import { ROTAS, urlEtapaCheckout } from '../../utils/rotas'
 // Etapa 1 · revisar itens e quantidades
 export default function EtapaCarrinhoPage() {
   useTituloPagina('Carrinho · Finalizar compra')
-  const { linhas, temPeixe, definirQtd, remover } = useCart()
+  const { linhas, temPeixe, definirQtd, remover, podeContinuar, conferindo, pendentes, bloqueado } = useCart()
   const navigate = useNavigate()
   const compat = analisarCompatibilidade(linhas)
   const itens = linhas.map((l) => ({ id: l.id, nome: l.item.nome, preco: l.item.preco, centavos: l.item.centavos, qtd: l.qtd }))
@@ -39,12 +39,12 @@ export default function EtapaCarrinhoPage() {
           Continuar comprando
         </Link>
       </section>
-      <ResumoPedido itens={itens}>
-        <Button tamanho="lg" largo className="mt-5" onClick={() => navigate(urlEtapaCheckout('entrega'))}>
+      {conferindo || pendentes || bloqueado ? <Aviso tipo="aviso">Aguardando conferência do carrinho. Abra o carrinho para revisar os avisos e tentar novamente.</Aviso> : <ResumoPedido itens={itens}>
+        <Button tamanho="lg" largo className="mt-5" disabled={!podeContinuar} onClick={() => navigate(urlEtapaCheckout('entrega'))}>
           Continuar para a entrega
           <ArrowRight aria-hidden="true" />
         </Button>
-      </ResumoPedido>
+      </ResumoPedido>}
     </div>
   )
 }

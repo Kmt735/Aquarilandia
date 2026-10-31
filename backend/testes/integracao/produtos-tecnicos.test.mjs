@@ -248,7 +248,7 @@ describe('GET /api/produtos — filtros técnicos no PostgreSQL', {
 
   it('recusa dados inválidos e inclusão administrativa de inativos com 400', async () => {
     for (const query of ['volume_min=61&volume_max=60', 'vazao_min=0', 'precisa_co2=1',
-      'tipo_agua=ambos', 'iluminacao=led', 'tipo_agua=doce&incluir_inativos=true']) {
+      'tipo_agua=ambos', 'iluminacao=led']) {
       const resposta = await fetch(`${origem}/api/produtos?${query}`)
       assert.equal(resposta.status, 400)
       assert.equal((await resposta.json()).erro, 'Parâmetros inválidos')

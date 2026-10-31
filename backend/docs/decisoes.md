@@ -8,6 +8,35 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-45 — Carrinho versionado guarda intenção e revalida pelo catálogo público
+- **Data:** 31/10/2026
+- **Decisão:** manter a chave `aquarilandia-carrinho`, migrar arrays legados para `{versao:2,itens:[{id,qtd}]}`.
+  Não persistir preço, nome, imagem, estoque ou dados pessoais. Só IDs numéricos canônicos; não adivinhar ID
+  de mock por nome/slug. Reconstruir cada item pelo detalhe público; ignorar totalmente os preços salvos.
+- **Motivo:** o Ciclo 1 passou a usar centavos, mas snapshots antigos podiam ter IDs textuais, reais ou
+  disponibilidade desatualizada. Total e compra não podem depender desse conteúdo arbitrário do navegador.
+- **Impacto:** JSON malformado/dados inválidos têm aviso; duplicados são agrupados (limite visual 99, não saldo).
+  Produto `404`/esgotado é removido com aviso. Falha de rede/5xx preserva IDs/quantidades para retry, sem preço
+  fallback e com continuação bloqueada. Versão desconhecida é preservada até limpeza explícita. Leitura na
+  abertura e retorno à aba reconsulta a API; desfazer também revalida. Sem checkout, venda, reserva ou movimento.
+  O servidor de vendas deverá recalcular preço/estoque/permissões no futuro, independentemente do carrinho.
+
+### D-44 — Inativos exigem leitura administrativa e reativação é uma operação explícita
+- **Data:** 31/10/2026
+- **Decisão:** `incluir_inativos=true` na lista/detalhe de produtos seleciona sessão/admin com papel atual,
+  `401`/`403`, `no-store` e `Vary: Cookie`. Lista admite `ativo=false|true` apenas nesse modo, preservando
+  filtros, paginação e total. DTO administrativo acrescenta somente `ativo`; público continua igual.
+- **Motivo:** completar a consulta prevista no PDF sem ampliar as consultas públicas por um cookie ou
+  misturar permissão com filtros. As indicações históricas de flag indisponível em D-34/35 foram superadas.
+- **Reativação:** `POST /api/produtos/:id/reativar`, sem campos, sessão/admin/Origin. Extensão explícita deste
+  ciclo, não uma rota já descrita pelo PDF. Retorna `200` tanto para inativo quanto já ativo; repetição não
+  escreve. Inexistente `404`, ID/body/query inválido `400`; PATCH comum continua rejeitando `ativo` e inativos.
+- **Concorrência:** transação compartilhada + lock por ID inclusive inativo. Reativa só `ativo` e timestamp,
+  preservando preço/ficha/imagem/saldo/FKs/histórico. Serializa com DELETE/PATCH/reativar; última escrita
+  serializada define estado. Peixe sem ficha continua fora dos atalhos. Sem migração de schema ou movimentação de estoque.
+- **Frontend:** não há painel administrativo existente; não criar um novo. Ciclo 1 permanece integrado às
+  consultas públicas. Detalhes e exemplos atuais em `api.md`, testes HTTP/PG reais e relatório do Ciclo 2.
+
 ### D-43 — Homologação conjunta isolada e logs mínimos de erros inesperados
 - **Data:** 31/10/2026
 - **Decisão:** homologar a árvore já combinada da main em branch/worktree de revisão, preservando a original.

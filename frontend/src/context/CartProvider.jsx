@@ -1,116 +1,119 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useToast from '../hooks/useToast'
 import useUI from '../hooks/useUI'
+import { obterProduto } from '../services/catalogo'
+import { aplicarConferencia, CHAVE_CARRINHO, conferirCarrinho, formatoParaSalvar, lerCarrinhoSalvo, LIMITE_QUANTIDADE } from '../services/carrinho'
 import { precoEmCentavos } from '../utils/dinheiro'
-import { plural } from '../utils/format'
 import { CartContext } from './contexts'
 
-const CHAVE = 'aquarilandia-carrinho'
-
-function lerCarrinho() {
-  try {
-    return JSON.parse(localStorage.getItem(CHAVE)) ?? []
-  } catch {
-    return []
+const AVISO_FALHA = 'Não conseguimos conferir todos os produtos. Eles foram preservados para tentar novamente, sem usar preços salvos.'
+const chaveConferencia = (registros, revisao, aberto) => JSON.stringify([registros.map((r) => r.id), revisao, aberto])
+function estadoInicial() {
+  let lido
+  try { lido = lerCarrinhoSalvo(localStorage.getItem(CHAVE_CARRINHO)) } catch {
+    lido = { registros: [], avisos: ['Não foi possível ler o carrinho neste navegador.'], bloqueado: false }
   }
+  return { ...lido, revisao: 0, conferida: null }
 }
 
-// Guarda uma "foto" do item (nome, preço, estoque, tipo) no momento em que entra no carrinho,
-// como a API fará. Item 30 · memória: o carrinho é lembrado entre visitas.
 export default function CartProvider({ children }) {
-  const [linhas, setLinhas] = useState(lerCarrinho) // [{ id, qtd, item }]
+  const [estado, setEstado] = useState(estadoInicial)
   const [bump, setBump] = useState(0)
   const { toast } = useToast()
-  const { abrirPainel } = useUI()
+  const notificacaoInicial = useRef({ avisos: estado.avisos, enviada: false })
+  const { abrirPainel, painel } = useUI()
+  const aberto = painel === 'carrinho'
+  const chave = chaveConferencia(estado.registros, estado.revisao, aberto)
+  const conferindo = !estado.bloqueado && estado.registros.length > 0 && estado.conferida !== chave
 
   useEffect(() => {
-    try {
-      localStorage.setItem(CHAVE, JSON.stringify(linhas))
-    } catch {
-      // armazenamento bloqueado: o carrinho vale só nesta visita
+    const aviso = notificacaoInicial.current
+    if (!aviso.enviada && aviso.avisos.length) { aviso.enviada = true; toast(aviso.avisos.join(' '), { tipo: 'info' }) }
+  }, [toast])
+
+  useEffect(() => {
+    if (estado.bloqueado) return // não destrói versões futuras/desconhecidas
+    try { localStorage.setItem(CHAVE_CARRINHO, JSON.stringify(formatoParaSalvar(estado.registros))) } catch {
+      // Armazenamento bloqueado: o carrinho desta aba continua funcionando.
     }
-  }, [linhas])
+  }, [estado.registros, estado.bloqueado])
 
-  // Item 5 · não é possível adicionar mais unidades do que há em estoque
-  const adicionar = useCallback(
-    (item, qtd = 1) => {
-      if (item.disponibilidade === 'esgotado') return
-      const atual = linhas.find((l) => l.id === item.id)?.qtd ?? 0
-      const maximo = item.estoque ?? Infinity
-      const nova = Math.min(atual + qtd, maximo)
-
-      if (nova === atual) {
-        toast(`Você já tem ${plural(atual, 'unidade')} de ${item.nome} no carrinho, o máximo disponível.`, {
-          tipo: 'erro',
-          acao: 'Ver carrinho',
-          onAcao: () => abrirPainel('carrinho'),
-        })
-        return
-      }
-      setLinhas((lista) =>
-        lista.some((l) => l.id === item.id)
-          ? lista.map((l) => (l.id === item.id ? { ...l, qtd: nova, item } : l))
-          : [...lista, { id: item.id, qtd: nova, item }],
-      )
-      setBump((b) => b + 1)
-      // Item 38 · retorno imediato, sem tirar o usuário da página
-      const extra = nova - atual < qtd ? ` (só havia ${maximo} em estoque)` : ''
-      toast(`${item.nome} adicionado ao carrinho${extra}.`, {
-        tipo: 'sucesso',
-        acao: 'Ver carrinho',
-        onAcao: () => abrirPainel('carrinho'),
+  useEffect(() => {
+    if (!conferindo) return
+    let atual = true
+    conferirCarrinho(estado.registros, obterProduto).then((resultados) => {
+      if (!atual) return
+      const avisos = [
+        resultados.some((r) => r.estado === 'removido') && 'Produtos que saíram do catálogo ou estão esgotados foram removidos do carrinho.',
+        resultados.some((r) => r.estado === 'erro') && AVISO_FALHA,
+        resultados.some((r) => r.precoAlterado) && 'Os preços do carrinho foram atualizados conforme o catálogo.',
+      ].filter(Boolean)
+      setEstado((anterior) => {
+        const registros = aplicarConferencia(anterior.registros, resultados)
+        return { ...anterior, registros, conferida: chaveConferencia(registros, anterior.revisao, aberto),
+          avisos: [...new Set([...anterior.avisos.filter((a) => a !== AVISO_FALHA), ...avisos])].slice(-5) }
       })
-    },
-    [linhas, toast, abrirPainel],
-  )
+      if (avisos.length) toast(avisos.join(' '), { tipo: 'info' })
+    })
+    return () => { atual = false }
+  }, [conferindo, chave, estado.registros, aberto, toast])
+
+  const revalidar = useCallback(() => setEstado((e) => ({ ...e, revisao: e.revisao + 1 })), [])
+  useEffect(() => {
+    const aoVoltar = () => { if (document.visibilityState === 'visible') revalidar() }
+    window.addEventListener('focus', revalidar)
+    document.addEventListener('visibilitychange', aoVoltar)
+    return () => {
+      window.removeEventListener('focus', revalidar)
+      document.removeEventListener('visibilitychange', aoVoltar)
+    }
+  }, [revalidar])
+
+  const adicionar = useCallback((item, qtd = 1) => {
+    if (estado.bloqueado) { toast('Limpe o carrinho de formato desconhecido antes de adicionar produtos.', { tipo: 'erro' }); return }
+    if (!Number.isInteger(item?.id) || item.id < 1 || item.id > 2147483647 || !Number.isSafeInteger(qtd) || qtd < 1) {
+      toast('Não foi possível identificar este produto. Escolha-o no catálogo atual.', { tipo: 'erro' }); return
+    }
+    setEstado((e) => {
+      const existe = e.registros.some((r) => r.id === item.id)
+      const registros = existe ? e.registros.map((r) => r.id === item.id ? { ...r, qtd: Math.min(r.qtd + qtd, LIMITE_QUANTIDADE) } : r)
+        : [...e.registros, { id: item.id, qtd: Math.min(qtd, LIMITE_QUANTIDADE), item: null, erro: false }]
+      return { ...e, registros, revisao: e.revisao + 1 }
+    })
+    setBump((b) => b + 1)
+    toast('Conferindo o produto no catálogo para atualizar seu carrinho.', { tipo: 'info', acao: 'Ver carrinho', onAcao: () => abrirPainel('carrinho') })
+  }, [estado.bloqueado, toast, abrirPainel])
 
   const definirQtd = useCallback((id, qtd) => {
-    setLinhas((lista) =>
-      lista.map((l) => (l.id === id ? { ...l, qtd: Math.max(1, Math.min(qtd, l.item.estoque ?? Infinity)) } : l)),
-    )
+    if (!Number.isSafeInteger(qtd) || qtd < 1) return
+    setEstado((e) => ({ ...e, registros: e.registros.map((r) => r.id === id ? { ...r, qtd: Math.min(qtd, LIMITE_QUANTIDADE) } : r) }))
   }, [])
+  const remover = useCallback((id) => {
+    const indice = estado.registros.findIndex((r) => r.id === id)
+    if (indice < 0) return
+    const removido = estado.registros[indice]
+    setEstado((e) => ({ ...e, registros: e.registros.filter((r) => r.id !== id) }))
+    toast(`${removido.item?.nome ?? 'Produto'} removido do carrinho.`, { tipo: 'info', acao: 'Desfazer', onAcao: () => {
+      setEstado((e) => e.registros.some((r) => r.id === id) ? e : { ...e,
+        registros: [...e.registros.slice(0, indice), { ...removido, item: null }, ...e.registros.slice(indice)], revisao: e.revisao + 1 })
+      setBump((b) => b + 1)
+    } })
+  }, [estado.registros, toast])
+  const limpar = useCallback(() => setEstado({ registros: [], avisos: [], bloqueado: false, revisao: 0, conferida: null }), [])
 
-  // Item 3 · controle do usuário: remover sempre oferece "Desfazer"
-  const remover = useCallback(
-    (id) => {
-      const indice = linhas.findIndex((l) => l.id === id)
-      if (indice < 0) return
-      const removida = linhas[indice]
-      setLinhas((lista) => lista.filter((l) => l.id !== id))
-      toast(`${removida.item.nome} removido do carrinho.`, {
-        tipo: 'info',
-        acao: 'Desfazer',
-        onAcao: () => {
-          setLinhas((lista) => {
-            const nova = [...lista]
-            nova.splice(Math.min(indice, nova.length), 0, removida)
-            return nova
-          })
-          setBump((b) => b + 1)
-        },
-      })
-    },
-    [linhas, toast],
-  )
-
-  const limpar = useCallback(() => setLinhas([]), [])
-
-  const value = useMemo(
-    () => ({
-      linhas,
-      bump,
-      quantidade: linhas.reduce((s, l) => s + l.qtd, 0),
-      // Compatibilidade dos componentes de frete/checkout do protótipo (valores em reais).
+  const value = useMemo(() => {
+    const linhas = estado.registros.filter((r) => r.item?.emEstoque && !r.erro)
+    const pendentes = estado.registros.filter((r) => !r.item || r.erro).length
+    return {
+      linhas, bump, conferindo, pendentes, avisos: estado.avisos, bloqueado: estado.bloqueado,
+      podeContinuar: !conferindo && !estado.bloqueado && !pendentes && linhas.length > 0,
+      quantidade: estado.registros.reduce((s, r) => s + r.qtd, 0),
+      // Apresentação/frete do protótipo ainda recebem reais; itens e somas usam centavos.
       total: linhas.reduce((s, l) => s + precoEmCentavos(l.item) * l.qtd, 0) / 100,
       temPeixe: linhas.some((l) => l.item.tipo === 'peixe'),
-      qtdNoCarrinho: (id) => linhas.find((l) => l.id === id)?.qtd ?? 0,
-      adicionar,
-      definirQtd,
-      remover,
-      limpar,
-    }),
-    [linhas, bump, adicionar, definirQtd, remover, limpar],
-  )
-
+      qtdNoCarrinho: (id) => estado.registros.find((r) => r.id === id)?.qtd ?? 0,
+      adicionar, definirQtd, remover, limpar, revalidar,
+    }
+  }, [estado, bump, conferindo, adicionar, definirQtd, remover, limpar, revalidar])
   return <CartContext value={value}>{children}</CartContext>
 }

@@ -48,7 +48,7 @@ export default function SiteNav() {
   const { pathname } = useLocation()
   const { abrirPainel } = useUI()
   const { usuario } = useAuth()
-  const { quantidade, total, bump } = useCart()
+  const { quantidade, total, bump, conferindo, pendentes } = useCart()
   const [tema, alternarTema] = useTema()
   const abrirWhatsApp = useWhatsApp()
   const [menuAberto, setMenuAberto] = useState(false)
@@ -189,7 +189,7 @@ export default function SiteNav() {
                 </button>
                 <p className="px-3 pt-1 text-legenda text-text-muted">
                   Carrinho: {quantidade} {quantidade === 1 ? 'item' : 'itens'}
-                  {quantidade > 0 && ` · ${formatarPreco(total)}`}
+                  {quantidade > 0 && ` · ${conferindo || pendentes ? 'Aguardando conferência' : formatarPreco(total)}`}
                 </p>
               </div>
             </SheetContent>

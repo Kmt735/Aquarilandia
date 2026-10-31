@@ -2,7 +2,7 @@ import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
 import type { Categoria } from './categoria.types.js'
 import { camposPublicosProduto, fichaPeixePublica } from './produto.projecoes.js'
-import type { DetalheProduto, FiltrosProdutos, ListaProdutos, NovoProduto, OrdemProdutos } from './produto.types.js'
+import type { DetalheProduto, DetalheProdutoAdministrativo, FiltrosProdutos, ListaProdutos, ListaProdutosAdministrativos, NovoProduto, OrdemProdutos } from './produto.types.js'
 
 const ordenacoes: Record<OrdemProdutos, string> = {
   nome: 'nome ASC, id ASC',
@@ -55,16 +55,35 @@ export const produtoRepository = {
     return rows[0].id
   },
 
-  async listar(filtros: FiltrosProdutos): Promise<ListaProdutos> {
+  listar: (filtros: FiltrosProdutos) => listarProdutos(filtros, false),
+  listarAdministrativos: (filtros: FiltrosProdutos) => listarProdutos(filtros, true),
+  buscarPorId: (id: number, executor: Queryable = db) => buscarProduto(id, executor, false),
+  buscarAdministrativo: (id: number, executor: Queryable = db) => buscarProduto(id, executor, true),
+
+  async bloquearParaReativacao(id: number, executor: Queryable): Promise<{ ativo: boolean } | null> {
+    const { rows } = await executor.query<{ ativo: boolean }>(
+      'SELECT ativo FROM produtos WHERE id = $1 FOR NO KEY UPDATE', [id],
+    )
+    return rows[0] ?? null
+  },
+
+  async reativar(id: number, executor: Queryable): Promise<void> {
+    await executor.query('UPDATE produtos SET ativo = true, atualizado_em = now() WHERE id = $1 AND NOT ativo', [id])
+  },
+}
+
+function listarProdutos(filtros: FiltrosProdutos, administrativo: false): Promise<ListaProdutos>
+function listarProdutos(filtros: FiltrosProdutos, administrativo: true): Promise<ListaProdutosAdministrativos>
+async function listarProdutos(filtros: FiltrosProdutos, administrativo: boolean): Promise<ListaProdutos | ListaProdutosAdministrativos> {
     // Somente fragmentos fixos entram na ordenação; todos os valores usam parâmetros.
     const ordem = ordenacoes[filtros.ordem]
     const busca = filtros.busca === undefined ? null : `%${filtros.busca.replace(/[!%_]/g, '!$&')}%`
     const { rows } = await db.query<ListaProdutos>(
       `WITH filtrados AS (
-         SELECT ${camposPublicosProduto}
+         SELECT ${camposPublicosProduto}${administrativo ? ', p.ativo' : ''}
            FROM produtos AS p
            JOIN categorias AS c ON c.id = p.categoria_id
-          WHERE p.ativo
+          WHERE ${administrativo ? '($14::boolean IS NULL OR p.ativo = $14)' : 'p.ativo'}
             AND ($1::text IS NULL OR c.slug = $1)
             AND ($2::text IS NULL OR p.nome ILIKE $2 ESCAPE '!'
                  OR p.descricao ILIKE $2 ESCAPE '!' OR p.marca ILIKE $2 ESCAPE '!')
@@ -114,7 +133,7 @@ export const produtoRepository = {
        SELECT COALESCE(
                 (SELECT json_agg(pagina ORDER BY ${ordem})
                    FROM (
-                     SELECT id, "categoriaId", categoria, nome, descricao, marca, preco, "imagemUrl", "emEstoque"
+                     SELECT id, "categoriaId", categoria, nome, descricao, marca, preco, "imagemUrl", "emEstoque"${administrativo ? ', ativo' : ''}
                        FROM filtrados
                       ORDER BY ${ordem}
                       LIMIT $5 OFFSET $6
@@ -125,16 +144,18 @@ export const produtoRepository = {
       [filtros.categoria ?? null, busca, filtros.precoMin ?? null, filtros.precoMax ?? null,
         filtros.limite, (filtros.pagina - 1) * filtros.limite, filtros.tipoAgua ?? null,
         filtros.volumeMin ?? null, filtros.volumeMax ?? null, filtros.vazaoMin ?? null,
-        filtros.indicadoPlantado ?? null, filtros.precisaCo2 ?? null, filtros.iluminacao ?? null],
+        filtros.indicadoPlantado ?? null, filtros.precisaCo2 ?? null, filtros.iluminacao ?? null, ...(administrativo ? [filtros.ativo ?? null] : [])],
     )
 
     return rows[0]
-  },
+}
 
-  async buscarPorId(id: number, executor: Queryable = db): Promise<DetalheProduto | null> {
+function buscarProduto(id: number, executor: Queryable, administrativo: false): Promise<DetalheProduto | null>
+function buscarProduto(id: number, executor: Queryable, administrativo: true): Promise<DetalheProdutoAdministrativo | null>
+async function buscarProduto(id: number, executor: Queryable, administrativo: boolean): Promise<DetalheProduto | DetalheProdutoAdministrativo | null> {
     // A categoria escolhe uma única ficha. Produto sem linha de detalhe retorna ficha null.
     const { rows } = await executor.query<DetalheProduto>(
-      `SELECT ${camposPublicosProduto},
+      `SELECT ${camposPublicosProduto}${administrativo ? ', p.ativo' : ''},
               CASE c.slug
                 WHEN 'peixes' THEN (
                   SELECT ${fichaPeixePublica} FROM peixes AS f WHERE f.produto_id = p.id
@@ -207,10 +228,9 @@ export const produtoRepository = {
               END AS ficha
          FROM produtos AS p
          JOIN categorias AS c ON c.id = p.categoria_id
-        WHERE p.id = $1 AND p.ativo`,
+        WHERE p.id = $1${administrativo ? '' : ' AND p.ativo'}`,
       [id],
     )
 
     return rows[0] ?? null
-  },
 }
