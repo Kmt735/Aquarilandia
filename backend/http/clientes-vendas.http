@@ -458,3 +458,269 @@ Origin: {{origem}}
   "senhaAtual": "senhaErrada999",
   "novaSenha": "outraSenha1234"
 }
+
+# ===== ENDEREÇOS (/me/enderecos) =====
+# Preparação: cadastre a Ana e a Bia e faça login com a Ana (o cookie "sid" fica no cookie jar).
+# Para os testes de IDOR, faça login com a Bia e use o id de um endereço da Ana.
+# No fim, apague as contas (os endereços e as sessões saem por CASCADE):
+# DELETE FROM clientes WHERE email LIKE 'teste.end.%@exemplo.com';
+
+@enderecoId=SUBSTITUA_PELO_ID_DE_UM_ENDERECO
+
+# 201 - conta de teste Ana
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Ana Endereco",
+  "email": "teste.end.ana@exemplo.com",
+  "senha": "senhaAna1234",
+  "telefone": "00900000000",
+  "aceiteTermos": true
+}
+
+# 201 - conta de teste Bia
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Bia Endereco",
+  "email": "teste.end.bia@exemplo.com",
+  "senha": "senhaBia1234",
+  "telefone": "00900000000",
+  "aceiteTermos": true
+}
+
+# 200 - login da Ana
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.end.ana@exemplo.com",
+  "senha": "senhaAna1234"
+}
+
+# 401 - listar sem login
+###
+# @no-cookie-jar
+GET {{api}}/clientes/me/enderecos
+
+# 401 - criar sem login
+###
+# @no-cookie-jar
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "cep": "36300000", "logradouro": "Rua Sem Login", "numero": "1", "bairro": "Centro", "cidade": "Cidade", "uf": "MG" }
+
+# 403 - criar sem Origin (nada é criado)
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+
+{ "cep": "36300000", "logradouro": "Rua Sem Origem", "numero": "1", "bairro": "Centro", "cidade": "Cidade", "uf": "MG" }
+
+# 422 - body vazio (cep, logradouro, numero, bairro, cidade e uf)
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+{}
+
+# 201 - primeiro endereço: vira principal mesmo sem pedir; cep salvo como 36300000 e uf como MG
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "apelido": "Casa",
+  "cep": "36300-000",
+  "logradouro": "Rua das Flores",
+  "numero": "10",
+  "complemento": "",
+  "bairro": "Centro",
+  "cidade": "São João del-Rei",
+  "uf": " mg "
+}
+
+# 201 - campos do sistema são ignorados: clienteId e id do body não valem
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "id": 999,
+  "clienteId": 999,
+  "criadoEm": "2000-01-01T00:00:00.000Z",
+  "cep": "36300000",
+  "logradouro": "Rua do Trabalho",
+  "numero": "200",
+  "bairro": "Fábricas",
+  "cidade": "São João del-Rei",
+  "uf": "MG"
+}
+
+# 201 - marcado como principal: o anterior deixa de ser
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "apelido": "Sítio",
+  "cep": "36300000",
+  "logradouro": "Estrada Real",
+  "numero": "S/N",
+  "bairro": "Zona Rural",
+  "cidade": "Tiradentes",
+  "uf": "MG",
+  "principal": true
+}
+
+# 422 - cep curto e uf inexistente (detalhes.cep e detalhes.uf)
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "cep": "3630", "logradouro": "Rua A", "numero": "1", "bairro": "Centro", "cidade": "Cidade", "uf": "XX" }
+
+# 422 - principal como texto (sem Boolean(): "sim", 1 e "true" são recusados)
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "cep": "36300000", "logradouro": "Rua A", "numero": "1", "bairro": "Centro", "cidade": "Cidade", "uf": "MG", "principal": "sim" }
+
+# 400 - body null (express.json strict); com [] quem responde é o service: 422 detalhes.body
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+null
+
+# 409 - 11º endereço (rode depois de ter 10): 'Você já tem 10 endereços cadastrados.'
+###
+POST {{api}}/clientes/me/enderecos
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "cep": "36300000", "logradouro": "Rua Onze", "numero": "11", "bairro": "Centro", "cidade": "Cidade", "uf": "MG" }
+
+# 200 - lista da Ana: principal primeiro, depois do mais novo para o mais antigo
+###
+GET {{api}}/clientes/me/enderecos
+
+# 200 - só o número muda
+###
+PATCH {{api}}/clientes/me/enderecos/{{enderecoId}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "numero": "25A" }
+
+# 200 - vira o único principal
+###
+PATCH {{api}}/clientes/me/enderecos/{{enderecoId}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "principal": true }
+
+# 422 - desmarcar o principal (detalhes.principal); para trocar, marque outro como principal
+###
+PATCH {{api}}/clientes/me/enderecos/{{enderecoId}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "principal": false }
+
+# 422 - nenhum campo (detalhes.body)
+###
+PATCH {{api}}/clientes/me/enderecos/{{enderecoId}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{}
+
+# 422 - só o cep inválido (detalhes.cep)
+###
+PATCH {{api}}/clientes/me/enderecos/{{enderecoId}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "cep": "1" }
+
+# 400 - id que não é número inteiro positivo ('abc' ou 0)
+###
+PATCH {{api}}/clientes/me/enderecos/abc
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "numero": "1" }
+
+# 404 - id que não existe
+###
+PATCH {{api}}/clientes/me/enderecos/999999
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "numero": "1" }
+
+# 403 - PATCH sem Origin
+###
+PATCH {{api}}/clientes/me/enderecos/{{enderecoId}}
+Content-Type: application/json
+
+{ "numero": "1" }
+
+# 204 - apagar um endereço (se era o principal, o mais recente que sobrou assume)
+###
+DELETE {{api}}/clientes/me/enderecos/{{enderecoId}}
+Origin: {{origem}}
+
+# 404 - apagar de novo o mesmo id
+###
+DELETE {{api}}/clientes/me/enderecos/{{enderecoId}}
+Origin: {{origem}}
+
+# 403 - DELETE sem Origin
+###
+DELETE {{api}}/clientes/me/enderecos/{{enderecoId}}
+
+# IDOR: faça login com a Bia e use em @enderecoId o id de um endereço da Ana.
+# 200 - login da Bia
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.end.bia@exemplo.com",
+  "senha": "senhaBia1234"
+}
+
+# 404 - Bia tenta alterar o endereço da Ana ('Endereço não encontrado.'; nada muda)
+###
+PATCH {{api}}/clientes/me/enderecos/{{enderecoId}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "numero": "666" }
+
+# 404 - Bia tenta apagar o endereço da Ana (ele continua lá)
+###
+DELETE {{api}}/clientes/me/enderecos/{{enderecoId}}
+Origin: {{origem}}
