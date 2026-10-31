@@ -15,7 +15,7 @@ import useConsulta from '../../hooks/useConsulta'
 import useTituloPagina from '../../hooks/useTituloPagina'
 import useToast from '../../hooks/useToast'
 import useWhatsApp from '../../hooks/useWhatsApp'
-import { encontrarItem } from '../../services/catalogo'
+import { obterProduto } from '../../services/catalogo'
 import { cancelarPedido, obterPedido } from '../../services/pedidos'
 import { formatarData } from '../../utils/format'
 import { ROTAS } from '../../utils/rotas'
@@ -67,11 +67,14 @@ export default function CompraDetalhePage() {
   }
 
   // Item 7 · "comprar novamente": devolve ao carrinho os itens que ainda existem no catálogo
-  const comprarNovamente = () => {
-    pedido.itens.forEach((i) => {
-      const item = encontrarItem(i.id)
-      if (item && item.disponibilidade !== 'esgotado') adicionar(item, i.qtd)
+  const comprarNovamente = async () => {
+    const resultados = await Promise.allSettled(pedido.itens.map((i) => obterProduto(i.id)))
+    let indisponiveis = 0
+    resultados.forEach((r, indice) => {
+      if (r.status === 'fulfilled' && r.value.emEstoque) adicionar(r.value, pedido.itens[indice].qtd)
+      else indisponiveis++
     })
+    if (indisponiveis) toast('Alguns itens não puderam ser consultados ou estão indisponíveis. Escolha-os no catálogo atual.', { tipo: 'erro' })
   }
 
   return (

@@ -10,7 +10,8 @@ import NavDropdown from '../molecules/NavDropdown'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { iconeCategoria } from '@/lib/icones'
-import { categoriasMenu } from '../../data/categorias'
+import useCategorias from '../../hooks/useCategorias'
+import CategoriasStatus from '../molecules/CategoriasStatus'
 import useAuth from '../../hooks/useAuth'
 import useCart from '../../hooks/useCart'
 import useTema from '../../hooks/useTema'
@@ -42,6 +43,8 @@ function BotaoTema({ escuro, onClick, className }) {
 }
 
 export default function SiteNav() {
+  const consultaCategorias = useCategorias()
+  const categoriasMenu = consultaCategorias.erro || consultaCategorias.carregando ? [] : (consultaCategorias.dados ?? [])
   const { pathname } = useLocation()
   const { abrirPainel } = useUI()
   const { usuario } = useAuth()
@@ -133,11 +136,12 @@ export default function SiteNav() {
                                 Ver loja completa
                               </NavLink>
                             </li>
+                            <li><CategoriasStatus {...consultaCategorias} /></li>
                             {categoriasMenu.map((c) => {
-                              const Icone = iconeCategoria[c.nome]
+                              const Icone = iconeCategoria[c.nome] ?? iconeCategoria.Peixes
                               return (
                                 <li key={c.nome}>
-                                  <Link to={urlCategoria(c.nome)} onClick={fechar} className="flex min-h-11 items-center gap-2.5 rounded-xl px-3 text-pequeno font-semibold hover:bg-surface-tint hover:text-primary-text">
+                                  <Link to={urlCategoria(c)} onClick={fechar} className="flex min-h-11 items-center gap-2.5 rounded-xl px-3 text-pequeno font-semibold hover:bg-surface-tint hover:text-primary-text">
                                     <Icone aria-hidden="true" className="size-4 text-primary-text" />
                                     {c.nome}
                                   </Link>

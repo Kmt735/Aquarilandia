@@ -24,10 +24,13 @@ export function urlLoja({ categoria, disponibilidade } = {}) {
   return query ? `${ROTAS.loja}?${query}` : ROTAS.loja
 }
 
-export const urlCategoria = (nome) => (nome === 'Peixes' ? ROTAS.peixes : urlLoja({ categoria: nome }))
+export const urlCategoria = (categoria) => {
+  const slug = typeof categoria === 'object' ? categoria.slug : categoria
+  return ['Peixes', 'peixes'].includes(slug) ? ROTAS.peixes : urlLoja({ categoria: slug })
+}
 export const urlPeixe = (id) => `${ROTAS.peixes}/${id}`
 export const urlProduto = (id) => `${ROTAS.loja}/${id}`
-export const urlItem = (item) => (item.tipo === 'peixe' ? urlPeixe(item.id) : urlProduto(item.id))
+export const urlItem = (item) => (item.tipo === 'peixe' && item.ficha ? urlPeixe(item.id) : urlProduto(item.id))
 export const urlPolitica = (tipo) => `${ROTAS.politicas}/${tipo}`
 export const urlCompra = (id) => `${ROTAS.minhaConta}/compras/${id}`
 export const urlEtapaCheckout = (etapa) => `${ROTAS.checkout}/${etapa}`

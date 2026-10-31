@@ -11,6 +11,7 @@ export const descricaoCategoria = {
   Termostatos: 'Mantêm a água na temperatura certa.',
   Rações: 'O alimento do dia a dia dos peixes.',
   Condicionadores: 'Deixam a água da torneira segura para os peixes.',
+  'Condicionadores e medicamentos': 'Deixam a água da torneira segura para os peixes.',
   Substratos: 'O "chão" do aquário, onde as plantas enraízam.',
   Plantas: 'Plantas vivas que decoram e dão abrigo.',
   Decorações: 'Pedras, troncos e enfeites para o cenário.',

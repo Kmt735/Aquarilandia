@@ -6,13 +6,13 @@ const PROPORCOES = { '4/3': 'aspect-[4/3]', '1/1': 'aspect-square', '16/10': 'as
 // Moldura de imagem com proporção fixa. Sem foto (ou se ela falhar), mostra uma cena ilustrada do aquário
 // com o ícone da categoria — pronta para receber a foto real (`src`) sem mudar o layout (itens 6 e 26).
 export default function Imagem({ src, alt = '', categoria, proporcao = '4/3', className = '', children, compacta = false }) {
-  const [falhou, setFalhou] = useState(false)
-  const temFoto = Boolean(src) && !falhou
+  const [falhouEm, setFalhouEm] = useState(null)
+  const temFoto = Boolean(src) && falhouEm !== src
 
   return (
     <div className={`relative w-full overflow-hidden bg-surface-tint ${PROPORCOES[proporcao]} ${className}`}>
       {temFoto ? (
-        <img src={src} alt={alt} loading="lazy" onError={() => setFalhou(true)} className="size-full object-cover" />
+        <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhouEm(src)} className="size-full object-cover" />
       ) : (
         <Cena categoria={categoria} compacta={compacta} />
       )}

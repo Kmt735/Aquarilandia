@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import useToast from '../hooks/useToast'
 import useUI from '../hooks/useUI'
+import { precoEmCentavos } from '../utils/dinheiro'
 import { plural } from '../utils/format'
 import { CartContext } from './contexts'
 
@@ -99,7 +100,8 @@ export default function CartProvider({ children }) {
       linhas,
       bump,
       quantidade: linhas.reduce((s, l) => s + l.qtd, 0),
-      total: linhas.reduce((s, l) => s + (l.item.preco ?? 0) * l.qtd, 0),
+      // Compatibilidade dos componentes de frete/checkout do protótipo (valores em reais).
+      total: linhas.reduce((s, l) => s + precoEmCentavos(l.item) * l.qtd, 0) / 100,
       temPeixe: linhas.some((l) => l.item.tipo === 'peixe'),
       qtdNoCarrinho: (id) => linhas.find((l) => l.id === id)?.qtd ?? 0,
       adicionar,

@@ -9,6 +9,7 @@ import CaixaCompra from '../components/organisms/CaixaCompra'
 import { descricaoCategoria } from '../data/glossario'
 import useConsulta from '../hooks/useConsulta'
 import useTituloPagina from '../hooks/useTituloPagina'
+import { linhasFicha } from '../services/catalogo-mapeamento'
 import { obterProduto } from '../services/catalogo'
 import { ROTAS, urlLoja } from '../utils/rotas'
 
@@ -36,12 +37,12 @@ export default function ProdutoDetalhePage() {
       <div className="mx-auto max-w-[1200px] px-4 py-12 sm:px-6 desk:px-10">
         <h1 className="sr-only">Produto não encontrado</h1>
         <EmptyState
-          tom={erro.status === 404 ? 'vazio' : 'erro'}
+          tom={[400, 404].includes(erro.status) ? 'vazio' : 'erro'}
           icone={<Package />}
-          titulo={erro.status === 404 ? 'Não encontramos esse produto' : 'Não conseguimos carregar o produto'}
-          acoes={erro.status === 404 ? <Button asChild><Link to={ROTAS.loja}>Ver a loja</Link></Button> : <Button onClick={recarregar}>Tentar de novo</Button>}
+          titulo={[400, 404].includes(erro.status) ? 'Não encontramos esse produto' : 'Não conseguimos carregar o produto'}
+          acoes={[400, 404].includes(erro.status) ? <Button asChild><Link to={ROTAS.loja}>Ver a loja</Link></Button> : <Button onClick={recarregar}>Tentar de novo</Button>}
         >
-          {erro.status === 404 ? 'Ele pode ter saído do catálogo.' : 'Confira sua conexão e tente de novo.'}
+          {[400, 404].includes(erro.status) ? 'Ele pode ter saído do catálogo.' : 'Confira sua conexão e tente de novo.'}
         </EmptyState>
       </div>
     )
@@ -49,20 +50,20 @@ export default function ProdutoDetalhePage() {
 
   const dados = [
     ['Categoria', produto.categoria],
-    produto.volumeLitros && ['Volume', `${produto.volumeLitros} L`],
-    produto.capacidadeMaxLitros && ['Atende aquários de até', `${produto.capacidadeMaxLitros} L`],
+    produto.marca && ['Marca', produto.marca],
+    ...linhasFicha(produto.fichaTecnica),
   ].filter(Boolean)
 
   return (
     <article className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 desk:px-10 desk:py-12">
-      <Trilha itens={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Loja', to: ROTAS.loja }, { rotulo: produto.categoria, to: urlLoja({ categoria: produto.categoria }) }, { rotulo: produto.nome }]} />
+      <Trilha itens={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Loja', to: ROTAS.loja }, { rotulo: produto.categoria, to: urlLoja({ categoria: produto.categoriaSlug }) }, { rotulo: produto.nome }]} />
       <div className="grid items-start gap-8 desk:grid-cols-[1.05fr_1fr] desk:gap-12">
         <div className="desk:sticky desk:top-24">
           <Galeria imagens={produto.imagens} categoria={produto.categoria} nome={produto.nome} />
         </div>
         <div>
           <h1 className="text-h1 text-primary-dark dark:text-foreground">{produto.nome}</h1>
-          <p className="mt-4 max-w-[60ch] text-corpo text-text-muted">{produto.descricao}</p>
+          <p className="mt-4 max-w-[60ch] text-corpo text-text-muted">{produto.descricao ?? 'Descrição ainda não disponível.'}</p>
           <dl className="mt-5 flex flex-col divide-y divide-border rounded-card border border-border-strong bg-surface px-5 py-2">
             {dados.map(([k, v]) => (
               <div key={k} className="flex justify-between gap-4 py-2.5 text-pequeno">
@@ -71,6 +72,7 @@ export default function ProdutoDetalhePage() {
               </div>
             ))}
           </dl>
+          {!produto.fichaTecnica && <p className="mt-3 text-pequeno text-text-muted">Ficha técnica ainda não disponível.</p>}
           <p className="mt-2 text-legenda text-text-muted">{descricaoCategoria[produto.categoria]}</p>
           <div className="mt-6">
             <CaixaCompra item={produto} />

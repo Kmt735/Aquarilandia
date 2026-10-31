@@ -13,7 +13,7 @@ import { ROTAS } from '../utils/rotas'
 // hero → categorias → peixes → guia do iniciante → serviços → confiança → rodapé
 export default function HomePage() {
   useTituloPagina(null)
-  const peixes = useConsulta(async () => (await listarPeixes()).filter((p) => p.disponibilidade !== 'esgotado'))
+  const peixes = useConsulta(async () => (await listarPeixes({ disponibilidade: 'disponivel', limite: 3 })).itens)
 
   return (
     <>
