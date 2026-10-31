@@ -75,5 +75,17 @@ export const clienteRepository = {
         const { rows } = await executor.query('SELECT id FROM clientes WHERE id = $1 AND ativo FOR UPDATE', [id])
         return rows.length > 0
     },
+    // LGPD (D-23): a linha fica, porque as vendas apontam para ela; só os dados pessoais saem.
+    // Os CHECKs ck_clientes_anonimizado_* exigem exatamente esta combinação (sem e-mail, senha e telefone, inativo)
+    async anonimizar(id: number, executor: Queryable): Promise<boolean> {
+        const { rowCount } = await executor.query(
+            `UPDATE clientes
+             SET nome = 'Cliente removido', email = NULL, telefone = NULL, senha_hash = NULL,
+                 ativo = FALSE, anonimizado_em = now(), atualizado_em = now()
+             WHERE id = $1 AND anonimizado_em IS NULL`,
+            [id],
+        )
+        return rowCount === 1
+    },
 }
 

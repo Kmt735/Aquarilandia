@@ -107,6 +107,10 @@ export const enderecoRepository = {
     return rows[0] ?? null
   },
 
+  async excluirTodosDoCliente(clienteId: number, executor: Queryable): Promise<void> {
+    await executor.query('DELETE FROM enderecos_cliente WHERE cliente_id = $1', [clienteId])
+  },
+
   // Se não sobrou endereço, a subconsulta devolve NULL e o UPDATE não altera nenhuma linha
   async marcarMaisRecenteComoPrincipal(clienteId: number, executor: Queryable = db): Promise<void> {
     await executor.query(

@@ -12,6 +12,9 @@ export const clienteRoutes = Router()
 clienteRoutes.get('/me', autenticar, clienteController.buscarMeusDados)
 clienteRoutes.patch('/me', exigirOrigem, autenticar, clienteController.atualizarMeusDados)
 clienteRoutes.patch('/me/senha', exigirOrigem, autenticar, limiteTrocaSenha, clienteController.trocarMinhaSenha)
+// limiteTrocaSenha reaproveitado: as duas rotas pedem a senha atual, então o contador é compartilhado
+// (5 tentativas erradas em 15 min, somando as duas), que é o comportamento desejado
+clienteRoutes.delete('/me', exigirOrigem, autenticar, limiteTrocaSenha, clienteController.apagarMinhaConta)
 clienteRoutes.get('/me/enderecos', autenticar, enderecoController.listarMeus)
 clienteRoutes.post('/me/enderecos', exigirOrigem, autenticar, enderecoController.criar)
 clienteRoutes.patch('/me/enderecos/:enderecoId', exigirOrigem, autenticar, enderecoController.atualizar)
