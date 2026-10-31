@@ -724,3 +724,107 @@ Origin: {{origem}}
 ###
 DELETE {{api}}/clientes/me/enderecos/{{enderecoId}}
 Origin: {{origem}}
+
+# ===== APAGAR CONTA (DELETE /me) =====
+# ATENÇÃO: depois de apagada, a conta é anonimizada (e-mail vira NULL) e NÃO é mais achada pelo e-mail.
+# Anote o id logo depois do cadastro: SELECT id FROM clientes WHERE email = 'teste.lgpd.ana@exemplo.com';
+# Para limpar, use o id (as vendas de teste primeiro, porque vendas → clientes não tem CASCADE):
+# DELETE FROM vendas WHERE cliente_id = <id>; DELETE FROM clientes WHERE id = <id>;
+# Os 422/403/409 contam no mesmo limite da troca de senha (5 em 15 min): reinicie o servidor se der 429.
+
+# 201 - conta de teste
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Ana LGPD",
+  "email": "teste.lgpd.ana@exemplo.com",
+  "senha": "senhaAna1234",
+  "telefone": "00900000000",
+  "aceiteTermos": true
+}
+
+# 200 - login
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.lgpd.ana@exemplo.com",
+  "senha": "senhaAna1234"
+}
+
+# 401 - sem login
+###
+# @no-cookie-jar
+DELETE {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "senha": "senhaAna1234" }
+
+# 403 - sem Origin (a conta continua ativa)
+###
+DELETE {{api}}/clientes/me
+Content-Type: application/json
+
+{ "senha": "senhaAna1234" }
+
+# 422 - sem senha (detalhes.senha: 'Digite sua senha para confirmar.')
+###
+DELETE {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{}
+
+# 422 - senha errada (detalhes.senha: 'Senha incorreta.')
+###
+DELETE {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "senha": "senhaErrada999" }
+
+# 403 - conta de admin (faça login com um admin antes): 'Contas de administrador não podem ser apagadas por aqui.'
+# 409 - com venda em andamento: 'Você tem compras em andamento. Aguarde a entrega ou cancele antes de apagar a conta.'
+# 204 - senha certa: o cookie "sid" é limpo, as sessões, os endereços e os tokens somem e a conta é anonimizada
+###
+DELETE {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "senha": "senhaAna1234" }
+
+# 401 - a sessão caiu junto com a conta
+###
+GET {{api}}/clientes/me
+
+# 401 - login com o e-mail e a senha antigos (mesma mensagem de senha errada)
+###
+# @no-cookie-jar
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.lgpd.ana@exemplo.com",
+  "senha": "senhaAna1234"
+}
+
+# 201 - o e-mail ficou livre: o cadastro cria uma conta nova, com outro id
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Ana LGPD",
+  "email": "teste.lgpd.ana@exemplo.com",
+  "senha": "senhaAna1234",
+  "telefone": "00900000000",
+  "aceiteTermos": true
+}
