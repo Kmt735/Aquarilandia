@@ -8,6 +8,21 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-42 — DELETE de produto desativa com preservação e concorrência atômica
+- **Data:** 30/10/2026
+- **Decisão:** `DELETE /api/produtos/:id` exige sessão válida, papel atual de admin e Origin do catálogo.
+  Segue D-13/PDF: uma escrita parametrizada muda somente `ativo=false` e `atualizado_em`, com sucesso `204`
+  sem corpo. Inexistente ou já inativo retorna `404`; uma repetição não escreve de novo. ID inválido é `400`.
+- **Motivo:** preservar fichas, saldo, preço, imagem e FKs/cópias de vendas, sem implementar estoque ou exclusão física.
+  O `UPDATE ... WHERE ativo` reavalia o estado após esperar o lock do PATCH/DELETE concorrente. Se PATCH confirma
+  primeiro, sua edição é preservada; se DELETE confirma primeiro, PATCH retorna `404`. Dois DELETEs: um `204`, outro `404`.
+- **Impacto:** controller/service/repository e rota do catálogo; sem schema novo ou consultas administrativas de
+  inativos/reativação. Corpo/query não alteram campos; ID do caminho é a fonte do alvo. Erros seguem o padrão local.
+  Leitura pública e total deixam de incluir o inativo após commit, inclusive peixes. Frontend deve tratar 204 sem JSON.
+  A escrita única é atômica no PostgreSQL e não requer transação de múltiplas instruções. Testes reais verificam
+  11 fichas, histórico de venda, falhas e concorrência, usando banco descartável. A homologação prévia do parser
+  executou 228 testes/9 suítes, sem ignorados; detalhes e riscos de integração remota no relatório de 30/10.
+
 ### D-41 — Leitura de orçamentos exige sessão e papel atual de admin
 - **Data:** 26/10/2026
 - **Decisão:** manter o POST de criação público e colocar uma guarda comum `autenticar, exigirAdmin` depois

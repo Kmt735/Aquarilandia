@@ -9,7 +9,7 @@ import cookieParser from 'cookie-parser'
 export const app = express()
 
 app.use(cors({ origin: env.corsOrigin, credentials: true }))
-// Sem descompressão: mitigação de GHSA-27r3-jxmh-p828 sem alterar dependências.
+// Defesa mantida após a atualização do body-parser: JSON de até 100 KiB, sem descompressão.
 app.use(express.json({ limit: '100kb', inflate: false }))
 app.use(cookieParser())
 app.use('/api', routes)

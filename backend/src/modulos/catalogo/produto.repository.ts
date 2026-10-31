@@ -11,6 +11,15 @@ const ordenacoes: Record<OrdemProdutos, string> = {
 }
 
 export const produtoRepository = {
+  async desativar(id: number): Promise<boolean> {
+    // Uma única escrita é atômica. O lock do UPDATE serializa com PATCH e outro DELETE;
+    // após esperar, o PostgreSQL reavalia ativo para não editar/desativar uma linha antiga.
+    const { rows } = await db.query<{ id: number }>(
+      'UPDATE produtos SET ativo = false, atualizado_em = now() WHERE id = $1 AND ativo RETURNING id', [id],
+    )
+    return rows.length > 0
+  },
+
   async bloquearParaEdicao(id: number, executor: Queryable = db): Promise<{ categoriaId: number } | null> {
     const { rows } = await executor.query<{ categoriaId: number }>(
       // A edição não muda chaves: este lock serializa PATCHs e permite as leituras de FK.

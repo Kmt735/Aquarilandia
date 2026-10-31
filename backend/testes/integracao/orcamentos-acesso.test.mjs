@@ -13,7 +13,7 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
   const schema = `teste_orcamentos_${randomUUID().replaceAll('-', '')}`
   const usuarios = new Map(), tokens = new Map()
   const fixture = { nome: 'Pessoa Fictícia Restrita', telefone: '32999999999', servico: 'Outro', mensagem: 'Mensagem confidencial sintética' }
-  let cliente, pool, servidor, origem, criado, schemaCriado = false
+  let cliente, pool, servidor, origem, origemCors, criado, schemaCriado = false
   before(async () => {
     cliente = new pg.Client({ connectionString: urlTeste }); await cliente.connect()
     await cliente.query(`CREATE SCHEMA ${schema}`); schemaCriado = true
@@ -37,10 +37,12 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
     const { app } = await import('../../src/app.ts')
     const { db } = await import('../../src/config/db.ts')
     pool = db
+    const { env } = await import('../../src/config/env.ts')
+    origemCors = env.corsOrigin
     servidor = app.listen(0, '127.0.0.1'); await once(servidor, 'listening')
     origem = `http://127.0.0.1:${servidor.address().port}`
     const resposta = await fetch(`${origem}/api/orcamentos`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fixture) })
+      headers: { 'Content-Type': 'application/json', Origin: origemCors }, body: JSON.stringify(fixture) })
     assert.equal(resposta.status, 201); criado = await resposta.json()
   })
   after(async () => {
@@ -94,7 +96,7 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
     await cliente.query('ALTER TABLE sessoes RENAME TO sessoes_indisponiveis')
     try {
       const resposta = await fetch(`${origem}/api/orcamentos`, { method: 'POST',
-        headers: { 'Content-Type': 'application/json', Cookie: 'sid=invalido' }, body: JSON.stringify({ ...fixture, nome: 'Outra pessoa sintética' }) })
+        headers: { 'Content-Type': 'application/json', Origin: origemCors, Cookie: 'sid=invalido' }, body: JSON.stringify({ ...fixture, nome: 'Outra pessoa sintética' }) })
       assert.equal(resposta.status, 201)
       assert.equal((await resposta.json()).nome, 'Outra pessoa sintética')
     } finally { await cliente.query('ALTER TABLE sessoes_indisponiveis RENAME TO sessoes') }

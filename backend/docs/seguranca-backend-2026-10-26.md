@@ -55,7 +55,9 @@ com a configuração/observabilidade. A classificação descreve o backend exami
   passaram, sem testes ignorados. Código de catálogo/PATCH e autenticação foi preservado byte a byte em relação
   ao início desta rodada. A proteção de leitura de orçamentos não resolve os demais achados de segurança.
 
-### S-02 — P1 / alta — body-parser vulnerável — mitigado na aplicação, atualização pendente
+### S-02 — P1 / alta — body-parser vulnerável — corrigido em 29/10/2026
+
+**Histórico da auditoria de 26/10; atualização atual ao final deste item.**
 
 - **Arquivo/linha:** [package-lock.json:920](../package-lock.json:920),
   [app.ts:13](../src/app.ts:13). Árvore instalada: `express@5.2.1 → body-parser@2.3.0`.
@@ -71,6 +73,10 @@ com a configuração/observabilidade. A classificação descreve o backend exami
 - **Pendente/responsável:** infraestrutura compartilhada / ambos: atualização controlada para árvore corrigida
   (body-parser 2.4.0 ou superior compatível), lockfile e regressões. O alerta do audit **permanece**; mitigação
   não significa dependência corrigida nem ausência de outros riscos.
+- **Atualização em 29/10/2026:** o registro acima descreve a rodada original. A resolução transitiva foi
+  atualizada para `body-parser@2.4.0` e `qs@6.17.1`, mantendo Express/Node, limite e `inflate: false`.
+  Instalação, audit, regressões e limites desta nova verificação estão no
+  [relatório da atualização](atualizacao-body-parser-2026-10-29.md). Os demais achados não são encerrados por essa correção.
 
 ### S-03 — P1 / alta — Login/cadastro sem limitação de tentativas na aplicação — pendente
 

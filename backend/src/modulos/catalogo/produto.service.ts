@@ -20,6 +20,10 @@ function tratarConflito(err: unknown): never {
 }
 
 export const produtoService = {
+  async remover(id: number): Promise<void> {
+    if (!await produtoRepository.desativar(id)) throw new AppError('Produto não encontrado', 404)
+  },
+
   async atualizar(id: number, body: unknown): Promise<DetalheProduto> {
     const edicao = lerAtualizacaoProduto(body)
     try {

@@ -33,12 +33,40 @@ A suíte de edição verifica whitelist em todos os níveis (incluindo chaves de
 PATCH parcial, `null`, preservação de omitidos, faixas do estado final, 404 de inativos, duplicidade e rollback.
 Verifica também 413 de payload acima de 100 KiB e 415 de corpo comprimido antes de sessão/banco, sem logar
 conteúdo do corpo, em PATCH/POST/login. Os testes não exploram o DoS do body-parser para derrubar processos.
+A suíte `parser-json.test.mjs` acrescenta limites exatos de 102400/102401 bytes (ASCII e UTF-8),
+gzip/deflate/Brotli, JSON malformado, tipos de corpo, criação pública de orçamentos, login/cookie e
+preflight CORS. O login é simulado no service: esse teste não substitui a integração real de sessões no PostgreSQL.
 
 ## Integração com PostgreSQL
 
 ```bash
 TEST_DATABASE_URL=postgres://postgres:senha@localhost:5432/banco_de_testes npm run test:integration
 ```
+
+### Instância descartável para integração
+
+Não use `DATABASE_URL` de desenvolvimento/produção como banco descartável. Para obter uma instância isolada
+com PostgreSQL 17, sem montar diretórios ou volumes do projeto:
+
+```bash
+docker run --detach --rm --name aquarilandia-testes --tmpfs /var/lib/postgresql/data --env POSTGRES_PASSWORD=senha_de_teste --env POSTGRES_DB=aquarilandia_testes --publish 127.0.0.1::5432 postgres:17-alpine
+docker exec aquarilandia-testes pg_isready -U postgres -d aquarilandia_testes
+docker port aquarilandia-testes 5432/tcp
+```
+
+Espere `accepting connections`. Substitua `PORTA` pela porta retornada, mantendo `127.0.0.1`:
+
+```bash
+TEST_DATABASE_URL=postgres://postgres:senha_de_teste@127.0.0.1:PORTA/aquarilandia_testes npm run test:integration
+docker exec aquarilandia-testes psql -U postgres -d aquarilandia_testes -c "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'teste_%';"
+docker stop aquarilandia-testes
+```
+
+A consulta deve retornar zero schemas de testes ao final. O container usa tmpfs e `--rm`; nenhum volume
+persistente do projeto é removido. Se Docker não estiver disponível, `TEST_DATABASE_URL` pode apontar para
+um PostgreSQL local **dedicado a testes**, cujo usuário possa criar/remover schemas. A instalação/administração
+de PostgreSQL local não tem procedimento próprio definido neste repositório; não substitua isso por usar o banco
+normal do projeto. Sem instância pronta/URL de testes, registre a integração como não executada.
 
 Use um banco de testes. O usuário precisa poder criar schemas. Cada suíte cria um schema exclusivo, executa nele
 `db/init/01_catalogo.sql` e configura a aplicação para consultar somente esse schema. Ao terminar, remove o
@@ -115,3 +143,20 @@ Orçamentos permanecem no array do processo de teste; não se inventa tabela. Al
 no PostgreSQL para confirmar bloqueio imediato com o mesmo cookie. Verifica sessão inválida/vencida e falha
 real da tabela de sessões; o POST público continua funcionando mesmo sem essa tabela. Schema e processo são
 descartados ao final, sem alterar dados do projeto. As demais suítes preservam catálogo, PATCH de produtos e login.
+
+## Desativação de produtos
+
+`produto-remocao.test.mjs` verifica DELETE administrativo: sessão/admin/Origin, ID numérico, 204 sem JSON,
+404 de inexistentes/inativos/repetição, campos de corpo/query sem poder de edição, papel/revogação,
+falhas genéricas e preservação dos erros 413/415 globais.
+
+`integracao/produto-remocao.test.mjs` usa os três scripts SQL em schema exclusivo, cookies/sessões reais,
+produtos criados via POST e fixtures SQL com saldo/imagem/datas anteriores. Verifica preservação das 11
+fichas, legado sem ficha, preço/saldo/colunas internas e histórico de uma venda com FK. Compara visibilidade,
+filtros, total e paginação de produtos/peixes após desativar; outros DTOs e categorias permanecem iguais.
+Falhas reais de tabela/trigger não deixam edição parcial. Três disputas HTTP usam advisory locks e
+`pg_stat_activity` para observar a espera: PATCH primeiro, DELETE primeiro e dois DELETEs. Não usam espera
+fixa para pressupor a ordem. Locks, triggers e schemas são limpos ao final, inclusive se houver falha.
+
+As fixtures válidas de auth/orçamentos enviam Origin explicitamente, compatíveis com o contrato e com as
+guardas presentes nas branches remotas. Isso não integra essas guardas nem comprova rate limit/proxy remoto.

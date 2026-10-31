@@ -17,7 +17,7 @@ describe('Orçamentos — criação pública e consulta administrativa HTTP', ()
     servidor = app.listen(0, '127.0.0.1'); await once(servidor, 'listening')
     origem = `http://127.0.0.1:${servidor.address().port}`
     const resposta = await fetch(`${origem}/api/orcamentos`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fixture) })
+      headers: { 'Content-Type': 'application/json', Origin: env.corsOrigin }, body: JSON.stringify(fixture) })
     assert.equal(resposta.status, 201); criado = await resposta.json()
   })
   afterEach(() => mock.restoreAll())
@@ -45,7 +45,7 @@ describe('Orçamentos — criação pública e consulta administrativa HTTP', ()
   it('mantém o POST público sem consulta de sessão e ignora campos de credenciais enviados no corpo', async () => {
     const consulta = mock.method(sessaoRepository, 'buscarUsuarioPorTokenHash', async () => { throw new Error('Não consultar sessão na criação pública') })
     const resposta = await fetch(`${origem}/api/orcamentos`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...fixture, senha: 'segredo-ficticio',
+      headers: { 'Content-Type': 'application/json', Origin: env.corsOrigin }, body: JSON.stringify({ ...fixture, senha: 'segredo-ficticio',
         tokenHash: 'token-ficticio', papel: 'admin', id: 'id-forjado' }) })
     assert.equal(resposta.status, 201)
     const corpo = await resposta.json()

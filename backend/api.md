@@ -629,10 +629,62 @@ Mantém o erro local `{ erro: "mensagem", detalhes?: { ... } }`, diferente de `{
 O PDF cita estoque no PATCH; este incremento o exclui por instrução expressa: saldo exige movimentação futura.
 
 **Parser compartilhado:** limite explícito de 100 KiB de JSON (`413` acima do limite). Corpos comprimidos
-passam a ser recusados com `415`, aplicando a mitigação de GHSA-27r3-jxmh-p828 sem alterar dependências.
+são recusados com `415`. Em 29/10/2026, o lockfile foi atualizado para `body-parser@2.4.0`, corrigindo
+GHSA-27r3-jxmh-p828; `inflate: false` e o limite continuam como defesa adicional, sem mudança do contrato.
 Essa restrição vale também para as demais rotas que usam o parser global. JSON malformado mantém `400`.
 O parser atua antes de sessão/rotas; portanto esses erros de corpo podem ocorrer antes do `401`.
 Revisão de segurança e pendências de outros módulos: [`docs/seguranca-backend-2026-10-26.md`](docs/seguranca-backend-2026-10-26.md).
+
+### Produtos — desativação administrativa implementada em 30/10/2026
+
+`DELETE /api/produtos/:id` segue o PDF (páginas 1–2) e D-13: desativa, sem exclusão física.
+Reutiliza `autenticar → exigirAdmin → exigirOrigem`, nessa ordem, e o mesmo `lerIdCatalogo` do PATCH.
+O papel atual vem da sessão consultada no PostgreSQL, não de body/query/header. Origin deve ser exatamente
+`CORS_ORIGIN`, incluindo em chamadas administrativas fora do navegador.
+
+| Situação | Resposta |
+|---|---|
+| Produto ativo desativado por admin | `204`, corpo vazio e sem JSON |
+| Produto inexistente, previamente inativo ou DELETE repetido | `404 { "erro": "Produto não encontrado" }` |
+| ID inválido, com sessão/admin/Origin válidos | `400 { erro, detalhes: { id: ... } }` |
+| Sem sessão válida, expirada/revogada ou conta inativa | `401` |
+| Cliente autenticado, Origin ausente/null/diferente | `403` |
+| Falha inesperada do banco | `500 { "erro": "Erro interno do servidor" }` |
+
+Exemplo de requisição (sem corpo):
+
+```http
+DELETE /api/produtos/42
+Origin: http://localhost:5173
+Cookie: sid=<sessao-admin>
+```
+
+Só o ID numérico do caminho identifica o alvo. Corpo/query não controlam campos; eventual JSON válido é
+ignorado pela operação, sujeito ao parser global de 100 KiB/sem compressão. Não envie `ativo`, estoque ou
+DTO de produto nesta chamada. ID deve estar entre 1 e 2147483647, sem zeros à esquerda ou notação exponencial.
+Erros de parser continuam podendo preceder `401`; a guarda administrativa precede a validação do ID.
+
+A única escrita parametrizada altera `ativo=false` e `atualizado_em`, condicionada a `WHERE id=$1 AND ativo`.
+Produto, categoria, preço, imagem, saldo, data de criação, todas as fichas e vínculos históricos permanecem.
+Não há baixa/ajuste de estoque, reativação, alteração de venda nem tabela de movimentações criada nesta rota.
+Uma falha desfaz a instrução inteira. Não é necessário abrir transação com múltiplas consultas para essa escrita única.
+
+O lock do UPDATE serializa com o `FOR NO KEY UPDATE` do PATCH e com outro DELETE. Se PATCH obtém o lock
+primeiro, confirma a edição antes da desativação, que preserva seus novos valores; se DELETE confirma primeiro,
+PATCH reavalia o estado e retorna `404`, sem editar a ficha ou reativar o produto. Dois DELETEs concorrentes
+produzem um `204` e um `404`. Chamadas repetidas não modificam novamente o timestamp. Leituras que começam
+depois do commit excluem o inativo; uma leitura em andamento pode observar seu snapshot anterior.
+
+Após sucesso, o produto sai de listagens/detalhes/totais públicos, inclusive os dois atalhos de peixes. Os DTOs
+restantes não mudam. Um cliente HTTP deve tratar `204` sem chamar `response.json()` e atualizar sua lista/contagem.
+Repetir pode retornar `404` com o mesmo efeito final de ausência pública. Acesso administrativo a inativos e
+reativação seguem pendentes, sem mudar `incluir_inativos=true` nesta rodada. O frontend ainda precisa ligar suas
+consultas reais à API; não foi modificado nesta tarefa.
+
+Mantém-se o formato local `{ erro: mensagem, detalhes? }`, diferente de `{ erro: codigo, mensagem }` do PDF.
+Os testes HTTP e PostgreSQL cobrem guardas, IDs, 11 fichas, legado sem ficha, dados históricos, visibilidade,
+contagens, repetição, falhas reais e as duas ordens de PATCH/DELETE. Decisão D-42 e relatório da rodada em
+[`docs/homologacao-delete-produtos-2026-10-30.md`](docs/homologacao-delete-produtos-2026-10-30.md).
 
 ### Produtos — detalhe público implementado em 25/10/2026
 
