@@ -83,10 +83,7 @@ test('comparação e busca do cabeçalho consultam fichas reais', async ({ page,
 test('carrinho preserva o inteiro em centavos e apresenta subtotal correto', async ({ page, sistema }) => {
   await page.goto(`/loja/${sistema.ids.aquario}`)
   await page.getByRole('button', { name: 'Adicionar ao carrinho', exact: true }).click()
-  const linhas = await page.evaluate(() => JSON.parse(localStorage.getItem('aquarilandia-carrinho')))
-  expect(linhas[0].id).toBe(sistema.ids.aquario)
-  expect(linhas[0].item.preco).toBe(12345)
-  expect(linhas[0].item.centavos).toBe(true)
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('aquarilandia-carrinho')))).toEqual({ versao: 2, itens: [{ id: sistema.ids.aquario, qtd: 1 }] })
   await page.getByRole('button', { name: /Carrinho, 1 item, total/  }).filter({ visible: true }).first().click()
   await expect(page.getByRole('dialog').getByText('R$ 123,45', { exact: true }).first()).toBeVisible()
 })

@@ -67,7 +67,6 @@ describe('GET /api/produtos — filtros técnicos HTTP', () => {
     ['precisa_co2=0', 'precisa_co2'], ['precisa_co2=', 'precisa_co2'], ['precisa_co2[]=false', 'precisa_co2[]'],
     ['precisa_co2=true&precisa_co2=false', 'precisa_co2'],
     ['iluminacao=led', 'iluminacao'], ['iluminacao=', 'iluminacao'], ['iluminacao=alta&iluminacao=baixa', 'iluminacao'],
-    ['tipo_agua=doce&incluir_inativos=true', 'incluir_inativos'],
   ]
   for (const [query, campo] of invalidos) {
     it(`recusa ${query} com 400 antes de consultar o banco`, async () => {

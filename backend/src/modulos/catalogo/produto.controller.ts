@@ -4,7 +4,7 @@ import { lerIdCatalogo } from './catalogo.parametros.js'
 import { produtoService } from './produto.service.js'
 import type { FiltrosProdutos, OrdemProdutos } from './produto.types.js'
 
-function lerFiltros(query: Request['query']): FiltrosProdutos {
+function lerFiltros(query: Request['query'], administrativo = false): FiltrosProdutos {
   const erros: Record<string, string> = Object.create(null)
   const permitidos = new Set([
     'pagina', 'limite', 'categoria', 'busca', 'preco_min', 'preco_max', 'ordem', 'incluir_inativos',
@@ -12,7 +12,7 @@ function lerFiltros(query: Request['query']): FiltrosProdutos {
   ])
 
   for (const campo of Object.keys(query)) {
-    if (!permitidos.has(campo)) erros[campo] = 'Parâmetro não permitido nesta consulta.'
+    if (!permitidos.has(campo) && !(administrativo && campo === 'ativo')) erros[campo] = 'Parâmetro não permitido nesta consulta.'
   }
 
   function inteiro(campo: string, minimo: number, maximo: number): number | undefined {
@@ -87,20 +87,31 @@ function lerFiltros(query: Request['query']): FiltrosProdutos {
     erros.ordem = 'Escolha nome, preco ou -preco.'
   }
 
-  if (query.incluir_inativos === 'true') {
-    erros.incluir_inativos = 'A consulta de produtos inativos não está disponível nesta rota pública.'
-  } else if (query.incluir_inativos !== undefined && query.incluir_inativos !== 'false') {
-    erros.incluir_inativos = 'Informe false; a consulta administrativa de inativos ainda não está disponível.'
-  }
+  const incluirInativos = booleano('incluir_inativos')
+  if (incluirInativos && !administrativo) erros.incluir_inativos = 'A consulta exige autenticação administrativa.'
+  const ativo = administrativo ? booleano('ativo') : undefined
 
   if (Object.keys(erros).length) throw new AppError('Parâmetros inválidos', 400, erros)
   return {
     pagina, limite, ordem, categoria, busca, precoMin, precoMax,
     tipoAgua, volumeMin, volumeMax, vazaoMin, indicadoPlantado, precisaCo2, iluminacao,
+    ...(administrativo ? { ativo } : {}),
   }
 }
 
 export const produtoController = {
+  async listarAdministrativos(req: Request, res: Response): Promise<void> {
+    res.json(await produtoService.listarAdministrativos(lerFiltros(req.query, true)))
+  },
+  async buscarAdministrativo(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const extras = Object.keys(req.query).filter((chave) => chave !== 'incluir_inativos')
+    if (extras.length) throw new AppError('Parâmetros inválidos', 400, Object.fromEntries(extras.map((c) => [c, 'Parâmetro não permitido nesta consulta.'])))
+    res.json(await produtoService.buscarAdministrativo(lerIdCatalogo(req.params.id)))
+  },
+  async reativar(req: Request<{ id: string }>, res: Response): Promise<void> {
+    if (Object.keys(req.query).length) throw new AppError('Parâmetros inválidos', 400, { query: 'Não envie parâmetros nesta operação.' })
+    res.json(await produtoService.reativar(lerIdCatalogo(req.params.id), req.body))
+  },
   async remover(req: Request<{ id: string }>, res: Response): Promise<void> {
     await produtoService.remover(lerIdCatalogo(req.params.id))
     res.status(204).end()
@@ -119,6 +130,9 @@ export const produtoController = {
   },
 
   async buscarPorId(req: Request<{ id: string }>, res: Response): Promise<void> {
+    if (req.query.incluir_inativos !== undefined && req.query.incluir_inativos !== 'false') {
+      throw new AppError('Parâmetros inválidos', 400, { incluir_inativos: 'Informe true ou false.' })
+    }
     res.json(await produtoService.buscarPorId(lerIdCatalogo(req.params.id)))
   },
 }

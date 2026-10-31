@@ -190,7 +190,8 @@ describe('DELETE /api/produtos/:id — preservação e concorrência no PostgreS
       `/api/peixes?busca=${nome}&temperatura=24.5&ph=6&limite=1`, `/api/peixes?busca=${nome}&pagina=2&limite=1`]) {
       assert.deepEqual(await lista(caminho), { itens: [], total: 0 })
     }
-    await naoEncontrado(await fetch(`${origem}/api/produtos/${peixe.id}?incluir_inativos=true`, { headers: { Cookie: `sid=${tokens.get('admin')}` } }))
+    const administrativo = await fetch(`${origem}/api/produtos/${peixe.id}?incluir_inativos=true`, { headers: { Cookie: `sid=${tokens.get('admin')}` } })
+    assert.equal(administrativo.status, 200); assert.equal((await administrativo.json()).ativo, false)
     const detalhePeixe = await fetch(`${origem}/api/peixes/${peixe.id}`)
     assert.equal(detalhePeixe.status, 404); assert.deepEqual(await detalhePeixe.json(), { erro: 'Peixe não encontrado' })
     assert.deepEqual(await (await fetch(`${origem}/api/produtos/${outro.id}`)).json(), produtoAntes)

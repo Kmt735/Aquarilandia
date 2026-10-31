@@ -111,7 +111,6 @@ describe('GET /api/produtos — contrato HTTP', () => {
     ['ordem=constructor', 'ordem'],
     ['ordem=nome%3BDELETE%20FROM%20produtos', 'ordem'],
     ['ordem=nome&ordem=preco', 'ordem'],
-    ['incluir_inativos=true', 'incluir_inativos'],
     ['incluir_inativos=1', 'incluir_inativos'],
     ['incluir_inativos=false&incluir_inativos=true', 'incluir_inativos'],
     ['disponibilidade=in', 'disponibilidade'],
@@ -142,11 +141,11 @@ describe('GET /api/produtos — contrato HTTP', () => {
     assert.equal(consulta.mock.callCount(), 0)
   })
 
-  it('recusa inclusão de inativos mesmo quando há um cookie na requisição', async () => {
-    const consulta = mock.method(db, 'query', async () => ({ rows: [] }))
-    const resposta = await fetch(`${origem}/api/produtos?incluir_inativos=true`, { headers: { Cookie: 'sid=teste' } })
-    assert.equal(resposta.status, 400)
-    assert.match((await resposta.json()).detalhes.incluir_inativos, /não está disponível/)
+  it('consulta administrativa sem sessão retorna 401 antes do banco', async () => {
+    const consulta = mock.method(db, 'query', async () => assert.fail('Não deve consultar'))
+    const resposta = await fetch(`${origem}/api/produtos?incluir_inativos=true`)
+    assert.equal(resposta.status, 401)
+    assert.deepEqual(await resposta.json(), { erro: 'Faça login para continuar.' })
     assert.equal(consulta.mock.callCount(), 0)
   })
 

@@ -29,6 +29,8 @@ export interface FiltrosProdutos {
   indicadoPlantado?: boolean
   precisaCo2?: boolean
   iluminacao?: 'baixa' | 'media' | 'alta'
+  // Aceito somente no caminho administrativo autenticado.
+  ativo?: boolean
 }
 
 export interface ListaProdutos {
@@ -51,3 +53,7 @@ export interface AtualizacaoProduto {
   preco?: unknown
   ficha?: { dados: Record<string, unknown> }
 }
+
+export interface ProdutoAdministrativo extends ProdutoPublico { ativo: boolean }
+export interface ListaProdutosAdministrativos { itens: ProdutoAdministrativo[]; total: number }
+export interface DetalheProdutoAdministrativo extends DetalheProduto { ativo: boolean }

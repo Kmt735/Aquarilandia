@@ -60,7 +60,7 @@ describe('GET /api/produtos/:id — contrato HTTP', () => {
 
   it('retorna 404 para produto inexistente ou inativo, sem fallback', async () => {
     const consulta = mock.method(db, 'query', async () => ({ rows: [] }))
-    const resposta = await fetch(`${origem}/api/produtos/42?incluir_inativos=true`, {
+    const resposta = await fetch(`${origem}/api/produtos/42?incluir_inativos=false`, {
       headers: { Cookie: 'sid=teste' },
     })
     assert.equal(resposta.status, 404)
