@@ -160,3 +160,22 @@ fixa para pressupor a ordem. Locks, triggers e schemas são limpos ao final, inc
 
 As fixtures válidas de auth/orçamentos enviam Origin explicitamente, compatíveis com o contrato e com as
 guardas presentes nas branches remotas. Isso não integra essas guardas nem comprova rate limit/proxy remoto.
+
+## Ciclo 0 — versão combinada
+
+`ciclo0-acesso.test.mjs` verifica guardas de Origin, POST público, CORS/preflight, cinco tentativas e sexta
+429 em login/cadastro, sucesso sem consumir quota, erros 400/413/415 antes do limitador e logs sem detalhe
+interno. `ciclo0-producao.test.mjs` usa processo separado com NODE_ENV=production para cookie Secure e
+trust proxy=1, incluindo a condição de risco de XFF forjado quando há acesso direto ao backend. Não testa
+TLS/firewall publicados nem afirma que a topologia de produção está correta.
+
+`integracao/ciclo0-autenticacao.test.mjs` cria schema exclusivo e usa cadastro/login reais, hash de token,
+cookies, logout e troca de senha, revogação, mudança de papel/expiração, orçamento privado sem cache,
+limites com efeitos reais no PostgreSQL e falha de sessão sem detalhe no log. Schemas são removidos ao final.
+Também executa o script real de criação de admin nesse schema, com senha fictícia via ambiente, e força
+falha de trigger para comprovar ausência de email, senha ou mensagem interna na saída. O teste HTTP emite
+um erro sintético do pool para verificar a redação do mesmo helper, sem cortar conexões reais.
+
+Os limitadores mantêm configuração e limiares reais; somente o estado dos IPs de fixture é limpo entre casos
+para evitar interferência. Cada arquivo roda em processo próprio. Todos os dados são fictícios; tokens de
+sessão são gerados em memória no teste, nunca usados como credenciais de ambiente nem incluídos no relatório.

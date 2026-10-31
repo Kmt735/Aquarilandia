@@ -8,6 +8,19 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-43 — Homologação conjunta isolada e logs mínimos de erros inesperados
+- **Data:** 31/10/2026
+- **Decisão:** homologar a árvore já combinada da main em branch/worktree de revisão, preservando a original.
+  Não repetir a integração da branch-backend-2, já contida na main. Manter os contratos de catálogo e o POST
+  público de orçamentos com Origin; público não exige sessão, mas não dispensa o controle CSRF.
+- **Motivo:** a revisão confirmou que o HTTP ocultava detalhes de falhas que ainda eram copiados integralmente
+  ao console. Handler, pool e falhas inesperadas do script criar-admin usam um helper de mensagem fixa,
+  contexto fechado e código no formato SQLSTATE, sem mensagem, stack, SQL, parâmetros ou propriedades
+  arbitrárias do erro. O script imprime só o ID criado. Sem biblioteca de logging ou nova infraestrutura.
+- **Impacto:** testes HTTP/PG de sessão, revogação, limites, proxy, CORS e erros; exemplos só com dados fictícios.
+  `trust proxy=1` permanece condicionado a um proxy confiável e acesso direto bloqueado; topologia real não
+  foi presumida nem configurada nesta tarefa. Limitação do diagnóstico e riscos restantes no relatório do Ciclo 0.
+
 ### D-42 — DELETE de produto desativa com preservação e concorrência atômica
 - **Data:** 30/10/2026
 - **Decisão:** `DELETE /api/produtos/:id` exige sessão válida, papel atual de admin e Origin do catálogo.
@@ -211,7 +224,7 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   `papel` (`'cliente'` | `'admin'`). Admin só é criado por script (`npm run criar-admin`), nunca por rota.
 - **Motivo:** um login só, uma tabela só de sessões e de autoria no histórico (`historico_status_venda.alterado_por_id`
   aponta para `clientes`). Sem rota de criar admin, não existe brecha para alguém se promover.
-- **Impacto:** módulos `auth` e `clientes`. O script `criar-admin` ainda não existe no `package.json`.
+- **Impacto:** módulos `auth` e `clientes`. O script `criar-admin` foi integrado pelo Backend 2 e consta no `package.json` da versão combinada; não é uma rota HTTP.
 
 ### D-07 — Sessão no banco com cookie `sid`, em vez de JWT
 - **Data:** 15/10/2026 (atualizado em 19/10/2026)
