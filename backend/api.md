@@ -160,7 +160,7 @@ GET    /api/auth/sessao                         (logado — usuário da sessão 
 GET    /api/clientes/me                         (cliente)
 PATCH  /api/clientes/me                         (cliente)
 PATCH  /api/clientes/me/senha                   (cliente)
-DELETE /api/clientes/me                         (cliente — anonimiza, LGPD)
+DELETE /api/clientes/me                         { senha }   (cliente — anonimiza, LGPD; ver seção 6)
 GET    /api/clientes/me/enderecos               (cliente)
 POST   /api/clientes/me/enderecos               (cliente)
 PATCH  /api/clientes/me/enderecos/:enderecoId   (cliente, dono)
@@ -1015,6 +1015,47 @@ Recurso de outro cliente responde **404** (não 403), para não confirmar que el
 
 - E-mail já cadastrado → `409` com detalhes `{ email: 'Este e-mail já está cadastrado.' }`.
 - A `novaSenha` da redefinição de senha (seção 11) segue a mesma regra de `senha`.
+
+### Endereços do cliente — implementado em 31/10/2026
+
+`POST /api/clientes/me/enderecos` exige os campos obrigatórios; o `PATCH .../:enderecoId` valida só os campos
+enviados. Os dois leem só as 9 chaves abaixo: `id`, `clienteId`, `criadoEm` etc. são ignorados.
+
+| Campo | Normalização | Regra | Mensagem |
+|---|---|---|---|
+| `apelido` | `trim`; vazio → `null` | opcional, até 40 caracteres | O apelido pode ter até 40 caracteres. |
+| `cep` | só dígitos | exatamente 8 dígitos | Digite um CEP válido com 8 números. Exemplo: 36300-000. |
+| `logradouro` | `trim` | 2 a 150 caracteres | Digite a rua (de 2 a 150 caracteres). |
+| `numero` | `trim` | 1 a 10 caracteres | Digite o número (até 10 caracteres). Se não houver, use S/N. |
+| `complemento` | `trim`; vazio → `null` | opcional, até 80 caracteres | O complemento pode ter até 80 caracteres. |
+| `bairro` | `trim` | 2 a 80 caracteres | Digite o bairro (de 2 a 80 caracteres). |
+| `cidade` | `trim` | 2 a 80 caracteres | Digite a cidade (de 2 a 80 caracteres). |
+| `uf` | `trim` + maiúsculas | uma das 27 siglas | Escolha um estado válido. Exemplo: MG. |
+| `principal` | — | opcional; exatamente `true` ou `false` (padrão `false`) | Valor inválido para endereço principal. |
+
+- `PATCH` sem nenhum desses campos → `422` com `{ body: 'Informe pelo menos um campo do endereço para atualizar.' }`.
+- No máximo 10 endereços por cliente: o 11º → `409` `'Você já tem 10 endereços cadastrados.'`.
+- O primeiro endereço sempre vira principal; marcar outro como principal desmarca o anterior.
+- `PATCH` com `principal: false` no principal → `422` com
+  `{ principal: 'Para trocar o endereço principal, marque outro como principal.' }`.
+- `DELETE` do principal → o endereço mais recente que sobrou vira o principal.
+- Endereço de outro cliente ou inexistente → `404` `'Endereço não encontrado.'`; `:enderecoId` inválido → `400`.
+
+### Apagar a conta (`DELETE /api/clientes/me`) — implementado em 31/10/2026
+
+Body `{ senha }` (a senha atual, sem `trim`). Anonimiza a conta (D-23): ver seção 11.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `204` | Conta anonimizada; o cookie `sid` é limpo | sem corpo |
+| `401` | Sem login | `'Faça login para continuar.'` |
+| `403` | Conta de admin | `'Contas de administrador não podem ser apagadas por aqui.'` |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `409` | Venda em `aguardando_pagamento`, `paga`, `em_separacao`, `enviada`, `pronta_retirada` ou `cancelamento_solicitado` | `'Você tem compras em andamento. Aguarde a entrega ou cancele antes de apagar a conta.'` |
+| `422` | Body que não é objeto | `{ body: 'Formato de dados inválido.' }` |
+| `422` | `senha` vazia ou ausente | `{ senha: 'Digite sua senha para confirmar.' }` |
+| `422` | `senha` errada (ou com mais de 128 caracteres) | `{ senha: 'Senha incorreta.' }` |
+| `429` | Rate limit compartilhado com `PATCH /me/senha`: 5 respostas de erro em 15 min, somando as duas rotas | `'Muitas tentativas…'` |
 
 ---
 
