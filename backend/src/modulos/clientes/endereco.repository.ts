@@ -98,4 +98,23 @@ export const enderecoRepository = {
     )
     return rows[0] ?? null
   },
+
+  async excluir(id: number, clienteId: number, executor: Queryable = db): Promise<{ principal: boolean } | null> {
+    const { rows } = await executor.query<{ principal: boolean }>(
+      'DELETE FROM enderecos_cliente WHERE id = $1 AND cliente_id = $2 RETURNING principal',
+      [id, clienteId],
+    )
+    return rows[0] ?? null
+  },
+
+  // Se não sobrou endereço, a subconsulta devolve NULL e o UPDATE não altera nenhuma linha
+  async marcarMaisRecenteComoPrincipal(clienteId: number, executor: Queryable = db): Promise<void> {
+    await executor.query(
+      `UPDATE enderecos_cliente SET principal = true, atualizado_em = now()
+       WHERE cliente_id = $1 AND id = (
+         SELECT id FROM enderecos_cliente WHERE cliente_id = $1 ORDER BY criado_em DESC, id DESC LIMIT 1
+       )`,
+      [clienteId],
+    )
+  },
 }

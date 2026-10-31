@@ -54,4 +54,16 @@ export const enderecoService = {
       return endereco
     })
   },
+
+  async excluir(clienteId: number, enderecoId: number): Promise<void> {
+    await comTransacao(async (client) => {
+      if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) throw new AppError(msgNaoAutenticado, 401)
+
+      const apagado = await enderecoRepository.excluir(enderecoId, clienteId, client)
+      if (!apagado) throw new AppError(msgEnderecoNaoEncontrado, 404)
+
+      // Apagou o principal: o mais recente que sobrou assume (se sobrou algum)
+      if (apagado.principal) await enderecoRepository.marcarMaisRecenteComoPrincipal(clienteId, client)
+    })
+  },
 }

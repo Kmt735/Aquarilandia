@@ -15,3 +15,4 @@ clienteRoutes.patch('/me/senha', exigirOrigem, autenticar, limiteTrocaSenha, cli
 clienteRoutes.get('/me/enderecos', autenticar, enderecoController.listarMeus)
 clienteRoutes.post('/me/enderecos', exigirOrigem, autenticar, enderecoController.criar)
 clienteRoutes.patch('/me/enderecos/:enderecoId', exigirOrigem, autenticar, enderecoController.atualizar)
+clienteRoutes.delete('/me/enderecos/:enderecoId', exigirOrigem, autenticar, enderecoController.excluir)

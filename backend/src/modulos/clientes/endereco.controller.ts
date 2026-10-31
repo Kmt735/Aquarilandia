@@ -16,4 +16,10 @@ export const enderecoController = {
     const enderecoId = idParam(req.params.enderecoId)
     res.json(await enderecoService.atualizar(req.usuario!.id, enderecoId, req.body))
   },
+
+  async excluir(req: Request<{ enderecoId: string }>, res: Response): Promise<void> {
+    const enderecoId = idParam(req.params.enderecoId)
+    await enderecoService.excluir(req.usuario!.id, enderecoId)
+    res.status(204).end()
+  },
 }
