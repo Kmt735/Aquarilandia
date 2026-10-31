@@ -856,13 +856,17 @@ filtros locais. O seed cria categorias, mas nenhum produto/ficha; sem registros 
 
 Somente `POST /api/orcamentos` é público. O router registra esse POST antes de uma guarda comum
 `autenticar, exigirAdmin`; consultas e demais caminhos do módulo passam pela sessão e papel atual do banco.
+Na versão combinada, público significa **sem sessão**: o POST também exige `Origin = CORS_ORIGIN`, conforme
+a política do Backend 2. Origin ausente, `null` ou diferente retorna `403` antes da criação. O navegador envia
+esse header; os exemplos e clientes de teste precisam informá-lo. CORS com credenciais permanece separado
+da autorização. Os services atuais do frontend ainda simulam o envio, sem chamar a API.
 Sem sessão válida: `401`; cliente autenticado: `403`. Não há papel vindo do body/query/header, nem dependência
 de CORS ou de esconder botões no frontend. GET não exige Origin; futuras escritas administrativas deverão
 aplicar também a convenção de `exigirOrigem` quando seus handlers forem implementados.
 
 | Rota do PDF (com prefixo local) | Estado após esta correção |
 |---|---|
-| `POST /api/orcamentos` | Implementado, público, `201`; mantém o formulário e validações atuais. |
+| `POST /api/orcamentos` | Implementado, sem sessão e com Origin válido, `201`; mantém as validações atuais. |
 | `GET /api/orcamentos` | Implementado, somente admin, `200` com array do DTO abaixo. |
 | `GET /api/orcamentos/:id` | Guarda administrativa aplicada; handler ausente, admin recebe `404`. |
 | `PATCH /api/orcamentos/:id` | Guarda administrativa aplicada; status/resposta ainda não implementados, admin recebe `404`. |
@@ -927,6 +931,12 @@ Recurso de outro cliente responde **404** (não 403), para não confirmar que el
 - Mensagens em português, para o usuário final, terminando com ponto em `detalhes`.
 - Chaves de `detalhes` = nome do campo no body (camelCase). Em itens de lista: `"itens.0.quantidade"`.
 - O Express 5 já repassa erros de funções `async` para o `errorHandler` — **não precisa de `try/catch` no controller**.
+- Erros inesperados respondem `500` genérico e não são copiados inteiros ao log. Desde o Ciclo 0, o handler
+  registra somente a mensagem fixa e um código SQLSTATE de cinco letras/dígitos maiúsculos, ou
+  `NAO_CLASSIFICADO`. Mensagem original, stack, detalhe SQL, parâmetros, senha, cookie e token ficam de fora.
+  A mesma função `utils/registrarErro.ts` atende o pool e falhas inesperadas do script criar-admin, com
+  contexto fechado (`api`, `pool`, `criar-admin`). O script informa só o ID no sucesso, sem imprimir email.
+  Isso reduz o diagnóstico disponível; uma evolução de observabilidade deve manter a redação de dados.
 
 ---
 
@@ -1237,6 +1247,25 @@ export const clienteRepository = {
 ---
 
 ## 11. Autenticação e acesso
+
+### Homologação conjunta — Ciclo 0 (31/10/2026)
+
+A versão combinada contém as guardas Origin de auth/orçamentos, login/logout/sessão, troca de senha e
+rate limit do Backend 2, junto do catálogo, parser protegido e desativação do Backend 1. Não confundir o
+mapa de rotas propostas com handlers existentes. Relatório: [`docs/ciclo-0-2026-10-31.md`](docs/ciclo-0-2026-10-31.md).
+
+Login permite cinco falhas por minuto/IP; sucesso não consome o limite. Cadastro permite cinco tentativas
+por hora/IP. A sexta recebe `429` com `Retry-After`; origem inválida e erros do parser não consomem esses
+limites, pois são recusados antes. Os testes de integração verificam também os efeitos persistidos no banco.
+
+**Proxy:** o código atual usa `trust proxy=1` somente em produção. Isso pressupõe exatamente um proxy
+confiável, que sobrescreva X-Forwarded-For, e bloqueio de acesso direto ao backend. O teste de produção
+comprova que um cliente com acesso direto consegue trocar o bucket de rate limit forjando esse header.
+Topologia com mais saltos, TLS, firewall e configuração do ambiente publicado exigem confirmação da equipe;
+não foram alterados por suposição. Em desenvolvimento, o header forjado não muda a chave do limitador.
+
+O frontend tem proxy Vite para `/api`, mas seus services ainda usam mocks. Foi testado o protocolo HTTP
+com Origin/CORS/cookie, não um fluxo de navegador consumindo uma integração frontend ainda inexistente.
 
 - **Sessão:** login cria uma linha em `sessoes` (o banco guarda só o hash do token) e envia o cookie
   `sid` com `httpOnly`, `secure` em produção e `sameSite=lax`. Sem token em header, sem `localStorage`.

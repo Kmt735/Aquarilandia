@@ -1,5 +1,9 @@
 # Estado da segurança e revisão do PATCH — 26/10/2026
 
+> Registro histórico. A avaliação da versão combinada em 31/10 está em
+> [Ciclo 0](ciclo-0-2026-10-31.md): rate limit, Origin e logout já existem e receberam testes reais;
+> R-04 foi corrigido no handler da área isolada. Proxy/produção e alertas do frontend continuam pendentes.
+
 ## Escopo e estado do repositório
 
 Revisão do backend local, código, lockfile e testes. Não é certificação de segurança nem verificação do

@@ -1,11 +1,20 @@
 @api=http://localhost:3333/api
 @origem=http://localhost:5173
 @sessaoAdmin=SUBSTITUA_PELO_TOKEN_DA_SESSAO_ADMIN
+@sessaoCliente=SUBSTITUA_PELO_TOKEN_DA_SESSAO_CLIENTE
+
+# Dados e credenciais abaixo são inteiramente fictícios; use somente um banco de testes.
+# Execute cada grupo separadamente: tentativas anteriores contam nos rate limits reais.
 
 
 # 401 sem sessão; confirme que o cliente HTTP não envia cookies salvos automaticamente.
 GET {{api}}/orcamentos
 Cookie:
+
+###
+# 403 para cliente autenticado, sem revelar orçamentos.
+GET {{api}}/orcamentos
+Cookie: sid={{sessaoCliente}}
 
 ###
 # Prepare o admin com npm run criar-admin e faça login; preencha @sessaoAdmin com o sid emitido.
@@ -21,9 +30,9 @@ Origin: {{origem}}
 
 {
     "nome": "Cliente Teste",
-    "telefone": "3299999999",
+    "telefone": "0090000000",
     "servico": "Manutenção",
-    "mensagem": "Quero montar um aquario de 100 litros" 
+    "mensagem": "Quero montar um aquario de 100 litros"
 }
 
 
@@ -44,10 +53,10 @@ Content-type: application/json
 Origin: {{origem}}
 
 {
-    "nome": "Rafaela",
-    "email": "rafa@gmail.com",
-    "senha": "343434343434",
-    "telefone": "33333333333",
+    "nome": "Cliente Fictício",
+    "email": "cliente.teste@example.com",
+    "senha": "SenhaFicticiaPrincipal123!",
+    "telefone": "00900000000",
     "aceiteTermos": true
 }
 
@@ -58,10 +67,10 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "nome": "Rafaela",
-  "email": "rafa@gmail.com",
-  "senha": "343434343434",
-  "telefone": "33333333333",
+  "nome": "Cliente Fictício",
+  "email": "cliente.teste@example.com",
+  "senha": "SenhaFicticiaPrincipal123!",
+  "telefone": "00900000000",
   "aceiteTermos": true
 }
 
@@ -72,10 +81,10 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "nome": "Rafaela",
-  "email": "  Rafa@Gmail.COM  ",
-  "senha": "343434343434",
-  "telefone": "33333333333",
+  "nome": "Cliente Fictício",
+  "email": "  CLIENTE.TESTE@EXAMPLE.COM  ",
+  "senha": "SenhaFicticiaPrincipal123!",
+  "telefone": "00900000000",
   "aceiteTermos": true
 }
 
@@ -95,9 +104,9 @@ Origin: {{origem}}
 
 {
   "nome": "Teste Senha",
-  "email": "senha.curta@exemplo.com",
+  "email": "senha.curta@example.com",
   "senha": "1234567",
-  "telefone": "35999998888",
+  "telefone": "00900000000",
   "aceiteTermos": true
 }
 
@@ -109,9 +118,9 @@ Origin: {{origem}}
 
 {
   "nome": "Teste Mascara",
-  "email": "mascara@exemplo.com",
+  "email": "mascara@example.com",
   "senha": "senha1234",
-  "telefone": "(35) 99999-8888",
+  "telefone": "(00) 90000-0000",
   "aceiteTermos": true
 }
 
@@ -123,9 +132,9 @@ Origin: {{origem}}
 
 {
   "nome": "Teste Termos",
-  "email": "termos@exemplo.com",
+  "email": "termos@example.com",
   "senha": "senha1234",
-  "telefone": "35999998888",
+  "telefone": "00900000000",
   "aceiteTermos": "true"
 }
 
@@ -146,8 +155,8 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "rafa@gmail.com",
-  "senha": "343434343434"
+  "email": "cliente.teste@example.com",
+  "senha": "SenhaFicticiaPrincipal123!"
 }
 
 # 401 - senha errada
@@ -157,7 +166,7 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "rafa@gmail.com",
+  "email": "cliente.teste@example.com",
   "senha": "senhaerrada123"
 }
 
@@ -168,8 +177,8 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "naoexiste@exemplo.com",
-  "senha": "343434343434"
+  "email": "naoexiste@example.com",
+  "senha": "SenhaFicticiaPrincipal123!"
 }
 
 # 200 - e-mail com maiúsculas e espaços (prova a normalização)
@@ -179,8 +188,8 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "  Rafa@Gmail.COM  ",
-  "senha": "343434343434"
+  "email": "  CLIENTE.TESTE@EXAMPLE.COM  ",
+  "senha": "SenhaFicticiaPrincipal123!"
 }
 
 # 422 - body vazio (erro em email e senha)
@@ -192,7 +201,7 @@ Origin: {{origem}}
 {}
 
 # 401 - conta inativa
-# Antes: no Adminer, mude o "ativo" da rafa@gmail.com para false.
+# Antes: no Adminer, mude o "ativo" da cliente.teste@example.com para false.
 # Depois do teste, volte para true.
 ###
 POST {{api}}/auth/login
@@ -200,24 +209,9 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "rafa@gmail.com",
-  "senha": "343434343434"
+  "email": "cliente.teste@example.com",
+  "senha": "SenhaFicticiaPrincipal123!"
 }
-
-# ===== AUTENTICAR (rota temporária /teste-sessao) =====
-
-# Blocos desativados: a rota /auth/teste-sessao foi removida. Reativar na task #16 trocando o caminho para /clientes/me.
-# 200 - logado (rode antes o "200 - login certo")
-# ###
-# GET {{api}}/auth/teste-sessao
-# Origin: {{origem}}
-
-# 401 - cookie inventado
-# ###
-# # @no-cookie-jar
-# GET {{api}}/auth/teste-sessao
-# Origin: {{origem}}
-# Cookie: sid=tokeninventado123
 
 # ===== RATE LIMIT =====
 # Login: rode este bloco 6 vezes seguidas (senha errada).
@@ -228,13 +222,13 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "rafa@gmail.com",
+  "email": "cliente.teste@example.com",
   "senha": "senhaerrada123"
 }
 
 # ===== CONTA (/me) =====
 # Preparação: cadastre as duas contas de teste e faça login com a Ana (o cookie "sid" fica no cookie jar).
-# No fim, apague as contas: DELETE FROM clientes WHERE email LIKE 'teste.conta.%@exemplo.com';
+# No fim, apague as contas: DELETE FROM clientes WHERE email LIKE 'teste.conta.%@example.com';
 
 # 201 - conta de teste A
 ###
@@ -244,9 +238,9 @@ Origin: {{origem}}
 
 {
   "nome": "Ana Conta",
-  "email": "teste.conta.ana@exemplo.com",
+  "email": "teste.conta.ana@example.com",
   "senha": "senhaAna1234",
-  "telefone": "32999990000",
+  "telefone": "00900000000",
   "aceiteTermos": true
 }
 
@@ -258,9 +252,9 @@ Origin: {{origem}}
 
 {
   "nome": "Bruno Conta",
-  "email": "teste.conta.bruno@exemplo.com",
+  "email": "teste.conta.bruno@example.com",
   "senha": "senhaBruno1234",
-  "telefone": "32999991111",
+  "telefone": "00900000000",
   "aceiteTermos": true
 }
 
@@ -271,7 +265,7 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "teste.conta.ana@exemplo.com",
+  "email": "teste.conta.ana@example.com",
   "senha": "senhaAna1234"
 }
 
@@ -305,7 +299,7 @@ PATCH {{api}}/clientes/me
 Content-Type: application/json
 Origin: {{origem}}
 
-{ "telefone": "(32) 98888-7777" }
+{ "telefone": "(00) 90000-0000" }
 
 # 200 - campos do sistema são ignorados: papel, ativo e id não mudam; só o nome muda
 ###
@@ -345,7 +339,7 @@ PATCH {{api}}/clientes/me
 Content-Type: application/json
 Origin: {{origem}}
 
-{ "email": "teste.conta.bruno@exemplo.com" }
+{ "email": "teste.conta.bruno@example.com" }
 
 # 200 - o próprio e-mail em maiúsculas não é conflito (fica salvo em minúsculas)
 ###
@@ -436,7 +430,7 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "teste.conta.ana@exemplo.com",
+  "email": "teste.conta.ana@example.com",
   "senha": "senhaAna1234"
 }
 
@@ -448,7 +442,7 @@ Content-Type: application/json
 Origin: {{origem}}
 
 {
-  "email": "teste.conta.ana@exemplo.com",
+  "email": "teste.conta.ana@example.com",
   "senha": "novaSenhaAna1234"
 }
 
