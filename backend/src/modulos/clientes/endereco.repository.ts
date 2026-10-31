@@ -1,9 +1,22 @@
 import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
-import type { Endereco, NovoEndereco } from './cliente.types.js'
+import type { AtualizacaoEndereco, Endereco, NovoEndereco } from './cliente.types.js'
 
 const colunas = `id, cliente_id AS "clienteId", apelido, cep, logradouro, numero, complemento, bairro, cidade, uf,
   principal, criado_em AS "criadoEm", atualizado_em AS "atualizadoEm"`
+
+// Única origem dos nomes de coluna do UPDATE dinâmico: chaves vindas do objeto recebido nunca viram SQL
+const colunasAtualizaveis: Record<keyof AtualizacaoEndereco, string> = {
+  apelido: 'apelido',
+  cep: 'cep',
+  logradouro: 'logradouro',
+  numero: 'numero',
+  complemento: 'complemento',
+  bairro: 'bairro',
+  cidade: 'cidade',
+  uf: 'uf',
+  principal: 'principal',
+}
 
 // Toda query filtra por cliente_id: o endereço de outro cliente simplesmente não é encontrado
 export const enderecoRepository = {
@@ -58,5 +71,31 @@ export const enderecoRepository = {
       ],
     )
     return rows[0]
+  },
+
+  async atualizar(
+    id: number,
+    clienteId: number,
+    dados: AtualizacaoEndereco,
+    executor: Queryable = db,
+  ): Promise<Endereco | null> {
+    const sets: string[] = []
+    const valores: unknown[] = []
+    // Percorre o mapa fixo, não o objeto recebido: só as 9 colunas do endereço podem entrar no SET
+    for (const campo of Object.keys(colunasAtualizaveis) as (keyof AtualizacaoEndereco)[]) {
+      if (dados[campo] === undefined) continue
+      valores.push(dados[campo])
+      sets.push(`${colunasAtualizaveis[campo]} = $${valores.length}`)
+    }
+    sets.push('atualizado_em = now()')
+    valores.push(id, clienteId)
+
+    const { rows } = await executor.query<Endereco>(
+      `UPDATE enderecos_cliente SET ${sets.join(', ')}
+       WHERE id = $${valores.length - 1} AND cliente_id = $${valores.length}
+       RETURNING ${colunas}`,
+      valores,
+    )
+    return rows[0] ?? null
   },
 }

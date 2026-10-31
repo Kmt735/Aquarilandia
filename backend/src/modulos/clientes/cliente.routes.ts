@@ -14,3 +14,4 @@ clienteRoutes.patch('/me', exigirOrigem, autenticar, clienteController.atualizar
 clienteRoutes.patch('/me/senha', exigirOrigem, autenticar, limiteTrocaSenha, clienteController.trocarMinhaSenha)
 clienteRoutes.get('/me/enderecos', autenticar, enderecoController.listarMeus)
 clienteRoutes.post('/me/enderecos', exigirOrigem, autenticar, enderecoController.criar)
+clienteRoutes.patch('/me/enderecos/:enderecoId', exigirOrigem, autenticar, enderecoController.atualizar)

@@ -3,8 +3,9 @@ import { comTransacao } from '../../utils/transacao.js'
 import { clienteRepository } from './cliente.repository.js'
 import type { Endereco } from './cliente.types.js'
 import { enderecoRepository } from './endereco.repository.js'
-import { validarEndereco } from './endereco.validacao.js'
+import { validarAtualizacaoEndereco, validarEndereco } from './endereco.validacao.js'
 
+const msgEnderecoNaoEncontrado = 'Endereço não encontrado.'
 const msgNaoAutenticado = 'Faça login para continuar.'
 const limiteEnderecos = 10
 
@@ -28,6 +29,29 @@ export const enderecoService = {
       if (principal && total > 0) await enderecoRepository.desmarcarPrincipal(clienteId, client)
 
       return enderecoRepository.inserir(clienteId, { ...dados, principal }, client)
+    })
+  },
+
+  async atualizar(clienteId: number, enderecoId: number, body: unknown): Promise<Endereco> {
+    const dados = validarAtualizacaoEndereco(body)
+
+    return comTransacao(async (client) => {
+      if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) throw new AppError(msgNaoAutenticado, 401)
+
+      const atual = await enderecoRepository.buscarDoCliente(enderecoId, clienteId, client)
+      if (!atual) throw new AppError(msgEnderecoNaoEncontrado, 404)
+
+      // Desmarcar o principal deixaria o cliente sem nenhum; a troca é feita marcando outro
+      if (dados.principal === false && atual.principal) {
+        throw new AppError('Dados inválidos', 422, {
+          principal: 'Para trocar o endereço principal, marque outro como principal.',
+        })
+      }
+      if (dados.principal === true && !atual.principal) await enderecoRepository.desmarcarPrincipal(clienteId, client)
+
+      const endereco = await enderecoRepository.atualizar(enderecoId, clienteId, dados, client)
+      if (!endereco) throw new AppError(msgEnderecoNaoEncontrado, 404)
+      return endereco
     })
   },
 }
