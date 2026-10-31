@@ -7,4 +7,6 @@ import { orcamentoController } from './orcamento.controller.js'
 export const orcamentoRoutes = Router()
 
 orcamentoRoutes.post('/', exigirOrigem, orcamentoController.criar)
-orcamentoRoutes.get('/', autenticar, exigirAdmin, orcamentoController.listar)
+// Somente a criação é pública; consultas e futuros handlers administrativos ficam após a guarda.
+orcamentoRoutes.use(autenticar, exigirAdmin)
+orcamentoRoutes.get('/', orcamentoController.listar)

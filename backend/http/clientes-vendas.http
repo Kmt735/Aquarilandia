@@ -1,9 +1,17 @@
 @api=http://localhost:3333/api
 @origem=http://localhost:5173
+@sessaoAdmin=SUBSTITUA_PELO_TOKEN_DA_SESSAO_ADMIN
 
 
-# 200 só logado como admin (crie com npm run criar-admin e faça login antes); sem login 401, cliente 403
-get {{api}}/orcamentos
+# 401 sem sessão; confirme que o cliente HTTP não envia cookies salvos automaticamente.
+GET {{api}}/orcamentos
+Cookie:
+
+###
+# Prepare o admin com npm run criar-admin e faça login; preencha @sessaoAdmin com o sid emitido.
+# 200 somente com sessão administrativa válida; cliente autenticado recebe 403.
+GET {{api}}/orcamentos
+Cookie: sid={{sessaoAdmin}}
 
 
 ###

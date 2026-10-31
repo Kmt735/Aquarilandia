@@ -122,12 +122,12 @@ describe('POST /api/produtos — PostgreSQL e sessões reais', {
     assert.equal(usuario.papel, 'cliente')
     assert.equal('senhaHash' in usuario, false)
     const duplicado = await fetch(`${origem}/api/auth/cadastro`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados),
+      method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origemCors }, body: JSON.stringify(dados),
     })
     assert.equal(duplicado.status, 409)
     async function login(senha) {
       return fetch(`${origem}/api/auth/login`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: dados.email, senha }),
+        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origemCors }, body: JSON.stringify({ email: dados.email, senha }),
       })
     }
     assert.equal((await login('SenhaErrada')).status, 401)

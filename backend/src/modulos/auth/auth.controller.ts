@@ -36,5 +36,5 @@ export const authController = {
   },
   async buscarSessao(req: Request, res: Response): Promise<void> {
   res.json(await authService.buscarSessao(req.usuario!.id))
-  },  
+  },
 }

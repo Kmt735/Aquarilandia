@@ -11,6 +11,35 @@ const ordenacoes: Record<OrdemProdutos, string> = {
 }
 
 export const produtoRepository = {
+  async desativar(id: number): Promise<boolean> {
+    // Uma única escrita é atômica. O lock do UPDATE serializa com PATCH e outro DELETE;
+    // após esperar, o PostgreSQL reavalia ativo para não editar/desativar uma linha antiga.
+    const { rows } = await db.query<{ id: number }>(
+      'UPDATE produtos SET ativo = false, atualizado_em = now() WHERE id = $1 AND ativo RETURNING id', [id],
+    )
+    return rows.length > 0
+  },
+
+  async bloquearParaEdicao(id: number, executor: Queryable = db): Promise<{ categoriaId: number } | null> {
+    const { rows } = await executor.query<{ categoriaId: number }>(
+      // A edição não muda chaves: este lock serializa PATCHs e permite as leituras de FK.
+      'SELECT categoria_id AS "categoriaId" FROM produtos WHERE id = $1 AND ativo FOR NO KEY UPDATE', [id],
+    )
+    return rows[0] ?? null
+  },
+
+  async atualizar(id: number, dados: NovoProduto, campos: string[], executor: Queryable = db): Promise<void> {
+    const colunas = { nome: 'nome', descricao: 'descricao', marca: 'marca', preco: 'preco' } as const
+    const selecionados = (Object.keys(colunas) as (keyof typeof colunas)[]).filter((campo) => campos.includes(campo))
+    // Mesmo numa edição só da ficha o produto recebe atualizado_em, mantendo o lock até COMMIT.
+    const { rows } = await executor.query<{ id: number }>(
+      `UPDATE produtos SET ${selecionados.map((campo, i) => `${colunas[campo]} = $${i + 2}, `).join('')}atualizado_em = now()
+        WHERE id = $1 AND ativo RETURNING id`,
+      [id, ...selecionados.map((campo) => dados[campo])],
+    )
+    if (!rows.length) throw new Error('Produto deixou de estar disponível durante a edição.')
+  },
+
   async buscarCategoriaParaCadastro(id: number, executor: Queryable = db): Promise<Categoria | null> {
     // FOR SHARE mantém categoria/slug estáveis até produto e ficha estarem confirmados.
     const { rows } = await executor.query<Categoria>('SELECT id, nome, slug FROM categorias WHERE id = $1 FOR SHARE', [id])

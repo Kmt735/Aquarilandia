@@ -564,6 +564,128 @@ apenas inicia o saldo em zero; não oferece entrada positiva nem cria o módulo 
 PDF (baixa no pagamento) e decisões locais (baixa na criação da venda) permanece para decisão conjunta,
 sem afetar este cadastro. Revisão do último pull: [`docs/revisao-pull-cadastro-produtos.md`](docs/revisao-pull-cadastro-produtos.md).
 
+### Produtos — edição parcial implementada em 26/10/2026
+
+`PATCH /api/produtos/:id` exige `autenticar`, `exigirAdmin` e `exigirOrigem`, como o POST. Sessão válida vem
+do cookie `sid` e o papel atual vem do banco. Sem sessão válida: `401`; cliente: `403`; admin sem Origin
+igual a `CORS_ORIGIN`: `403`. IDs seguem o mesmo inteiro positivo das consultas. Inexistentes e inativos
+retornam o mesmo `404 { erro: "Produto não encontrado" }`, inclusive com sessão admin.
+
+**Corpo de entrada** (exemplo de peixe; o tipo não é enviado):
+
+```json
+{
+  "nome": "Betta ornamental",
+  "preco": 3500,
+  "descricao": null,
+  "ficha": {
+    "dados": {
+      "origem": "Brasil",
+      "phMin": 6.5
+    }
+  }
+}
+```
+
+Somente `nome`, `descricao`, `marca`, `preco` e `ficha` são aceitos. É obrigatório enviar pelo menos um
+campo. `ficha` aceita somente `dados`, um objeto não vazio com campos da ficha correspondente à categoria
+existente. Não reenvie o DTO inteiro de GET como PATCH: `id`, `categoriaId`, `categoria`, `ativo`, `estoque`,
+`imagemUrl`, `emEstoque`, datas e `ficha.tipo` são recusados com `400`, **mesmo se o valor não mudar**.
+Campos desconhecidos também são recusados, em todos os níveis. Não há alteração de categoria, remoção da
+ficha, imagem, desativação nem saldo por esta rota; `estoque: 0` também é proibido no PATCH.
+
+| Entrada | Semântica |
+|---|---|
+| Campo omitido | Mantém o valor atual do banco; não recebe default nem substitui o restante da ficha. |
+| `descricao: null`, `marca: null` | Limpa o campo. Texto não nulo segue os limites e normalização do POST. |
+| `nome: null`, `preco: null` | `400`; são obrigatórios no estado final. Preço é inteiro em centavos, 0–2147483647. |
+| `ficha` omitida | Mantém a ficha; não executa UPDATE na tabela de ficha. |
+| `ficha: null`, `dados: null` ou `{}` | `400`; não removem a ficha nem representam uma edição. |
+| Campo anulável de `ficha.dados` com `null` | Limpa somente esse campo, conforme o schema. |
+| Campo obrigatório/default de ficha com `null` | `400`; defaults são de criação, não comandos para restaurar valores. |
+| `ficha.dados` parcial | Combina com os valores atuais e valida o estado final; UPDATE grava só os campos enviados. |
+
+Os enums, tipos, precisão e intervalos são os mesmos do POST e das colunas SQL. Por exemplo, editar somente
+`tempMaxC`/`phMax` exige que o valor seja maior ou igual ao mínimo **atual**, inclusive após uma edição concorrente.
+Um acessório/categoria sem tabela não aceita `ficha`. Produto especializado legado sem ficha pode ser reparado
+enviando em `ficha.dados` todos os campos obrigatórios da categoria; edição apenas dos básicos nesse estado
+retorna `400`, sem alterações parciais. As consultas públicas de dados legados sem ficha continuam iguais.
+
+**Atomicidade e concorrência:** o helper `comTransacao` abre uma única conexão para lock, leitura, validação,
+edição e composição do DTO. `FOR NO KEY UPDATE` serializa as edições do produto sem impedir leituras de FK;
+a categoria recebe `FOR SHARE`. O estado é lido novamente **depois** de obter o lock. Atualizações gravam
+apenas campos enviados, com colunas/tabelas de listas fechadas e valores parametrizados. A ficha usa sua tabela
+existente; somente o reparo de legado sem ficha faz INSERT. `produtos.atualizado_em` é atualizado também numa
+edição só da ficha. Falha em qualquer parte provoca rollback, inclusive do timestamp.
+
+Edições simultâneas de campos distintos preservam ambos; num mesmo campo vence a última edição serializada.
+Não há versionamento otimista/`If-Match` neste incremento. A garantia de lock pressupõe os escritores usando
+o protocolo de transação do módulo; SQL externo não é uma interface suportada para editar fichas.
+
+Após COMMIT, retorna `200` com o DTO de `GET /api/produtos/:id`, sem quantidade de estoque ou campos internos.
+As alterações aparecem em lista/detalhe e, para peixes com ficha, nos dois atalhos. Duplicidade de nome científico
+é `409` e desfaz toda a edição. Dados inválidos são `400`; falhas inesperadas continuam `500` genérico.
+Mantém o erro local `{ erro: "mensagem", detalhes?: { ... } }`, diferente de `{ erro: codigo, mensagem }` no PDF.
+O PDF cita estoque no PATCH; este incremento o exclui por instrução expressa: saldo exige movimentação futura.
+
+**Parser compartilhado:** limite explícito de 100 KiB de JSON (`413` acima do limite). Corpos comprimidos
+são recusados com `415`. Em 29/10/2026, o lockfile foi atualizado para `body-parser@2.4.0`, corrigindo
+GHSA-27r3-jxmh-p828; `inflate: false` e o limite continuam como defesa adicional, sem mudança do contrato.
+Essa restrição vale também para as demais rotas que usam o parser global. JSON malformado mantém `400`.
+O parser atua antes de sessão/rotas; portanto esses erros de corpo podem ocorrer antes do `401`.
+Revisão de segurança e pendências de outros módulos: [`docs/seguranca-backend-2026-10-26.md`](docs/seguranca-backend-2026-10-26.md).
+
+### Produtos — desativação administrativa implementada em 30/10/2026
+
+`DELETE /api/produtos/:id` segue o PDF (páginas 1–2) e D-13: desativa, sem exclusão física.
+Reutiliza `autenticar → exigirAdmin → exigirOrigem`, nessa ordem, e o mesmo `lerIdCatalogo` do PATCH.
+O papel atual vem da sessão consultada no PostgreSQL, não de body/query/header. Origin deve ser exatamente
+`CORS_ORIGIN`, incluindo em chamadas administrativas fora do navegador.
+
+| Situação | Resposta |
+|---|---|
+| Produto ativo desativado por admin | `204`, corpo vazio e sem JSON |
+| Produto inexistente, previamente inativo ou DELETE repetido | `404 { "erro": "Produto não encontrado" }` |
+| ID inválido, com sessão/admin/Origin válidos | `400 { erro, detalhes: { id: ... } }` |
+| Sem sessão válida, expirada/revogada ou conta inativa | `401` |
+| Cliente autenticado, Origin ausente/null/diferente | `403` |
+| Falha inesperada do banco | `500 { "erro": "Erro interno do servidor" }` |
+
+Exemplo de requisição (sem corpo):
+
+```http
+DELETE /api/produtos/42
+Origin: http://localhost:5173
+Cookie: sid=<sessao-admin>
+```
+
+Só o ID numérico do caminho identifica o alvo. Corpo/query não controlam campos; eventual JSON válido é
+ignorado pela operação, sujeito ao parser global de 100 KiB/sem compressão. Não envie `ativo`, estoque ou
+DTO de produto nesta chamada. ID deve estar entre 1 e 2147483647, sem zeros à esquerda ou notação exponencial.
+Erros de parser continuam podendo preceder `401`; a guarda administrativa precede a validação do ID.
+
+A única escrita parametrizada altera `ativo=false` e `atualizado_em`, condicionada a `WHERE id=$1 AND ativo`.
+Produto, categoria, preço, imagem, saldo, data de criação, todas as fichas e vínculos históricos permanecem.
+Não há baixa/ajuste de estoque, reativação, alteração de venda nem tabela de movimentações criada nesta rota.
+Uma falha desfaz a instrução inteira. Não é necessário abrir transação com múltiplas consultas para essa escrita única.
+
+O lock do UPDATE serializa com o `FOR NO KEY UPDATE` do PATCH e com outro DELETE. Se PATCH obtém o lock
+primeiro, confirma a edição antes da desativação, que preserva seus novos valores; se DELETE confirma primeiro,
+PATCH reavalia o estado e retorna `404`, sem editar a ficha ou reativar o produto. Dois DELETEs concorrentes
+produzem um `204` e um `404`. Chamadas repetidas não modificam novamente o timestamp. Leituras que começam
+depois do commit excluem o inativo; uma leitura em andamento pode observar seu snapshot anterior.
+
+Após sucesso, o produto sai de listagens/detalhes/totais públicos, inclusive os dois atalhos de peixes. Os DTOs
+restantes não mudam. Um cliente HTTP deve tratar `204` sem chamar `response.json()` e atualizar sua lista/contagem.
+Repetir pode retornar `404` com o mesmo efeito final de ausência pública. Acesso administrativo a inativos e
+reativação seguem pendentes, sem mudar `incluir_inativos=true` nesta rodada. O frontend ainda precisa ligar suas
+consultas reais à API; não foi modificado nesta tarefa.
+
+Mantém-se o formato local `{ erro: mensagem, detalhes? }`, diferente de `{ erro: codigo, mensagem }` do PDF.
+Os testes HTTP e PostgreSQL cobrem guardas, IDs, 11 fichas, legado sem ficha, dados históricos, visibilidade,
+contagens, repetição, falhas reais e as duas ordens de PATCH/DELETE. Decisão D-42 e relatório da rodada em
+[`docs/homologacao-delete-produtos-2026-10-30.md`](docs/homologacao-delete-produtos-2026-10-30.md).
+
 ### Produtos — detalhe público implementado em 25/10/2026
 
 `GET /api/produtos/:id` consulta o produto ativo e sua ficha técnica no PostgreSQL, conforme a página 2 do
@@ -729,6 +851,50 @@ O frontend não faz chamadas HTTP a essas rotas e não foi alterado: continua co
 filtros locais. O seed cria categorias, mas nenhum produto/ficha; sem registros reais, os atalhos retornam vazio/404.
 
 ---
+
+### Orçamentos — acesso administrativo corrigido em 26/10/2026
+
+Somente `POST /api/orcamentos` é público. O router registra esse POST antes de uma guarda comum
+`autenticar, exigirAdmin`; consultas e demais caminhos do módulo passam pela sessão e papel atual do banco.
+Sem sessão válida: `401`; cliente autenticado: `403`. Não há papel vindo do body/query/header, nem dependência
+de CORS ou de esconder botões no frontend. GET não exige Origin; futuras escritas administrativas deverão
+aplicar também a convenção de `exigirOrigem` quando seus handlers forem implementados.
+
+| Rota do PDF (com prefixo local) | Estado após esta correção |
+|---|---|
+| `POST /api/orcamentos` | Implementado, público, `201`; mantém o formulário e validações atuais. |
+| `GET /api/orcamentos` | Implementado, somente admin, `200` com array do DTO abaixo. |
+| `GET /api/orcamentos/:id` | Guarda administrativa aplicada; handler ausente, admin recebe `404`. |
+| `PATCH /api/orcamentos/:id` | Guarda administrativa aplicada; status/resposta ainda não implementados, admin recebe `404`. |
+| `DELETE /api/orcamentos/:id` | Guarda administrativa aplicada; exclusão ausente, admin recebe `404`. |
+
+Os caminhos incompletos também respondem `401`/`403` antes de chegar ao `404`. HEAD da listagem herda a mesma
+autorização do GET. Não foram criados cadastro separado, resposta, edição ou exclusão de orçamentos.
+
+```json
+[
+  {
+    "id": "uuid-do-orcamento",
+    "criadoEm": "2026-10-26T20:00:00.000Z",
+    "nome": "Pessoa de exemplo",
+    "telefone": "32999999999",
+    "servico": "Manutenção",
+    "mensagem": "Quero um orçamento."
+  }
+]
+```
+
+A listagem projeta explicitamente somente `id`, `criadoEm`, `nome`, `telefone`, `servico` e `mensagem`
+(opcional, omitida se ausente). São os dados necessários para identificar e atender a solicitação; metadados
+internos, sessão e credenciais não fazem parte do DTO. A resposta administrativa envia `Cache-Control: no-store`.
+Erros de sessão/permissão contêm apenas a mensagem genérica existente; falhas inesperadas retornam `500` genérico.
+Mudanças de papel, conta inativa e revogação de sessão no banco são respeitadas na próxima requisição.
+
+**Limites desta correção:** orçamentos continuam em memória; formato de array legado foi preservado. Persistência,
+detalhe, status/resposta, exclusão, filtro `status`, paginação/envelope `{ itens, total }` do PDF e rate limit
+continuam pendentes. Não há campos de status/resposta inventados. O POST mantém seu `422` de validação e os
+erros mantêm `{ erro: mensagem, detalhes? }`, em vez de `{ erro: codigo, mensagem }` do PDF.
+As requisições manuais em `http/clientes-vendas.http` foram ajustadas para refletir o acesso administrativo.
 
 ## 5. Erros
 
