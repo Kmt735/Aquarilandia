@@ -34,4 +34,8 @@ export const sessaoRepository = {
     await executor.query('DELETE FROM sessoes WHERE cliente_id = $1 AND token_hash <> $2', [clienteId, tokenHashAtual])
   },
 
+  async excluirTodasDoCliente(clienteId: number, executor: Queryable = db): Promise<void> {
+    await executor.query('DELETE FROM sessoes WHERE cliente_id = $1', [clienteId])
+  },
+
 }
