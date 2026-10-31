@@ -8,6 +8,7 @@ GET {{api}}/orcamentos
 Cookie:
 
 ###
+# Prepare o admin com npm run criar-admin e faça login; preencha @sessaoAdmin com o sid emitido.
 # 200 somente com sessão administrativa válida; cliente autenticado recebe 403.
 GET {{api}}/orcamentos
 Cookie: sid={{sessaoAdmin}}
@@ -128,7 +129,7 @@ Origin: {{origem}}
   "aceiteTermos": "true"
 }
 
-# 422 - body null (formato inválido)
+# 400 - body null (o express.json em modo strict recusa raiz null: JSON malformado, api.md seção 5)
 ###
 POST {{api}}/auth/cadastro
 Content-Type: application/json
@@ -217,3 +218,249 @@ Origin: {{origem}}
 # GET {{api}}/auth/teste-sessao
 # Origin: {{origem}}
 # Cookie: sid=tokeninventado123
+
+# ===== RATE LIMIT =====
+# Login: rode este bloco 6 vezes seguidas (senha errada).
+# Esperado: 401 nas 5 primeiras e 429 na 6ª, com {"erro":"Muitas tentativas..."}.
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "rafa@gmail.com",
+  "senha": "senhaerrada123"
+}
+
+# ===== CONTA (/me) =====
+# Preparação: cadastre as duas contas de teste e faça login com a Ana (o cookie "sid" fica no cookie jar).
+# No fim, apague as contas: DELETE FROM clientes WHERE email LIKE 'teste.conta.%@exemplo.com';
+
+# 201 - conta de teste A
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Ana Conta",
+  "email": "teste.conta.ana@exemplo.com",
+  "senha": "senhaAna1234",
+  "telefone": "32999990000",
+  "aceiteTermos": true
+}
+
+# 201 - conta de teste B (dona do e-mail usado no teste de conflito)
+###
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Bruno Conta",
+  "email": "teste.conta.bruno@exemplo.com",
+  "senha": "senhaBruno1234",
+  "telefone": "32999991111",
+  "aceiteTermos": true
+}
+
+# 200 - login da Ana
+###
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana@exemplo.com",
+  "senha": "senhaAna1234"
+}
+
+# 401 - GET /me sem login
+###
+# @no-cookie-jar
+GET {{api}}/clientes/me
+
+# 401 - GET /me com cookie inventado
+###
+# @no-cookie-jar
+GET {{api}}/clientes/me
+Cookie: sid=tokeninventado123
+
+# 200 - GET /me logado (sem senhaHash na resposta)
+###
+GET {{api}}/clientes/me
+
+# 401 - PATCH /me sem login
+###
+# @no-cookie-jar
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "nome": "Sem Login" }
+
+# 200 - só o telefone (salvo como 32988887777; nome e e-mail não mudam)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "telefone": "(32) 98888-7777" }
+
+# 200 - campos do sistema são ignorados: papel, ativo e id não mudam; só o nome muda
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "papel": "admin",
+  "ativo": false,
+  "id": 999,
+  "nome": "Novo Nome"
+}
+
+# 422 - nenhum campo (detalhes.body)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{}
+
+# 422 - e-mail e telefone inválidos (os dois erros juntos)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "nada",
+  "telefone": "123"
+}
+
+# 409 - e-mail de outra conta (detalhes.email)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "teste.conta.bruno@exemplo.com" }
+
+# 200 - o próprio e-mail em maiúsculas não é conflito (fica salvo em minúsculas)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "TESTE.CONTA.ANA@EXEMPLO.COM" }
+
+# 400 - body null: o express.json (modo strict, no app.ts) recusa raiz que não é objeto nem array
+# antes de chegar ao service. Com [] ou sem body, quem responde é o service: 422 detalhes.body.
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+null
+
+# ===== CONTA — TROCA DE SENHA (/me/senha) =====
+# Para ver as outras sessões caindo: faça login da Ana também em outro cliente HTTP (ou navegador),
+# troque a senha aqui e confira o GET /auth/sessao nos dois: aqui 200, no outro 401.
+
+# 401 - troca sem login
+###
+# @no-cookie-jar
+PATCH {{api}}/clientes/me/senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "senhaAtual": "senhaAna1234",
+  "novaSenha": "novaSenhaAna1234"
+}
+
+# 422 - senha atual errada (detalhes.senhaAtual)
+###
+PATCH {{api}}/clientes/me/senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "senhaAtual": "senhaErrada999",
+  "novaSenha": "novaSenhaAna1234"
+}
+
+# 422 - nova senha curta (detalhes.novaSenha)
+###
+PATCH {{api}}/clientes/me/senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "senhaAtual": "senhaAna1234",
+  "novaSenha": "123"
+}
+
+# 422 - nova senha igual à atual (detalhes.novaSenha)
+###
+PATCH {{api}}/clientes/me/senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "senhaAtual": "senhaAna1234",
+  "novaSenha": "senhaAna1234"
+}
+
+# 204 - troca certa (as outras sessões da Ana são apagadas; esta continua)
+###
+PATCH {{api}}/clientes/me/senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "senhaAtual": "senhaAna1234",
+  "novaSenha": "novaSenhaAna1234"
+}
+
+# 200 - a sessão de quem trocou continua valendo
+###
+GET {{api}}/auth/sessao
+
+# 401 - login com a senha antiga
+###
+# @no-cookie-jar
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana@exemplo.com",
+  "senha": "senhaAna1234"
+}
+
+# 200 - login com a senha nova
+###
+# @no-cookie-jar
+POST {{api}}/auth/login
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana@exemplo.com",
+  "senha": "novaSenhaAna1234"
+}
+
+# Rate limit da troca: rode este bloco 6 vezes seguidas (senha atual errada).
+# Esperado: 422 nas 5 primeiras e 429 na 6ª, com {"erro":"Muitas tentativas..."}.
+# Os 422 dos blocos acima também contam (janela de 15 minutos): reinicie o servidor antes.
+###
+PATCH {{api}}/clientes/me/senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "senhaAtual": "senhaErrada999",
+  "novaSenha": "outraSenha1234"
+}

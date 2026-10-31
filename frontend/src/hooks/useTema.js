@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 
 const CHAVE = 'aquarilandia-tema'
-const COR_BARRA = { light: '#ffffff', dark: '#071433' }
 
-// Primeira visita segue o sistema (aplicado no index.html); depois vale a escolha salva
+// Primeira visita segue o sistema (aplicado no index.html); depois vale a escolha salva.
+// A cor da barra do navegador vem do token --background.
 export default function useTema() {
   const [tema, setTema] = useState(() => (document.documentElement.classList.contains('dark') ? 'dark' : 'light'))
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', tema === 'dark')
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', COR_BARRA[tema])
+    const fundo = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', fundo)
   }, [tema])
 
   const alternar = useCallback(() => {

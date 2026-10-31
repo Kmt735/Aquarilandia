@@ -4,10 +4,17 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ───────── Tokens do tema ─────────
-   Claro (padrão): branco + azul royal + marinho, com amarelo e vermelho só como detalhe.
-   Escuro (.dark no <html>): marinho profundo com os mesmos papéis de cor.
-   Amarelo: CTAs de WhatsApp/secundários, sublinhado de destaque, areia, "Novo".
-   Vermelho: só contador do carrinho e selos de desconto. */
+   Documentação completa (com o glossário em português): STYLEGUIDE.md
+
+   Conceito "aquário à noite": o fundo é a água, o conteúdo parece iluminado pela luminária
+   e o brilho é DETALHE (foco, borda de destaque, bolhas), nunca a cor do texto corrido.
+
+   Papéis fixos das cores (item 4 · consistência; item 39 · semelhança):
+   - azul (--primary): a ÚNICA cor de ação principal (botão preenchido) em todo o site;
+   - amarelo (--accent): carrinho do cabeçalho, WhatsApp flutuante e detalhes decorativos;
+   - vermelho, verde e âmbar: só estados (erro, sucesso, aviso), sempre com ícone e texto.
+
+   Ajustes de tom para contraste AA estão anotados como "AA:" ao lado do valor. */
 :root {
     --background: #ffffff;
     --surface: #ffffff;
@@ -16,26 +23,41 @@
     --surface-tint: #eff6ff; /* hero e áreas de imagem */
     --text: #0f2a6b; /* marinho */
     --text-muted: #475569;
-    --border: #dce6f2;
-    --border-strong: #bfd0e6;
+    --border: #dce6f2; /* divisórias decorativas */
+    --border-strong: #bfd0e6; /* contorno de cards */
+    --border-control: #7d93b8; /* AA: contorno de campos e controles (era #bfd0e6, 1,57:1 → 3,12:1) */
     --primary: #1d4ed8;
     --primary-hover: #1e40af;
     --primary-text: #1d4ed8; /* azul para textos, links e preços (6,7:1 no branco) */
     --primary-soft: #dbeafe;
     --primary-dark: #0f2a6b; /* títulos e faixa escura de CTA */
     --on-primary-dark: #ffffff;
+    --on-primary-dark-muted: #d6e0f5; /* texto secundário sobre a faixa marinho */
     --accent: #fbbf24;
     --accent-hover: #f59e0b;
-    --accent-foreground: #0f2a6b; /* marinho sobre amarelo (8,4:1) — nunca branco */
+    --accent-foreground: #0f2a6b; /* marinho sobre amarelo (8,0:1) — nunca branco */
     --accent-soft: #fef3c7;
     --logo-tile: #ffffff; /* fundo da marca: os golfinhos são pretos */
-    --danger: #dc2626;
+
+    /* Semânticas — sempre acompanhadas de ícone e texto */
+    --danger: #dc2626; /* fundo (contador do carrinho, botão perigo) */
     --danger-foreground: #ffffff;
-    /* Camadas da onda: a da frente é a cor da faixa azul */
-    --wave-front: var(--primary);
-    --wave-mid: #4f7ff0;
+    --danger-text: #b91c1c; /* AA: erro em texto (era #dc2626, 4,83:1 → 6,47:1 no branco) */
+    --danger-soft: #fef2f2;
+    --success: #15803d;
+    --success-text: #15803d;
+    --success-soft: #f0fdf4;
+    --warning-text: #b45309;
+    --warning-soft: #fef3c7;
+    --info-text: var(--primary-text);
+    --info-soft: var(--primary-soft);
+
+    /* Camadas da onda */
+    --wave-front: var(--surface-tint);
+    --wave-mid: #c7d9f7;
     --wave-back: #93b4f5;
     --shadow-color: 15 42 107;
+    --glow-color: 29 78 216; /* brilho = azul de ação */
     --overlay: rgb(15 42 107 / 0.45); /* fundo atrás de modais e gavetas */
 
     /* Nomes esperados pelos componentes shadcn/ui, apontando para os tokens acima */
@@ -50,9 +72,20 @@
     --muted: var(--surface-muted);
     --muted-foreground: var(--text-muted);
     --destructive: var(--danger);
-    --input: var(--border-strong);
+    --input: var(--border-control);
     --ring: var(--primary);
     --radius: 0.75rem;
+
+    /* Camadas (z-index) */
+    --z-header: 40;
+    --z-flutuante: 45;
+    --z-overlay: 50; /* modais e gavetas (Radix) */
+    --z-toast: 100;
+
+    /* Movimento */
+    --dur-rapida: 150ms;
+    --dur-media: 250ms;
+    --dur-lenta: 400ms;
 
     color-scheme: light;
 }
@@ -67,16 +100,28 @@
     --text-muted: #a9b8d6;
     --border: #1b3166;
     --border-strong: #2a4580;
+    --border-control: #5574b4; /* AA: era #2a4580, 1,79:1 → 3,59:1 na superfície */
     --primary: #2f5fe0;
     --primary-hover: #2652c8;
     --primary-text: #8db0ff;
     --primary-soft: #16306e;
     --primary-dark: #0f2a6b;
     --accent-soft: #3a2f10;
-    --danger: #ef4444;
-    --wave-mid: #2a55c4;
+
+    --danger: #dc2626; /* AA: contador branco era 3,76:1 sobre #ef4444 → 4,83:1 */
+    --danger-text: #f87171; /* AA: mesmo vermelho, mais claro, para texto (6,56:1 no fundo) */
+    --danger-soft: #3a1420;
+    --success: #4ade80;
+    --success-text: #4ade80;
+    --success-soft: #0d2e2a;
+    --warning-text: #fbbf24;
+    --warning-soft: #3a2f10;
+
+    --wave-front: var(--surface-tint);
+    --wave-mid: #16306e;
     --wave-back: #1e3f96;
     --shadow-color: 0 0 0;
+    --glow-color: 141 176 255;
     --overlay: rgb(0 0 0 / 0.65);
 
     color-scheme: dark;
@@ -94,6 +139,7 @@
     --color-text-muted: var(--text-muted);
     --color-border: var(--border);
     --color-border-strong: var(--border-strong);
+    --color-border-control: var(--border-control);
     --color-primary: var(--primary);
     --color-primary-hover: var(--primary-hover);
     --color-primary-text: var(--primary-text);
@@ -101,6 +147,7 @@
     --color-primary-foreground: var(--primary-foreground);
     --color-primary-dark: var(--primary-dark);
     --color-on-primary-dark: var(--on-primary-dark);
+    --color-on-primary-dark-muted: var(--on-primary-dark-muted);
     --color-accent: var(--accent);
     --color-accent-hover: var(--accent-hover);
     --color-accent-foreground: var(--accent-foreground);
@@ -108,6 +155,15 @@
     --color-logo-tile: var(--logo-tile);
     --color-danger: var(--danger);
     --color-danger-foreground: var(--danger-foreground);
+    --color-danger-text: var(--danger-text);
+    --color-danger-soft: var(--danger-soft);
+    --color-success: var(--success);
+    --color-success-text: var(--success-text);
+    --color-success-soft: var(--success-soft);
+    --color-warning-text: var(--warning-text);
+    --color-warning-soft: var(--warning-soft);
+    --color-info-text: var(--info-text);
+    --color-info-soft: var(--info-soft);
 
     --color-card: var(--card);
     --color-card-foreground: var(--card-foreground);
@@ -121,24 +177,53 @@
     --color-input: var(--input);
     --color-ring: var(--ring);
 
-    --radius-sm: calc(var(--radius) - 4px);
+    --radius-sm: calc(var(--radius) - 4px); /* 8px */
     --radius-md: calc(var(--radius) - 2px);
-    --radius-lg: var(--radius);
+    --radius-lg: var(--radius); /* 12px */
     --radius-xl: calc(var(--radius) + 4px);
     --radius-card: 16px;
+    --radius-faixa: 24px;
 
     --font-display: "Nunito", ui-rounded, system-ui, sans-serif;
     --font-sans: "Nunito Sans", system-ui, sans-serif;
 
-    /* Sombras mínimas: só para elementos que flutuam (menus, gavetas, cartão do hero) */
+    /* Escala tipográfica modular (razão 1,25 sobre 16px; títulos fluidos entre 375 e 1440px) */
+    --text-micro: 0.75rem; /* 12 — selos e contadores (mínimo do site) */
+    --text-micro--line-height: 1.35;
+    --text-legenda: 0.8125rem; /* 13 */
+    --text-legenda--line-height: 1.45;
+    --text-pequeno: 0.875rem; /* 14 */
+    --text-pequeno--line-height: 1.55;
+    --text-corpo: 1rem; /* 16 */
+    --text-corpo--line-height: 1.65;
+    --text-corpo-lg: 1.125rem; /* 18 */
+    --text-corpo-lg--line-height: 1.6;
+    --text-h4: 1.125rem; /* 18 — título de card */
+    --text-h4--line-height: 1.3;
+    --text-h3: 1.25rem; /* 20 */
+    --text-h3--line-height: 1.3;
+    --text-h2: clamp(1.5rem, 1.15rem + 1.5vw, 2.25rem); /* 24 → 36 */
+    --text-h2--line-height: 1.15;
+    --text-h1: clamp(2rem, 1.45rem + 2.3vw, 3.25rem); /* 32 → 52 */
+    --text-h1--line-height: 1.08;
+    --text-display: clamp(2.5rem, 1.7rem + 3.4vw, 4rem); /* 40 → 64 */
+    --text-display--line-height: 1.04;
+
+    /* Sombras e brilhos: só para o que flutua ou recebe destaque */
     --shadow-soft: 0 1px 2px rgb(var(--shadow-color) / 0.06), 0 6px 16px -10px rgb(var(--shadow-color) / 0.18);
     --shadow-pop: 0 1px 2px rgb(var(--shadow-color) / 0.06), 0 14px 32px -16px rgb(var(--shadow-color) / 0.28);
+    --shadow-glow: 0 0 0 1px rgb(var(--glow-color) / 0.35), 0 10px 30px -12px rgb(var(--glow-color) / 0.45);
+    --shadow-glow-accent: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 
-    --animate-fade: fade 0.3s ease-out;
-    --animate-toast-in: toast-in 0.2s ease-out;
+    --ease-saida: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    --animate-fade: fade var(--dur-lenta) var(--ease-saida);
+    --animate-toast-in: toast-in var(--dur-media) var(--ease-saida);
     --animate-bump: bump 0.35s ease;
     --animate-spin-fast: spin 0.7s linear infinite;
     --animate-bolha: bolha 12s ease-in infinite;
+    --animate-bolha-sobe: bolha-sobe 14s linear infinite;
+    --animate-pulso: pulso 1.6s ease-in-out infinite;
 
     @keyframes fade {
         from { opacity: 0; transform: translateY(6px); }
@@ -158,6 +243,32 @@
         38% { opacity: 0; transform: translate3d(-3px, -66px, 0) scale(1.15); }
         100% { opacity: 0; transform: translate3d(-3px, -66px, 0) scale(1.15); }
     }
+    /* Bolhas do hero: sobem devagar pela altura toda da seção */
+    @keyframes bolha-sobe {
+        0% { opacity: 0; transform: translate3d(0, 0, 0); }
+        10% { opacity: 0.6; }
+        50% { transform: translate3d(8px, -260px, 0); }
+        85% { opacity: 0.4; }
+        100% { opacity: 0; transform: translate3d(-4px, -520px, 0); }
+    }
+    @keyframes pulso {
+        50% { opacity: 0.55; }
+    }
+}
+
+/* Alvo de toque de pelo menos 44 × 44 px sem mudar o tamanho visual (WCAG 2.5.5 / item 25) */
+@utility alvo-toque {
+    position: relative;
+    &::after {
+        content: "";
+        position: absolute;
+        inset: min(0px, calc((100% - 44px) / 2));
+    }
+}
+
+/* Luz da luminária: brilho sutil vindo do topo da seção (só decoração) */
+@utility luz-luminaria {
+    background-image: radial-gradient(ellipse 70% 60% at 50% 0%, rgb(var(--glow-color) / 0.16), transparent 70%);
 }
 
 @layer base {
@@ -169,14 +280,11 @@
         scroll-padding-top: 96px; /* altura do cabeçalho fixo */
     }
     body {
-        @apply bg-background font-sans text-[16px] leading-relaxed text-foreground antialiased;
+        @apply bg-background font-sans text-corpo text-foreground antialiased;
         overflow-x: clip;
     }
     h1, h2, h3, h4 {
         @apply font-display font-extrabold tracking-[-0.02em] text-balance;
-    }
-    h5 {
-        @apply font-display font-bold;
     }
     button:not(:disabled), [role="button"]:not(:disabled) {
         cursor: pointer;

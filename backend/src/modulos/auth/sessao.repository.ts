@@ -1,6 +1,7 @@
 import { db } from '../../config/db.js'
 import type { NovaSessao } from './auth.types.js'
 import type { UsuarioLogado } from '../../types/index.js'
+import type { Queryable } from '../../utils/transacao.js'
 
 const colunasUsuario = 'c.id, c.papel'
 export const sessaoRepository = {
@@ -22,6 +23,15 @@ export const sessaoRepository = {
       [tokenHash],
     )
     return rows[0] ?? null
+  },
+
+  async excluirPorTokenHash(tokenHash: string): Promise<void>{
+    await db.query(`DELETE FROM sessoes WHERE token_hash = $1 `,[tokenHash])
+  },
+
+  // Troca de senha: derruba os outros navegadores e mantém a sessão de quem trocou (D-07)
+  async excluirOutrasDoCliente(clienteId: number, tokenHashAtual: string, executor: Queryable = db): Promise<void> {
+    await executor.query('DELETE FROM sessoes WHERE cliente_id = $1 AND token_hash <> $2', [clienteId, tokenHashAtual])
   },
 
 }

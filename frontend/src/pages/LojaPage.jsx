@@ -1,74 +1,95 @@
-import { useSearchParams } from 'react-router'
-import { MessageCircle, SearchX } from 'lucide-react'
-import Button from '../components/atoms/Button'
-import ActiveFilter from '../components/molecules/ActiveFilter'
-import EmptyState from '../components/molecules/EmptyState'
-import ProductGrid from '../components/organisms/ProductGrid'
-import ShopFilters from '../components/organisms/ShopFilters'
+import { useNavigate } from 'react-router'
+import FilterGroup from '../components/molecules/FilterGroup'
+import Paginacao from '../components/molecules/Paginacao'
+import CatalogoLayout from '../components/organisms/CatalogoLayout'
+import GradeItens from '../components/organisms/GradeItens'
 import PageTemplate from '../components/templates/PageTemplate'
-import { disponibilidades } from '../data/categorias'
-import { produtos } from '../data/produtos'
+import { categoriasMenu, faixasPreco } from '../data/categorias'
+import { descricaoCategoria } from '../data/glossario'
+import useConsulta from '../hooks/useConsulta'
 import useDestaque from '../hooks/useDestaque'
-import useWhatsApp from '../hooks/useWhatsApp'
+import useFiltrosUrl from '../hooks/useFiltrosUrl'
+import { listarProdutos } from '../services/catalogo'
+import { ordenarItens, paginar } from '../utils/catalogo'
+import { normalizar } from '../utils/format'
+import { ROTAS, urlCategoria } from '../utils/rotas'
+
+const POR_PAGINA = 9
+const DISPONIBILIDADE = [
+  { valor: '', rotulo: 'Todas' },
+  { valor: 'in', rotulo: 'Disponível' },
+  { valor: 'out', rotulo: 'Sob encomenda' },
+]
+const categoriasOrdenadas = categoriasMenu.map((c) => c.nome).sort((a, b) => a.localeCompare(b, 'pt-BR'))
 
 export default function LojaPage() {
-  const [params, setParams] = useSearchParams()
-  const abrirWhatsApp = useWhatsApp()
+  const [f, aplicar, limpar] = useFiltrosUrl(['categoria', 'disponibilidade', 'preco', 'ordem', 'busca', 'pagina'])
+  const { dados, carregando, erro, recarregar } = useConsulta(listarProdutos)
+  const navigate = useNavigate()
   useDestaque()
 
-  // O filtro vive na URL (/loja?categoria=Filtros&disponibilidade=in)
-  const categoria = params.get('categoria')
-  const disponibilidade = params.get('disponibilidade')
-
-  const aplicarFiltro = (mudanca) => {
-    const proximo = { categoria, disponibilidade, ...mudanca }
-    setParams(Object.fromEntries(Object.entries(proximo).filter(([, v]) => v)))
-  }
-  const limpar = () => setParams({})
-
-  const visiveis = produtos.filter(
+  const faixa = faixasPreco.find((x) => x.valor === f.preco)
+  const termo = normalizar(f.busca.trim())
+  const filtrados = (dados ?? []).filter(
     (p) =>
-      (!categoria || p.categoria === categoria) &&
-      (!disponibilidade || (disponibilidade === 'in') === p.emEstoque),
+      (!f.categoria || p.categoria === f.categoria) &&
+      (!f.disponibilidade || (f.disponibilidade === 'in') === (p.disponibilidade === 'disponivel')) &&
+      (!faixa || (p.preco >= faixa.min && p.preco < faixa.max)) &&
+      (!termo || normalizar(`${p.nome} ${p.categoria} ${p.descricao ?? ''}`).includes(termo)),
+  )
+  const { pagina, totalPaginas, itens } = paginar(ordenarItens(filtrados, f.ordem), f.pagina, POR_PAGINA)
+
+  const ativos = [
+    f.categoria,
+    DISPONIBILIDADE.find((d) => d.valor === f.disponibilidade && d.valor)?.rotulo,
+    faixa?.rotulo,
+    f.busca.trim() && `“${f.busca.trim()}”`,
+  ].filter(Boolean)
+
+  const filtros = (
+    <>
+      <FilterGroup
+        titulo="Categoria"
+        nome="categoria"
+        itens={[{ valor: '', rotulo: 'Todas as categorias' }, ...categoriasOrdenadas.map((nome) => ({ valor: nome, rotulo: nome }))]}
+        descricoes={descricaoCategoria}
+        ativo={f.categoria}
+        // Peixes têm página própria, com os filtros da ficha técnica
+        onSelecionar={(v) => (v === 'Peixes' ? navigate(urlCategoria(v)) : aplicar({ categoria: v }))}
+      />
+      <FilterGroup titulo="Disponibilidade" nome="disponibilidade" itens={DISPONIBILIDADE} ativo={f.disponibilidade} onSelecionar={(v) => aplicar({ disponibilidade: v })} />
+      <FilterGroup
+        titulo="Preço"
+        nome="preco"
+        itens={[{ valor: '', rotulo: 'Qualquer preço' }, ...faixasPreco]}
+        ativo={f.preco}
+        onSelecionar={(v) => aplicar({ preco: v })}
+      />
+    </>
   )
 
-  const partes = [categoria, disponibilidades.find((d) => d.valor === disponibilidade)?.rotulo].filter(Boolean)
-  const total = `${visiveis.length} ${visiveis.length === 1 ? 'produto' : 'produtos'}`
-
   return (
-    <PageTemplate eyebrow="Loja" titulo="Tudo pro seu aquário">
-      <div className="mx-auto my-12 flex max-w-[1200px] flex-col items-start gap-10 px-4 sm:px-6 desk:my-16 desk:flex-row desk:px-10">
-        <ShopFilters
-          categoria={categoria}
-          disponibilidade={disponibilidade}
-          onCategoria={(valor) => aplicarFiltro({ categoria: valor })}
-          onDisponibilidade={(valor) => aplicarFiltro({ disponibilidade: valor })}
-        />
-
-        <div className="w-full min-w-0 flex-1">
-          {partes.length > 0 && <ActiveFilter rotulo={`Filtrando: ${partes.join(' · ')} — ${total}`} onLimpar={limpar} />}
-          <ProductGrid produtos={visiveis} />
-          {visiveis.length === 0 && (
-            <EmptyState
-              icone={<SearchX />}
-              acoes={
-                <>
-                  <Button variant="ghost" onClick={limpar}>
-                    Ver todos os produtos
-                  </Button>
-                  <Button onClick={() => abrirWhatsApp(`perguntar sobre ${categoria || 'o produto'}`)}>
-                    <MessageCircle aria-hidden="true" />
-                    Perguntar no WhatsApp
-                  </Button>
-                </>
-              }
-            >
-              Ainda não temos produtos de <strong>{categoria || 'esse filtro'}</strong> cadastrados no site, mas a
-              loja física pode ter.
-            </EmptyState>
-          )}
-        </div>
-      </div>
+    <PageTemplate
+      titulo={f.categoria || 'Loja'}
+      descricao={f.categoria ? descricaoCategoria[f.categoria] : 'Tudo para montar e cuidar do seu aquário.'}
+      trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, ...(f.categoria ? [{ rotulo: 'Loja', to: ROTAS.loja }, { rotulo: f.categoria }] : [{ rotulo: 'Loja' }])]}
+    >
+      <CatalogoLayout
+        busca={f.busca}
+        onBusca={(v) => aplicar({ busca: v }, { replace: true })}
+        rotuloBusca="Buscar na loja"
+        ordem={f.ordem || null}
+        onOrdem={(v) => aplicar({ ordem: v })}
+        filtros={filtros}
+        ativos={ativos}
+        onLimpar={limpar}
+        total={filtrados.length}
+        carregando={carregando}
+        unidade={{ singular: 'produto', plural: 'produtos' }}
+      >
+        <GradeItens itens={itens} carregando={carregando} erro={erro} onRecarregar={recarregar} onLimpar={limpar} assuntoWhatsApp={f.busca || f.categoria || 'um produto'} />
+        <Paginacao pagina={pagina} totalPaginas={totalPaginas} onMudar={(n) => aplicar({ pagina: String(n) })} />
+      </CatalogoLayout>
     </PageTemplate>
   )
 }

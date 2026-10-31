@@ -13,11 +13,11 @@ const RIPPLE_ALTURA = 16
 const RIPPLE_RAIO = 110
 
 const VARIANTES = {
-  // Faixa azul de categorias: a camada da frente é a própria cor da faixa
+  // Transição do hero para o fundo: a camada da frente é a cor do fundo; as de trás, só um brilho
   faixa: [
-    { cor: 'var(--wave-back)', opacidade: 0.55, base: 44, amp: 11, onda1: 560, onda2: 250, periodo: 15, sentido: 1, parallax: 0.12, ripple: 0.45, fase: 0 },
-    { cor: 'var(--wave-mid)', opacidade: 0.8, base: 60, amp: 10, onda1: 430, onda2: 190, periodo: 11, sentido: -1, parallax: 0.26, ripple: 0.7, fase: 1.7 },
-    { cor: 'var(--wave-front)', opacidade: 1, base: 78, amp: 9, onda1: 680, onda2: 310, periodo: 13, sentido: 1, parallax: 0.45, ripple: 1, fase: 3.1 },
+    { cor: 'var(--wave-back)', opacidade: 0.35, base: 44, amp: 11, onda1: 560, onda2: 250, periodo: 15, sentido: 1, parallax: 0.12, ripple: 0.45, fase: 0 },
+    { cor: 'var(--wave-mid)', opacidade: 0.7, base: 60, amp: 10, onda1: 430, onda2: 190, periodo: 11, sentido: -1, parallax: 0.26, ripple: 0.7, fase: 1.7 },
+    { cor: 'var(--background)', opacidade: 1, base: 78, amp: 9, onda1: 680, onda2: 310, periodo: 13, sentido: 1, parallax: 0.45, ripple: 1, fase: 3.1 },
   ],
   // Divisor discreto acima do rodapé (azul-claro sobre branco)
   rodape: [
@@ -143,7 +143,7 @@ export default function WaterWave({ variante = 'faixa', bolhas = false, classNam
         viewBox={`0 0 ${LARGURA} ${ALTURA}`}
         preserveAspectRatio="none"
         focusable="false"
-        className="block h-[64px] w-full sm:h-[84px] desk:h-[110px]"
+        className="block h-12 w-full sm:h-16 desk:h-20"
       >
         {camadas.map((c, i) => (
           <path
@@ -161,7 +161,7 @@ export default function WaterWave({ variante = 'faixa', bolhas = false, classNam
           {BOLHAS.map((b) => (
             <span
               key={b.left}
-              className="absolute bottom-[-56px] animate-bolha rounded-full border-2 border-white/70"
+              className="absolute bottom-[-56px] animate-bolha rounded-full border-2 border-primary-text/60"
               style={{ left: b.left, width: b.size, height: b.size, animationDuration: `${b.dur}s`, animationDelay: `${b.delay}s` }}
             />
           ))}

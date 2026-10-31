@@ -3,139 +3,94 @@ import { useState } from 'react'
 import Button from '../atoms/Button'
 import Input from '../atoms/Input'
 import Select from '../atoms/Select'
-import Spinner from '../atoms/Spinner'
 import Textarea from '../atoms/Textarea'
+import WhatsAppIcon from '../icons/WhatsAppIcon'
+import Aviso from '../molecules/Aviso'
 import FormField from '../molecules/FormField'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import useUI from '../../hooks/useUI'
 import { opcoesServico } from '../../data/servicos'
-import { mascararTelefone, telefoneValido } from '../../utils/telefone'
+import useFormulario from '../../hooks/useFormulario'
+import useUI from '../../hooks/useUI'
+import useWhatsApp from '../../hooks/useWhatsApp'
+import { enviarOrcamento } from '../../services/orcamentos'
+import { mascararTelefone } from '../../utils/telefone'
+import { regras } from '../../utils/validacao'
 
-// H5 · Prevenção de erros  ·  H9 · Mensagens claras  ·  H1 · Status do envio
+const REGRAS = { nome: regras.nome, telefone: regras.telefone, servico: regras.servico }
+
+// Formulário de orçamento: erro embaixo de cada campo, foco no primeiro erro e confirmação clara (item 9)
 export default function QuoteModal() {
-  const { fecharPaineis, servicoOrcamento } = useUI()
-  const [form, setForm] = useState({
-    nome: '',
-    telefone: '',
-    servico: opcoesServico.includes(servicoOrcamento) ? servicoOrcamento : '',
-    mensagem: '',
-  })
-  const [tocados, setTocados] = useState(() => new Set())
-  const [status, setStatus] = useState('editando') // 'editando' | 'enviando' | 'enviado'
-
-  const validos = {
-    nome: form.nome.trim().length >= 2,
-    telefone: telefoneValido(form.telefone),
-    servico: form.servico !== '',
-  }
-  const tudoValido = Object.values(validos).every(Boolean)
-  const estado = (campo) => (validos[campo] ? 'ok' : tocados.has(campo) ? 'erro' : undefined)
-
-  const atualizar = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }))
-  const tocar = (campo) => setTocados((t) => new Set(t).add(campo))
-
-  const enviar = () => {
-    setStatus('enviando')
-    setTimeout(() => setStatus('enviado'), 1200)
-  }
+  const { fecharPaineis, servicoOrcamento, devolverFoco } = useUI()
+  const abrirWhatsApp = useWhatsApp()
+  const [enviado, setEnviado] = useState(false)
+  const form = useFormulario(
+    { nome: '', telefone: '', servico: opcoesServico.includes(servicoOrcamento) ? servicoOrcamento : '', mensagem: '' },
+    REGRAS,
+  )
+  const { valores, campo, enviar, enviando, erroGeral, alterar, formRef } = form
 
   return (
     <Dialog open onOpenChange={(aberto) => !aberto && fecharPaineis()}>
-      <DialogContent className="max-h-[90vh] overflow-auto rounded-[20px] border-border bg-surface-elevated p-6 sm:max-w-[480px]">
-      <DialogHeader className="mb-2">
-        <DialogTitle className="font-display text-[23px] font-extrabold">Solicitar orçamento</DialogTitle>
-        <DialogDescription className="sr-only">Formulário de pedido de orçamento</DialogDescription>
-      </DialogHeader>
+      <DialogContent onCloseAutoFocus={devolverFoco} className="max-h-[92vh] overflow-auto rounded-[20px] border-border-strong bg-surface-elevated p-6 sm:max-w-[500px]">
+        <DialogHeader className="mb-1 pr-10 text-left">
+          <DialogTitle className="font-display text-h3 font-extrabold">{enviado ? 'Pedido enviado' : 'Solicitar orçamento'}</DialogTitle>
+          <DialogDescription className="text-pequeno text-text-muted">
+            {enviado ? 'A loja vai responder pelo WhatsApp informado.' : 'Valor sob orçamento. Conte o que precisa e a loja responde pelo seu WhatsApp.'}
+          </DialogDescription>
+        </DialogHeader>
 
-      {status === 'enviado' ? (
-        <div className="pt-4 pb-1 text-center">
-          <CircleCheck aria-hidden="true" className="mx-auto mb-3 size-11 text-primary-text" />
-          <h4 className="mb-2 text-[20px]">Pedido recebido!</h4>
-          <p className="mb-5 text-[14.5px] leading-relaxed text-text-muted">
-            Obrigado, {form.nome.trim().split(' ')[0]}! Recebemos seu pedido de {form.servico.toLowerCase()}. Vamos
-            responder no WhatsApp {form.telefone}.
-          </p>
-          <Button onClick={fecharPaineis}>Fechar</Button>
-        </div>
-      ) : (
-        <div>
-          <FormField
-            id="q-nome"
-            label="Seu nome"
-            obrigatorio
-            estado={estado('nome')}
-            erro="Digite seu nome (pelo menos 2 letras)."
-          >
-            <Input
-              id="q-nome"
-              autoFocus
-              autoComplete="name"
-              placeholder="Como podemos te chamar?"
-              value={form.nome}
-              estado={estado('nome')}
-              onChange={(e) => atualizar('nome', e.target.value)}
-              onBlur={() => tocar('nome')}
-            />
-          </FormField>
-
-          <FormField
-            id="q-tel"
-            label="WhatsApp"
-            obrigatorio
-            estado={estado('telefone')}
-            erro="Telefone incompleto. Exemplo: (32) 99999-0000"
-          >
-            <Input
-              id="q-tel"
-              inputMode="numeric"
-              autoComplete="tel"
-              placeholder="(32) 99999-0000"
-              value={form.telefone}
-              estado={estado('telefone')}
-              onChange={(e) => atualizar('telefone', mascararTelefone(e.target.value))}
-              onBlur={() => tocar('telefone')}
-            />
-          </FormField>
-
-          <FormField id="q-serv" label="Serviço" obrigatorio estado={estado('servico')} erro="Escolha um serviço da lista.">
-            <Select
-              id="q-serv"
-              opcoes={opcoesServico}
-              value={form.servico}
-              estado={estado('servico')}
-              onChange={(e) => {
-                atualizar('servico', e.target.value)
-                tocar('servico')
-              }}
-              onBlur={() => tocar('servico')}
-            />
-          </FormField>
-
-          <FormField id="q-msg" label="Conte um pouco do que precisa">
-            <Textarea
-              id="q-msg"
-              rows={3}
-              placeholder="Ex.: aquário de 100L para a sala, com plantas"
-              value={form.mensagem}
-              onChange={(e) => atualizar('mensagem', e.target.value)}
-            />
-          </FormField>
-
-          <Button variant="submit" disabled={!tudoValido || status === 'enviando'} onClick={enviar}>
-            {status === 'enviando' ? (
-              <>
-                <Spinner />
-                Enviando…
-              </>
-            ) : (
-              'Enviar pedido de orçamento'
-            )}
-          </Button>
-          <div className="mt-3 text-center text-[12.5px] text-text-muted">
-            {tudoValido ? 'Tudo certo! Pode enviar.' : 'Preencha os campos marcados com * para enviar.'}
+        {enviado ? (
+          <div className="pt-2 text-center" role="status">
+            <CircleCheck aria-hidden="true" className="mx-auto mb-3 size-12 text-success-text" />
+            <p className="mb-1 font-display text-h4 font-extrabold">Recebemos seu pedido, {valores.nome.trim().split(' ')[0]}!</p>
+            <p className="mb-6 text-corpo text-text-muted">
+              Orçamento de <strong className="text-foreground">{valores.servico.toLowerCase()}</strong>. A resposta chega no WhatsApp {valores.telefone}. Prazo de resposta: a definir com a loja.
+            </p>
+            <Button onClick={fecharPaineis}>Fechar</Button>
           </div>
-        </div>
-      )}
+        ) : (
+          <form ref={formRef} noValidate onSubmit={enviar(async (dados) => {
+            await enviarOrcamento(dados)
+            setEnviado(true)
+          })}>
+            <p className="mb-4 text-legenda text-text-muted">
+              Campos com <span className="text-danger-text">*</span> são obrigatórios.
+            </p>
+            {erroGeral && (
+              <Aviso tipo="erro" role="alert" className="mb-4">
+                {erroGeral}
+              </Aviso>
+            )}
+            <FormField id="q-nome" label="Seu nome" obrigatorio erro={form.erros.nome}>
+              <Input autoComplete="name" placeholder="Como podemos te chamar?" {...campo('nome')} />
+            </FormField>
+            <FormField id="q-tel" label="Celular com WhatsApp" obrigatorio erro={form.erros.telefone} ajuda="Com DDD. Exemplo: (32) 99999-0000.">
+              <Input
+                inputMode="numeric"
+                autoComplete="tel-national"
+                placeholder="(32) 99999-0000"
+                {...campo('telefone')}
+                onChange={(e) => alterar('telefone', mascararTelefone(e.target.value))}
+              />
+            </FormField>
+            <FormField id="q-serv" label="Serviço" obrigatorio erro={form.erros.servico}>
+              <Select opcoes={opcoesServico} {...campo('servico')} />
+            </FormField>
+            <FormField id="q-msg" label="Conte um pouco do que precisa">
+              <Textarea rows={3} placeholder="Ex.: aquário de 100 L para a sala, com plantas" {...campo('mensagem')} />
+            </FormField>
+            <Button type="submit" tamanho="lg" largo disabled={enviando}>
+              {enviando ? 'Enviando…' : 'Enviar pedido de orçamento'}
+            </Button>
+            <p className="mt-3 text-center text-legenda text-text-muted">
+              Prefere conversar agora?{' '}
+              <button type="button" onClick={() => abrirWhatsApp('um orçamento')} className="alvo-toque inline-flex items-center gap-1 font-bold text-primary-text underline underline-offset-4">
+                <WhatsAppIcon className="size-3.5" />
+                Fale no WhatsApp
+              </button>
+            </p>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   )
