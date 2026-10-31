@@ -1,4 +1,4 @@
-// Ordenação e paginação das listagens (no cliente enquanto a API não pagina)
+// Ordenação local apenas para opções visuais que a API ainda não oferece.
 const ORDENADORES = {
   'menor-preco': (a, b) => a.preco - b.preco,
   'maior-preco': (a, b) => b.preco - a.preco,
@@ -6,7 +6,7 @@ const ORDENADORES = {
   'z-a': (a, b) => b.nome.localeCompare(a.nome, 'pt-BR'),
 }
 
-export const ordenarItens = (itens, ordem) => (ORDENADORES[ordem] ? [...itens].sort(ORDENADORES[ordem]) : itens)
+export const ordenarItens = (itens, ordem) => (ORDENADORES[ordem] ? [...itens].sort((a, b) => ORDENADORES[ordem](a, b) || a.id - b.id) : itens)
 
 export function paginar(itens, paginaTexto, porPagina) {
   const totalPaginas = Math.max(1, Math.ceil(itens.length / porPagina))

@@ -1,150 +1,84 @@
-// Catálogo: transforma os dados locais (src/data, sem mudar o formato) no formato que os componentes usam.
-// INTEGRAÇÃO: trocar listar*/obter* por GET /api/produtos e GET /api/peixes (preço em centavos → formatarPreco({ centavos: true })).
-import { peixes } from '../data/peixes'
-import { produtos } from '../data/produtos'
-import { ESTOQUE_EXEMPLO, LIMITE_ENCOMENDA_EXEMPLO } from '../mocks/catalogo'
-import { ErroApi, simularRede } from './http'
+import { consultarApi } from './api-publica.js'
+import { lerCategoria, lerEnvelope, normalizarProduto } from './catalogo-mapeamento.js'
+import { ErroApi, simularRede } from './http.js'
+import { faixasPreco } from '../data/categorias.js'
+import { ordenarItens } from '../utils/catalogo.js'
 
-export const PRAZO_ENCOMENDA = 'a definir com a loja'
-const SEM_DADO = new Set(['', 'x', '-', '?'])
-
-const dadoReal = (valor) => (valor == null || SEM_DADO.has(String(valor).trim().toLowerCase()) ? null : valor)
-
-// "Doce · 28-30°C" → { tipoAgua: 'Doce', temperatura: '28–30 °C' }
-function lerAgua(agua) {
-  if (!agua) return { tipoAgua: null, temperatura: null }
-  const [tipo, temp] = agua.split('·').map((p) => p.trim())
-  const temperatura = temp ? temp.replace(/(\d)\s*-\s*(\d)/, '$1–$2').replace(/\s*°C/, ' °C') : null
-  return { tipoAgua: tipo || null, temperatura }
+const ORDENS = { padrao: 'nome', 'a-z': 'nome', 'menor-preco': 'preco', 'maior-preco': '-preco', 'z-a': 'nome' }
+const inteiro = (valor, padrao, maximo) => {
+  const texto = String(valor === undefined || valor === null || valor === '' ? padrao : valor)
+  if (!/^[1-9]\d*$/.test(texto) || !Number.isSafeInteger(Number(texto)) || Number(texto) > maximo) throw new ErroApi('Paginação inválida.')
+  return Number(texto)
 }
-
-// "●○○ Fácil" → { nivel: 1, rotulo: 'Fácil' }
-function lerDificuldade(texto) {
-  if (!texto) return null
-  const nivel = (texto.match(/●/g) ?? []).length
-  return { nivel, rotulo: texto.replace(/[●○]/g, '').trim() }
+const escolher = (valor, opcoes) => {
+  if (valor && !opcoes.includes(valor)) throw new ErroApi('Filtro inválido.')
+  return valor || undefined
 }
+const idValido = (id) => inteiro(id, '', 2147483647)
 
-// Separa o "evite ..." que já está escrito no texto do "Combina com" (caso do Betta) — nada é inventado
-function lerCompatibilidade(texto) {
-  if (!texto) return { combinaCom: [], evitarCom: [] }
-  const [combina, evite] = texto.split(/;\s*evite\s+/i)
-  const lista = (t) =>
-    t
-      ? t
-          .split(/,|\s+e\s+/)
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-      : []
-  return { combinaCom: lista(combina), evitarCom: lista(evite) }
-}
-
-const litros = (texto) => Number(String(texto ?? '').replace(/\D/g, '')) || null
-
-function normalizarPeixe(p) {
-  const estoque = ESTOQUE_EXEMPLO[p.id] ?? null
-  const { tipoAgua, temperatura } = lerAgua(p.agua)
-  const dificuldade = lerDificuldade(p.dificuldade)
-  const aquarioMinimo = litros(p.aquarioMinimo)
-  const disponibilidade = !p.disponivel || estoque === 0 ? 'esgotado' : 'disponivel'
-
+// Injeção apenas da consulta permite testar o contrato sem mocks de catálogo em produção.
+export function criarCatalogo(consultar = consultarApi) {
+  async function todasPaginas(caminho, parametros) {
+    const itens = []
+    for (let pagina = 1; ; pagina++) {
+      const resposta = lerEnvelope(await consultar(caminho, { ...parametros, pagina, limite: 100 }))
+      itens.push(...resposta.itens)
+      if (itens.length >= resposta.total || !resposta.itens.length) return itens
+    }
+  }
+  async function listarCategorias() {
+    return (await todasPaginas('/categorias', {})).map(lerCategoria)
+  }
+  async function listar(filtros = {}, peixes = false) {
+    const pagina = inteiro(filtros.pagina, 1, 2147483647)
+    const limite = inteiro(filtros.limite, 9, 100)
+    const ordem = escolher(filtros.ordem, Object.keys(ORDENS))
+    const disponibilidade = escolher(filtros.disponibilidade, ['in', 'out', 'disponivel', 'esgotado'])
+    const faixa = faixasPreco.find((x) => x.valor === filtros.preco)
+    if (filtros.preco && !faixa) throw new ErroApi('Faixa de preço inválida.')
+    const categorias = await listarCategorias()
+    const parametros = { busca: filtros.busca?.trim() || undefined }
+    if (peixes) {
+      parametros.tipo_agua = escolher(filtros.agua === 'salgada' ? 'marinho' : filtros.agua, ['doce', 'marinho', 'salobra'])
+      parametros.temperamento = escolher(filtros.temperamento, ['pacifico', 'semi_agressivo', 'agressivo'])
+      parametros.dificuldade = escolher(filtros.dificuldade, ['iniciante', 'intermediario', 'avancado'])
+    } else {
+      const categoria = categorias.find((c) => c.slug === filtros.categoria || c.nome === filtros.categoria)
+      if (filtros.categoria && !categoria) throw new ErroApi('Categoria não encontrada.', {}, 404)
+      parametros.categoria = categoria?.slug
+      parametros.preco_min = faixa?.min
+      parametros.preco_max = Number.isFinite(faixa?.max) ? faixa.max : undefined
+      parametros.ordem = ORDENS[ordem ?? 'padrao']
+    }
+    const caminho = peixes ? '/peixes' : '/produtos'
+    // A API de peixes não ordena por preço; disponibilidade e Z–A também são opções só da UI.
+    // Nesses casos, filtra o conjunto completo, nunca somente uma página do servidor.
+    const local = Boolean(disponibilidade || ordem === 'z-a' || (peixes && (faixa || (ordem && !['padrao', 'a-z'].includes(ordem)))))
+    if (local) {
+      let itens = (await todasPaginas(caminho, parametros)).map((p) => normalizarProduto(p, categorias))
+      if (disponibilidade) itens = itens.filter((p) => p.emEstoque === ['in', 'disponivel'].includes(disponibilidade))
+      if (peixes && faixa) itens = itens.filter((p) => p.preco >= faixa.min && p.preco <= faixa.max)
+      itens = ordenarItens(itens, ordem ?? 'a-z')
+      return { itens: itens.slice((pagina - 1) * limite, pagina * limite), total: itens.length, pagina, totalPaginas: Math.max(1, Math.ceil(itens.length / limite)) }
+    }
+    const resposta = lerEnvelope(await consultar(caminho, { ...parametros, pagina, limite }))
+    return { itens: resposta.itens.map((p) => normalizarProduto(p, categorias)), total: resposta.total, pagina, totalPaginas: Math.max(1, Math.ceil(resposta.total / limite)) }
+  }
+  async function obter(id, caminho) {
+    const numero = idValido(id)
+    const [produto, categorias] = await Promise.all([consultar(`${caminho}/${numero}`), listarCategorias()])
+    return normalizarProduto(produto, categorias)
+  }
   return {
-    id: p.id,
-    tipo: 'peixe',
-    nome: p.nome,
-    cientifico: p.cientifico,
-    categoria: 'Peixes',
-    descricao: p.descricao,
-    preco: p.preco ?? null,
-    imagens: p.foto ? [{ src: p.foto, alt: `Foto de ${p.nome}` }] : [],
-    disponibilidade,
-    estoque: disponibilidade === 'esgotado' ? 0 : estoque,
-    entregaLocal: true, // peixe vivo: entrega só em São João del Rei
-    ficha: {
-      tipoAgua,
-      temperatura,
-      ph: dadoReal(p.ph),
-      temperamento: p.temperamento ?? null,
-      aquarioMinimo,
-      tamanhoAdulto: p.tamanhoAdulto ?? null,
-      dificuldade,
-      cores: p.cores ?? null,
-    },
-    ...lerCompatibilidade(p.compativelCom),
-    filtros: {
-      agua: p.caracteristicas?.salgada ? 'salgada' : 'doce',
-      temperamento: p.temperamento ?? null,
-      dificuldade: dificuldade?.rotulo ?? null,
-    },
-    chips: [
-      p.temperamento && { id: 'temperamento', rotulo: p.temperamento, titulo: 'Temperamento' },
-      aquarioMinimo && { id: 'aquario', rotulo: `Mín. ${aquarioMinimo} L`, titulo: 'Aquário mínimo' },
-      temperatura && { id: 'temperatura', rotulo: temperatura, titulo: 'Temperatura da água' },
-    ].filter(Boolean),
+    listarCategorias,
+    listarProdutos: (filtros) => listar(filtros), listarPeixes: (filtros) => listar(filtros, true),
+    obterProduto: (id) => obter(id, '/produtos'), obterPeixe: (id) => obter(id, '/peixes'),
   }
 }
 
-function normalizarProduto(p) {
-  const disponibilidade = p.emEstoque ? 'disponivel' : 'encomenda'
-  const chipUtil = p.volumeLitros
-    ? { id: 'volume', rotulo: `${p.volumeLitros} L`, titulo: 'Volume do aquário' }
-    : p.capacidadeMaxLitros
-      ? { id: 'capacidade', rotulo: `Até ${p.capacidadeMaxLitros} L`, titulo: 'Atende aquários de até' }
-      : { id: 'categoria', rotulo: p.categoria, titulo: 'Categoria' }
+export const { listarCategorias, listarProdutos, listarPeixes, obterProduto, obterPeixe } = criarCatalogo()
 
-  return {
-    id: p.id,
-    tipo: 'produto',
-    nome: p.nome,
-    cientifico: null,
-    categoria: p.categoria,
-    descricao: p.descricao,
-    preco: p.preco,
-    precoOriginal: p.precoOriginal ?? null,
-    imagens: p.foto ? [{ src: p.foto, alt: p.nome }] : [],
-    disponibilidade,
-    estoque: p.emEstoque ? (ESTOQUE_EXEMPLO[p.id] ?? null) : LIMITE_ENCOMENDA_EXEMPLO,
-    prazoEncomenda: p.emEstoque ? null : PRAZO_ENCOMENDA,
-    entregaLocal: false,
-    volumeLitros: p.volumeLitros ?? null,
-    capacidadeMaxLitros: p.capacidadeMaxLitros ?? null,
-    chips: [chipUtil],
-  }
-}
-
-export const todosPeixes = () => peixes.map(normalizarPeixe)
-export const todosProdutos = () => produtos.map(normalizarProduto)
-
-export async function listarPeixes() {
-  await simularRede()
-  return todosPeixes()
-}
-
-export async function listarProdutos() {
-  await simularRede()
-  return todosProdutos()
-}
-
-export async function obterPeixe(id) {
-  await simularRede()
-  const peixe = peixes.find((p) => p.id === id)
-  if (!peixe) throw new ErroApi('Peixe não encontrado.', {}, 404)
-  return normalizarPeixe(peixe)
-}
-
-export async function obterProduto(id) {
-  await simularRede()
-  const produto = produtos.find((p) => p.id === id)
-  if (!produto) throw new ErroApi('Produto não encontrado.', {}, 404)
-  return normalizarProduto(produto)
-}
-
-// Uso síncrono (busca do cabeçalho e comparação): mesmos dados normalizados
-export const encontrarItem = (id) =>
-  todosProdutos().find((p) => p.id === id) ?? todosPeixes().find((p) => p.id === id) ?? null
-
-// INTEGRAÇÃO: POST /api/avise-me (rota ainda não existe no backend)
+// Protótipo independente do catálogo público; ainda não existe POST /api/avise-me.
 export async function aviseMe({ itemId, email }) {
   await simularRede(500)
   return { itemId, email }

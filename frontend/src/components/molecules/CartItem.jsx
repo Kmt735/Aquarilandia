@@ -17,8 +17,8 @@ export default function CartItem({ linha, onQtd, onRemover, onNavegar }) {
           {item.nome}
         </Link>
         <div className="mt-0.5">
-          <Preco valor={item.preco * qtd} tamanho="sm" />
-          {qtd > 1 && <span className="ml-1.5 text-legenda text-text-muted">({qtd} × {formatarPreco(item.preco)})</span>}
+          <Preco centavos={item.centavos} valor={item.preco * qtd} tamanho="sm" />
+          {qtd > 1 && <span className="ml-1.5 text-legenda text-text-muted">({qtd} × {formatarPreco(item.preco, { centavos: item.centavos })})</span>}
         </div>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <SeletorQuantidade compacto valor={qtd} max={item.estoque} onChange={onQtd} rotulo={`Quantidade de ${item.nome}`} />

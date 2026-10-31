@@ -9,12 +9,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { iconeCategoria } from '@/lib/icones'
-import { categoriasMenu } from '../../data/categorias'
+import useCategorias from '../../hooks/useCategorias'
+import CategoriasStatus from './CategoriasStatus'
 import { descricaoCategoria } from '../../data/glossario'
 import { urlCategoria, urlLoja } from '../../utils/rotas'
 
 // Submenu "Loja" com TODAS as categorias e a linha que explica cada uma
 export default function NavDropdown({ ativo }) {
+  const consultaCategorias = useCategorias()
+  const categoriasMenu = consultaCategorias.erro || consultaCategorias.carregando ? [] : (consultaCategorias.dados ?? [])
   const navigate = useNavigate()
 
   return (
@@ -27,12 +30,13 @@ export default function NavDropdown({ ativo }) {
         <SublinhadoNav ativo={ativo} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" sideOffset={14} className="grid w-[560px] grid-cols-2 gap-0.5 rounded-card border-border-strong p-2 shadow-pop">
+        <div className="col-span-full"><CategoriasStatus {...consultaCategorias} /></div>
         {categoriasMenu.map((c) => {
-          const Icone = iconeCategoria[c.nome]
+          const Icone = iconeCategoria[c.nome] ?? iconeCategoria.Peixes
           return (
             <DropdownMenuItem
               key={c.nome}
-              onSelect={() => navigate(urlCategoria(c.nome))}
+              onSelect={() => navigate(urlCategoria(c))}
               className="items-start gap-2.5 rounded-xl px-2.5 py-2 text-foreground focus:bg-surface-tint focus:text-primary-text"
             >
               <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary-text">

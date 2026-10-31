@@ -4,43 +4,38 @@ import Paginacao from '../components/molecules/Paginacao'
 import CatalogoLayout from '../components/organisms/CatalogoLayout'
 import GradeItens from '../components/organisms/GradeItens'
 import PageTemplate from '../components/templates/PageTemplate'
-import { categoriasMenu, faixasPreco } from '../data/categorias'
+import { faixasPreco } from '../data/categorias'
 import { descricaoCategoria } from '../data/glossario'
 import useConsulta from '../hooks/useConsulta'
 import useDestaque from '../hooks/useDestaque'
 import useFiltrosUrl from '../hooks/useFiltrosUrl'
 import { listarProdutos } from '../services/catalogo'
-import { ordenarItens, paginar } from '../utils/catalogo'
-import { normalizar } from '../utils/format'
+import useCategorias from '../hooks/useCategorias'
+import CategoriasStatus from '../components/molecules/CategoriasStatus'
 import { ROTAS, urlCategoria } from '../utils/rotas'
 
 const POR_PAGINA = 9
 const DISPONIBILIDADE = [
   { valor: '', rotulo: 'Todas' },
   { valor: 'in', rotulo: 'Disponível' },
-  { valor: 'out', rotulo: 'Sob encomenda' },
+  { valor: 'out', rotulo: 'Esgotado' },
 ]
-const categoriasOrdenadas = categoriasMenu.map((c) => c.nome).sort((a, b) => a.localeCompare(b, 'pt-BR'))
 
 export default function LojaPage() {
   const [f, aplicar, limpar] = useFiltrosUrl(['categoria', 'disponibilidade', 'preco', 'ordem', 'busca', 'pagina'])
-  const { dados, carregando, erro, recarregar } = useConsulta(listarProdutos)
+  const { dados, carregando, erro, recarregar } = useConsulta(() => listarProdutos({ ...f, limite: POR_PAGINA }), [JSON.stringify(f)])
+  const consultaCategorias = useCategorias()
+  const categorias = consultaCategorias.dados ?? []
+  const categoria = categorias.find((c) => c.slug === f.categoria || c.nome === f.categoria)
+  const categoriaNome = categoria?.nome ?? f.categoria
   const navigate = useNavigate()
   useDestaque()
 
   const faixa = faixasPreco.find((x) => x.valor === f.preco)
-  const termo = normalizar(f.busca.trim())
-  const filtrados = (dados ?? []).filter(
-    (p) =>
-      (!f.categoria || p.categoria === f.categoria) &&
-      (!f.disponibilidade || (f.disponibilidade === 'in') === (p.disponibilidade === 'disponivel')) &&
-      (!faixa || (p.preco >= faixa.min && p.preco < faixa.max)) &&
-      (!termo || normalizar(`${p.nome} ${p.categoria} ${p.descricao ?? ''}`).includes(termo)),
-  )
-  const { pagina, totalPaginas, itens } = paginar(ordenarItens(filtrados, f.ordem), f.pagina, POR_PAGINA)
+  const { pagina = 1, totalPaginas = 1, itens = [], total = 0 } = dados ?? {}
 
   const ativos = [
-    f.categoria,
+    categoriaNome,
     DISPONIBILIDADE.find((d) => d.valor === f.disponibilidade && d.valor)?.rotulo,
     faixa?.rotulo,
     f.busca.trim() && `“${f.busca.trim()}”`,
@@ -48,14 +43,15 @@ export default function LojaPage() {
 
   const filtros = (
     <>
+      <CategoriasStatus {...consultaCategorias} />
       <FilterGroup
         titulo="Categoria"
         nome="categoria"
-        itens={[{ valor: '', rotulo: 'Todas as categorias' }, ...categoriasOrdenadas.map((nome) => ({ valor: nome, rotulo: nome }))]}
-        descricoes={descricaoCategoria}
-        ativo={f.categoria}
+        itens={[{ valor: '', rotulo: 'Todas as categorias' }, ...categorias.map((c) => ({ valor: c.slug, rotulo: c.nome }))]}
+        descricoes={Object.fromEntries(categorias.map((c) => [c.slug, descricaoCategoria[c.nome]]))}
+        ativo={categoria?.slug ?? f.categoria}
         // Peixes têm página própria, com os filtros da ficha técnica
-        onSelecionar={(v) => (v === 'Peixes' ? navigate(urlCategoria(v)) : aplicar({ categoria: v }))}
+        onSelecionar={(v) => (v === 'peixes' ? navigate(urlCategoria(v)) : aplicar({ categoria: v }))}
       />
       <FilterGroup titulo="Disponibilidade" nome="disponibilidade" itens={DISPONIBILIDADE} ativo={f.disponibilidade} onSelecionar={(v) => aplicar({ disponibilidade: v })} />
       <FilterGroup
@@ -70,9 +66,9 @@ export default function LojaPage() {
 
   return (
     <PageTemplate
-      titulo={f.categoria || 'Loja'}
-      descricao={f.categoria ? descricaoCategoria[f.categoria] : 'Tudo para montar e cuidar do seu aquário.'}
-      trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, ...(f.categoria ? [{ rotulo: 'Loja', to: ROTAS.loja }, { rotulo: f.categoria }] : [{ rotulo: 'Loja' }])]}
+      titulo={categoriaNome || 'Loja'}
+      descricao={f.categoria ? descricaoCategoria[categoriaNome] : 'Tudo para montar e cuidar do seu aquário.'}
+      trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, ...(f.categoria ? [{ rotulo: 'Loja', to: ROTAS.loja }, { rotulo: categoriaNome }] : [{ rotulo: 'Loja' }])]}
     >
       <CatalogoLayout
         busca={f.busca}
@@ -83,7 +79,7 @@ export default function LojaPage() {
         filtros={filtros}
         ativos={ativos}
         onLimpar={limpar}
-        total={filtrados.length}
+        total={erro ? 0 : total}
         carregando={carregando}
         unidade={{ singular: 'produto', plural: 'produtos' }}
       >

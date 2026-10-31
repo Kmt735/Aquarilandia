@@ -4,7 +4,8 @@ import WaterWave from '../atoms/WaterWave'
 import CategoryCard from '../molecules/CategoryCard'
 import SectionHead from '../molecules/SectionHead'
 import { iconeCategoria } from '@/lib/icones'
-import { categoriasMenu } from '../../data/categorias'
+import useCategorias from '../../hooks/useCategorias'
+import CategoriasStatus from '../molecules/CategoriasStatus'
 import { descricaoCategoria } from '../../data/glossario'
 import { ROTAS, urlCategoria } from '../../utils/rotas'
 
@@ -14,6 +15,8 @@ const VISIVEIS_CELULAR = 5
 // O azul deixou de ser fundo de seção: vira brilho de borda no hover (itens 8, 23, 39).
 // No celular, mostra 5 e recolhe o resto (item 19 · menos rolagem).
 export default function CategoryBand() {
+  const consultaCategorias = useCategorias()
+  const categoriasMenu = consultaCategorias.erro || consultaCategorias.carregando ? [] : (consultaCategorias.dados ?? [])
   const [todas, setTodas] = useState(false)
 
   return (
@@ -22,13 +25,13 @@ export default function CategoryBand() {
       <div className="bg-background">
         <div className="mx-auto max-w-[1200px] px-4 pt-4 pb-6 sm:px-6 desk:px-10 desk:pb-8">
           <SectionHead id="titulo-categorias" eyebrow="Loja" titulo="Encontre pelo que você precisa" link={{ to: ROTAS.loja, rotulo: 'Ver loja completa' }} />
+          <CategoriasStatus {...consultaCategorias} />
           <ul id="lista-categorias" className="grid gap-3 sm:grid-cols-2 desk:grid-cols-4">
             {categoriasMenu.map((c, i) => (
               <li key={c.nome} className={!todas && i >= VISIVEIS_CELULAR ? 'max-sm:hidden' : ''}>
-                <CategoryCard icone={iconeCategoria[c.nome]} rotulo={c.nome} descricao={descricaoCategoria[c.nome]} to={urlCategoria(c.nome)} />
+                <CategoryCard icone={iconeCategoria[c.nome] ?? iconeCategoria.Peixes} rotulo={c.nome} descricao={descricaoCategoria[c.nome]} to={urlCategoria(c)} />
               </li>
             ))}
-            {/* Peixes + 11 categorias = 12: a grade de 4 colunas fecha sem vazio ("Ver loja completa" fica no cabeçalho) */}
           </ul>
           <button
             type="button"

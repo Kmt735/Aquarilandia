@@ -6,6 +6,7 @@ import Kbd from '../atoms/Kbd'
 import WhatsAppIcon from '../icons/WhatsAppIcon'
 import SearchResult from '../molecules/SearchResult'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import useConsulta from '../../hooks/useConsulta'
 import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
 import { buscar } from '../../utils/busca'
@@ -19,7 +20,8 @@ export default function SearchBox() {
   const abrirWhatsApp = useWhatsApp()
 
   const termo = consulta.trim()
-  const resultados = buscar(consulta)
+  const { dados, carregando, erro, recarregar } = useConsulta(() => buscar(consulta), [consulta])
+  const resultados = carregando || erro ? [] : (dados ?? [])
   const indice = Math.min(ativo, Math.max(resultados.length - 1, 0))
 
   const abrir = (resultado) => {
@@ -28,10 +30,10 @@ export default function SearchBox() {
   }
 
   const teclar = (e) => {
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowDown' && resultados.length) {
       e.preventDefault()
       setAtivo((indice + 1) % resultados.length)
-    } else if (e.key === 'ArrowUp') {
+    } else if (e.key === 'ArrowUp' && resultados.length) {
       e.preventDefault()
       setAtivo((indice - 1 + resultados.length) % resultados.length)
     } else if (e.key === 'Enter' && resultados[indice]) {
@@ -77,7 +79,7 @@ export default function SearchBox() {
           {termo && resultados.length > 0 && `${resultados.length} ${resultados.length === 1 ? 'resultado' : 'resultados'} · use ↑ ↓ e Enter`}
         </p>
 
-        {termo && resultados.length === 0 ? (
+        {carregando ? <p role="status" className="p-3 text-pequeno">Buscando no catálogo…</p> : erro ? <p role="alert" className="p-3 text-pequeno">Não conseguimos consultar o catálogo. <Button variant="secundario" onClick={recarregar}>Tentar de novo</Button></p> : termo && resultados.length === 0 ? (
           <div className="px-1.5 pt-1 pb-2 text-pequeno text-text-muted">
             Não encontramos <strong className="text-foreground">“{termo}”</strong> no site. Confira a grafia ou tente algo mais geral, como “filtro” ou “betta”. A loja pode ter o item mesmo que ele ainda não esteja no site.
             <Button
