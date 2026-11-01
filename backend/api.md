@@ -9,7 +9,7 @@ Se precisar fugir de alguma regra, combine antes e atualize este arquivo no mesm
 | Clientes | Celio | `src/modulos/clientes/` | `/api/clientes` | `clientes` (inclui admins), `enderecos_cliente` |
 | Vendas | Celio | `src/modulos/vendas/` | `/api/vendas`, `/api/frete` | `vendas`, `itens_venda`, `historico_status_venda` |
 | Pagamentos | Celio | `src/modulos/pagamentos/` | `/api/pagamentos`, `/api/vendas/:id/pagamentos` | `pagamentos`, `eventos_webhook` |
-| Orçamentos *(já existe)* | Celio | `src/modulos/orcamentos/` | `/api/orcamentos` | `orcamentos` (a criar — hoje os dados ficam em memória) |
+| Orçamentos *(já existe)* | Celio | `src/modulos/orcamentos/` | `/api/orcamentos` | `orcamentos` |
 | Catálogo | Dev 2 | `src/modulos/catalogo/` | `/api/categorias`, `/api/produtos`, `/api/peixes`, `/api/servicos` | `categorias`, `produtos` e as tabelas de detalhe (`peixes`, `aquarios`, `filtros`...) |
 | Estoque | Dev 2 | `src/modulos/estoque/` | `/api/estoque` | `movimentacoes_estoque` e a coluna `produtos.estoque` |
 
@@ -186,8 +186,9 @@ POST   /api/vendas/:id/cancelar                 (cliente, dono, antes do envio; 
 POST   /api/vendas/:id/pagamentos               (cliente, dono — cria a cobrança no gateway e devolve o link)
 POST   /api/pagamentos/webhook                  (gateway — validado por assinatura)
 
-GET    /api/orcamentos                          (admin)
-POST   /api/orcamentos                          (público, rate limit)
+GET    /api/orcamentos                          ?status=&pagina=&limite=   (admin — paginado, ver seção 4)
+POST   /api/orcamentos                          (público, rate limit: 5 por hora por IP, contando os que deram certo)
+PATCH  /api/orcamentos/:id                      { status }   (admin — novo, em_atendimento ou concluido)
 ```
 
 **Dev 2 — catálogo / estoque**
@@ -956,6 +957,36 @@ continuam pendentes. Não há campos de status/resposta inventados. O POST mant�
 erros mantêm `{ erro: mensagem, detalhes? }`, em vez de `{ erro: codigo, mensagem }` do PDF.
 As requisições manuais em `http/clientes-vendas.http` foram ajustadas para refletir o acesso administrativo.
 
+### Orçamentos — persistência, listagem paginada e status implementados em 01/11/2026
+
+Os orçamentos ficam na tabela `orcamentos` (`db/init/15_orcamentos.sql`, D-05), com `id` numérico. Deixam de valer,
+da seção acima: o array em memória, o id UUID, o formato de array da listagem e o `404` do `PATCH /:id`.
+Continuam valendo a guarda comum `autenticar, exigirAdmin` depois do POST (D-41), o `Cache-Control: no-store`
+nas respostas administrativas e o `403` de Origin no POST.
+
+| Rota | Contrato |
+|---|---|
+| `POST /api/orcamentos` | Público, com Origin. `201` com o orçamento criado (DTO abaixo, `status` sempre `novo`). Rate limit de 5 pedidos por hora por IP, contando os que deram certo: o 6º → `429`. |
+| `GET /api/orcamentos` | Admin. `200` com `{ dados, total, pagina, limite }` (seção 4), do mais recente para o mais antigo. `?status=` opcional. |
+| `PATCH /api/orcamentos/:id` | Admin, com Origin. Body `{ status }`; lê só o `status`, o resto é ignorado. `200` com o orçamento. |
+| `GET` e `DELETE /api/orcamentos/:id` | Continuam ausentes, atrás da guarda (`401`/`403`, e `404` para admin). |
+
+```json
+{
+  "id": 1,
+  "nome": "Pessoa de exemplo",
+  "telefone": "32999999999",
+  "servico": "Manutenção",
+  "mensagem": null,
+  "status": "novo",
+  "criadoEm": "2026-11-01T03:00:00.000Z",
+  "atualizadoEm": "2026-11-01T03:00:00.000Z"
+}
+```
+
+- `telefone` é salvo e devolvido só com dígitos (antes voltava como digitado, com máscara).
+- `mensagem` vazia ou ausente → `null` (antes era omitida).
+
 ## 5. Erros
 
 Sempre lançar `AppError` (de `utils/AppError.ts`). Nunca responder erro manualmente no controller.
@@ -1015,6 +1046,24 @@ Recurso de outro cliente responde **404** (não 403), para não confirmar que el
 
 - E-mail já cadastrado → `409` com detalhes `{ email: 'Este e-mail já está cadastrado.' }`.
 - A `novaSenha` da redefinição de senha (seção 11) segue a mesma regra de `senha`.
+
+### Orçamentos — implementado em 01/11/2026
+
+`POST /api/orcamentos` lê só `nome`, `telefone`, `servico` e `mensagem`; `id`, `status`, `criadoEm` etc. são ignorados.
+
+| Campo | Normalização | Regra | Mensagem |
+|---|---|---|---|
+| `nome` | `trim` | 2 a 120 caracteres | Digite seu nome (pelo menos 2 letras). |
+| `telefone` | só dígitos | 10 ou 11 dígitos (com DDD) | Telefone incompleto. Exemplo: (32) 99999-0000 |
+| `servico` | `trim` | um dos serviços de `data/servicos.ts` (`opcoesServico`) | Escolha um serviço da lista. |
+| `mensagem` | `trim`; vazio → `null` | opcional, até 1000 caracteres | A mensagem pode ter até 1000 caracteres. |
+
+- `?status=` do `GET` fora da lista → `400` `'Parâmetros inválidos'` com
+  `{ status: 'Escolha um status válido: novo, em_atendimento ou concluido.' }`; `pagina`/`limite` seguem a seção 4.
+- `PATCH /api/orcamentos/:id`: body que não é objeto → `422` `{ body: 'Formato de dados inválido.' }`; `status` que não
+  seja exatamente `novo`, `em_atendimento` ou `concluido` (sem `trim`) → `422`
+  `{ status: 'Escolha um status válido: novo, em_atendimento ou concluido.' }`; `:id` inválido → `400`;
+  inexistente → `404` `'Orçamento não encontrado.'`.
 
 ### Endereços do cliente — implementado em 31/10/2026
 
