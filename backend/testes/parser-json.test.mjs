@@ -7,6 +7,8 @@ import { db } from '../src/config/db.ts'
 import { env } from '../src/config/env.ts'
 import { authService } from '../src/modulos/auth/auth.service.ts'
 import { sessaoRepository } from '../src/modulos/auth/sessao.repository.ts'
+import { orcamentoRepository } from '../src/modulos/orcamentos/orcamento.repository.ts'
+import { limiteOrcamento } from '../src/middlewares/rateLimit.ts'
 
 describe('Parser JSON compartilhado — limites, codificações e integração HTTP', () => {
   let servidor, origem, consulta, conexao, sessao, log
@@ -26,6 +28,12 @@ describe('Parser JSON compartilhado — limites, codificações e integração H
     conexao = mock.method(db, 'connect', inesperado)
     sessao = mock.method(sessaoRepository, 'buscarUsuarioPorTokenHash', inesperado)
     log = mock.method(console, 'error', () => {})
+    // O POST de orçamento grava no PostgreSQL: aqui o repository é simulado e o db continua proibido
+    mock.method(orcamentoRepository, 'inserir', async (dados) => (
+      { id: 1, ...dados, status: 'novo', criadoEm: new Date(), atualizadoEm: new Date() }
+    ))
+    // Limpa só o estado de fixtures entre casos (o POST de orçamento tem limite de 5 por hora)
+    limiteOrcamento.resetKey('127.0.0.1')
   })
   afterEach(() => {
     try {
@@ -40,10 +48,13 @@ describe('Parser JSON compartilhado — limites, codificações e integração H
     return fetch(`${origem}${caminho}`, { method: 'POST', body,
       headers: { 'Content-Type': 'application/json', Cookie: 'sid=nao-consultar', Origin: env.corsOrigin, ...headers } })
   }
+  // A mensagem vai até 1000 caracteres (15_orcamentos.sql): o resto dos bytes vai num campo que o service ignora
+  const mensagemLimite = (multibyte) => (multibyte ? 'á'.repeat(500) : 'x'.repeat(1000))
   function corpoComBytes(tamanho, multibyte) {
-    const restante = tamanho - Buffer.byteLength(JSON.stringify(fixture))
-    const mensagem = multibyte ? 'á'.repeat(Math.floor(restante / 2)) + 'x'.repeat(restante % 2) : 'x'.repeat(restante)
-    const corpo = Buffer.from(JSON.stringify({ ...fixture, mensagem }))
+    const base = { ...fixture, mensagem: mensagemLimite(multibyte), preenchimento: '' }
+    const restante = tamanho - Buffer.byteLength(JSON.stringify(base))
+    const preenchimento = multibyte ? 'á'.repeat(Math.floor(restante / 2)) + 'x'.repeat(restante % 2) : 'x'.repeat(restante)
+    const corpo = Buffer.from(JSON.stringify({ ...base, preenchimento }))
     assert.equal(corpo.length, tamanho)
     return corpo
   }
@@ -54,7 +65,8 @@ describe('Parser JSON compartilhado — limites, codificações e integração H
       assert.equal(resposta.status, 201)
       const corpo = await resposta.json()
       assert.equal(corpo.nome, fixture.nome)
-      assert.equal(Buffer.byteLength(JSON.stringify({ ...fixture, mensagem: corpo.mensagem })), limite)
+      assert.equal(corpo.mensagem, mensagemLimite(multibyte))
+      assert.equal('preenchimento' in corpo, false)
     })
     it(`recusa 102401 bytes de JSON ${multibyte ? 'UTF-8 multibyte' : 'ASCII'} sem expor o corpo`, async () => {
       const resposta = await enviar('/api/orcamentos', corpoComBytes(limite + 1, multibyte))
