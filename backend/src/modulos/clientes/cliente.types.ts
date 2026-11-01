@@ -23,3 +23,26 @@ export type AtualizacaoCliente = Partial<Pick<Cliente, 'nome' | 'email' | 'telef
 export interface ClienteComSenha extends Cliente {
     senhaHash : string
 }
+
+export interface Endereco {
+    id: number
+    clienteId: number
+    apelido: string | null
+    cep: string
+    logradouro: string
+    numero: string
+    complemento: string | null
+    bairro: string
+    cidade: string
+    uf: string
+    principal: boolean
+    criadoEm: Date
+    atualizadoEm: Date
+}
+
+export type NovoEndereco = Pick<
+    Endereco,
+    'apelido' | 'cep' | 'logradouro' | 'numero' | 'complemento' | 'bairro' | 'cidade' | 'uf' | 'principal'
+>
+
+export type AtualizacaoEndereco = Partial<NovoEndereco>

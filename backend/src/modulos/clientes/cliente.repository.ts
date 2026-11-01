@@ -69,5 +69,23 @@ export const clienteRepository = {
     async atualizarSenha(id: number, senhaHash: string, executor: Queryable = db): Promise<void> {
         await executor.query('UPDATE clientes SET senha_hash = $2, atualizado_em = now() WHERE id = $1', [id, senhaHash])
     },
+    // Serializa as alterações de endereço do mesmo cliente (limite de 10 e troca de principal):
+    // dois pedidos simultâneos não passam juntos, o segundo espera o COMMIT do primeiro
+    async travarParaAlteracao(id: number, executor: Queryable): Promise<boolean> {
+        const { rows } = await executor.query('SELECT id FROM clientes WHERE id = $1 AND ativo FOR UPDATE', [id])
+        return rows.length > 0
+    },
+    // LGPD (D-23): a linha fica, porque as vendas apontam para ela; só os dados pessoais saem.
+    // Os CHECKs ck_clientes_anonimizado_* exigem exatamente esta combinação (sem e-mail, senha e telefone, inativo)
+    async anonimizar(id: number, executor: Queryable): Promise<boolean> {
+        const { rowCount } = await executor.query(
+            `UPDATE clientes
+             SET nome = 'Cliente removido', email = NULL, telefone = NULL, senha_hash = NULL,
+                 ativo = FALSE, anonimizado_em = now(), atualizado_em = now()
+             WHERE id = $1 AND anonimizado_em IS NULL`,
+            [id],
+        )
+        return rowCount === 1
+    },
 }
 

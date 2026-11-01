@@ -1,5 +1,6 @@
 import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
+import type { Queryable } from '../../utils/transacao.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
 import type { Cliente } from '../clientes/cliente.types.js'
 import {
@@ -16,6 +17,7 @@ import { gerarHash, verificarSenha } from '../clientes/senha.js'
 import type { DadosCadastro, DadosLogin } from './auth.types.js'
 import { gerarToken, hashToken } from './sessao.js'
 import { sessaoRepository } from './sessao.repository.js'
+import { tokenRepository } from './token.repository.js'
 
 const DURACAO_SESSAO_MS = 7 * 24 *60 *60 *1000
 const MSG_LOGIN_INVALIDO = 'Email ou senha incorretos.'
@@ -203,5 +205,10 @@ export const authService = {
       await clienteRepository.atualizarSenha(clienteId, novoHash, client)
       await sessaoRepository.excluirOutrasDoCliente(clienteId, hashToken(tokenAtual), client)
     })
+  },
+  // Apaga todas as sessões e tokens; usado ao apagar a conta (LGPD) e, na #38, pelo admin
+  async revogarAcessos(clienteId: number, executor: Queryable): Promise<void> {
+    await sessaoRepository.excluirTodasDoCliente(clienteId, executor)
+    await tokenRepository.excluirDoCliente(clienteId, executor)
   },
 }

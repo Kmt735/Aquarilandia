@@ -1,13 +1,7 @@
-import type { CookieOptions, Request, Response  } from "express";
+import type { Request, Response  } from "express";
 import { authService } from "./auth.service.js";
-import { env } from '../../config/env.js'
+import { opcoesCookie } from './sessao.js'
 
-   const opcoesCookie: CookieOptions = {
-     httpOnly: true,
-     secure: env.nodeEnv === 'production',
-     sameSite: 'lax',
-     path: '/',
-   }
 export const authController = {
     async cadastrar (req: Request, res: Response): Promise<void>{
         const cliente = await authService.cadastrar(req.body)
@@ -19,13 +13,7 @@ export const authController = {
       userAgent: req.get('user-agent')?.slice(0, 300) ?? null
     })
 
-    res.cookie('sid', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      expires: expiraEm,
-      path: '/'
-    })
+    res.cookie('sid', token, { ...opcoesCookie, expires: expiraEm })
 
     res.status(200).json(cliente)
   },
