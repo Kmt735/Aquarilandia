@@ -1,6 +1,6 @@
 import type { Request, Response  } from "express";
 import { authService } from "./auth.service.js";
-import { opcoesCookie } from './sessao.js'
+import { opcoesCookie } from './sessao.cookie.js'
 
 export const authController = {
     async cadastrar (req: Request, res: Response): Promise<void>{

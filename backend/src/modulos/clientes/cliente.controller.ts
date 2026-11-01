@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express'
 import { authService } from '../auth/auth.service.js'
-import { opcoesCookie } from '../auth/sessao.js'
+import { opcoesCookie } from '../auth/sessao.cookie.js'
 import { clienteService } from './cliente.service.js'
 
 // O `!` em req.usuario é seguro só porque toda rota /me passa antes pelo `autenticar`
