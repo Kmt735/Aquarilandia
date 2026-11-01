@@ -7,7 +7,8 @@ process.env.NODE_ENV = 'development'
 const { app } = await import('../src/app.ts')
 const { db } = await import('../src/config/db.ts')
 const { env } = await import('../src/config/env.ts')
-const { limiteCadastro, limiteLogin } = await import('../src/middlewares/rateLimit.ts')
+const { limiteCadastro, limiteLogin, limiteOrcamento } = await import('../src/middlewares/rateLimit.ts')
+const { orcamentoRepository } = await import('../src/modulos/orcamentos/orcamento.repository.ts')
 const { AppError } = await import('../src/utils/AppError.ts')
 const { authService } = await import('../src/modulos/auth/auth.service.ts')
 
@@ -19,7 +20,7 @@ describe('Ciclo 0 — Origin, CORS, rate limit e erros no código combinado', ()
   })
   beforeEach(() => {
     // Limpa só o estado de fixtures entre casos; configuração e limiares reais não são alterados.
-    limiteLogin.resetKey('127.0.0.1'); limiteCadastro.resetKey('127.0.0.1')
+    limiteLogin.resetKey('127.0.0.1'); limiteCadastro.resetKey('127.0.0.1'); limiteOrcamento.resetKey('127.0.0.1')
   })
   afterEach(() => mock.restoreAll())
   after(async () => {
@@ -34,6 +35,13 @@ describe('Ciclo 0 — Origin, CORS, rate limit e erros no código combinado', ()
   function semBanco() {
     return mock.method(db, 'query', async () => { throw new Error('Não acessar banco neste cenário') })
   }
+  // O orçamento é gravado pelo repository (PostgreSQL); aqui ele é simulado e o db continua proibido
+  function orcamentoSimulado() {
+    return mock.method(orcamentoRepository, 'inserir', async (dados) => (
+      { id: 1, ...dados, status: 'novo', criadoEm: new Date(), atualizadoEm: new Date() }
+    ))
+  }
+  const orcamentoValido = JSON.stringify({ nome: 'Pessoa Fictícia', telefone: '00900000000', servico: 'Outro' })
   for (const caminho of ['/api/auth/login', '/api/auth/cadastro', '/api/auth/logout', '/api/orcamentos']) {
     it(`recusa Origin ausente, null ou incorreto em ${caminho} antes do banco`, async () => {
       const consulta = semBanco()
@@ -47,7 +55,7 @@ describe('Ciclo 0 — Origin, CORS, rate limit e erros no código combinado', ()
     })
   }
   it('POST de orçamento continua público com Origin válido e sem sessão', async () => {
-    const consulta = semBanco()
+    const consulta = semBanco(); orcamentoSimulado()
     const resposta = await enviar('/api/orcamentos', JSON.stringify({ nome: 'Pessoa Fictícia', telefone: '00900000000',
       servico: 'Outro', mensagem: 'Fixture pública de integração' }))
     assert.equal(resposta.status, 201)
@@ -55,6 +63,31 @@ describe('Ciclo 0 — Origin, CORS, rate limit e erros no código combinado', ()
     assert.equal(consulta.mock.callCount(), 0)
     assert.equal(resposta.headers.get('access-control-allow-origin'), env.corsOrigin)
     assert.equal(resposta.headers.get('access-control-allow-credentials'), 'true')
+  })
+  it('limite real em /api/orcamentos: cinco pedidos válidos e o sexto 429, sem gravar o sexto', async () => {
+    const consulta = semBanco(); const inserir = orcamentoSimulado()
+    for (let i = 0; i < 5; i++) {
+      const resposta = await enviar('/api/orcamentos', orcamentoValido); assert.equal(resposta.status, 201); await resposta.json()
+    }
+    const resposta = await enviar('/api/orcamentos', orcamentoValido)
+    assert.equal(resposta.status, 429)
+    assert.deepEqual(await resposta.json(), { erro: 'Muitas tentativas. Tente de novo em alguns minutos. ' })
+    assert.ok(Number(resposta.headers.get('retry-after')) > 0)
+    assert.ok(resposta.headers.has('ratelimit'))
+    assert.equal(inserir.mock.callCount(), 5)
+    assert.equal(consulta.mock.callCount(), 0)
+  })
+  it('Origin e parser rejeitados não gastam o limite de /api/orcamentos; pedidos inválidos gastam', async () => {
+    const consulta = semBanco(); const inserir = orcamentoSimulado()
+    for (let i = 0; i < 6; i++) {
+      assert.equal((await enviar('/api/orcamentos', orcamentoValido, { origin: 'https://origem-invalida.example' })).status, 403)
+      assert.equal((await enviar('/api/orcamentos', '{')).status, 400)
+    }
+    for (let i = 0; i < 4; i++) assert.equal((await enviar('/api/orcamentos', '{}')).status, 422)
+    assert.equal((await enviar('/api/orcamentos', orcamentoValido)).status, 201)
+    assert.equal((await enviar('/api/orcamentos', orcamentoValido)).status, 429)
+    assert.equal(inserir.mock.callCount(), 1)
+    assert.equal(consulta.mock.callCount(), 0)
   })
   it('preflight permite a origem configurada e não autoriza origem arbitrária nem acessa sessão', async () => {
     const consulta = semBanco()

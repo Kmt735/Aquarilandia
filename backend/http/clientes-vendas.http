@@ -35,6 +35,135 @@ Origin: {{origem}}
     "mensagem": "Quero montar um aquario de 100 litros"
 }
 
+# ===== ORÇAMENTOS NO BANCO (POST, GET paginado e PATCH de status) =====
+# RATE LIMIT: o POST aceita 5 pedidos por hora por IP, CONTANDO os que deram certo (o 6º → 429).
+# Rode os blocos de POST com moderação ou reinicie o servidor para zerar o contador.
+# Limpeza: DELETE FROM orcamentos WHERE id IN (<ids dos testes>);
+
+# 201 - pedido válido: o telefone é salvo só com dígitos e o status nasce 'novo'
+###
+POST {{api}}/orcamentos
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "Pessoa Exemplo",
+  "telefone": "(00) 90000-0000",
+  "servico": "Manutenção",
+  "mensagem": "Aquário de 60 litros"
+}
+
+# 201 - campos do sistema são ignorados: id e status do body não valem (status fica 'novo')
+###
+POST {{api}}/orcamentos
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "id": 999,
+  "status": "concluido",
+  "nome": "Pessoa Exemplo",
+  "telefone": "00900000000",
+  "servico": "Outro"
+}
+
+# 422 - nome curto, telefone incompleto e serviço fora da lista (as mesmas mensagens de antes)
+###
+POST {{api}}/orcamentos
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "nome": "A",
+  "telefone": "123",
+  "servico": "Serviço inventado"
+}
+
+# 401 - listagem sem login
+###
+# @no-cookie-jar
+GET {{api}}/orcamentos
+
+# 403 - listagem como cliente
+###
+GET {{api}}/orcamentos
+Cookie: sid={{sessaoCliente}}
+
+# 200 - admin: { dados, total, pagina, limite }, os mais recentes primeiro
+###
+GET {{api}}/orcamentos?pagina=1&limite=20
+Cookie: sid={{sessaoAdmin}}
+
+# 200 - só os novos
+###
+GET {{api}}/orcamentos?status=novo
+Cookie: sid={{sessaoAdmin}}
+
+# 400 - status que não existe (detalhes.status)
+###
+GET {{api}}/orcamentos?status=xyz
+Cookie: sid={{sessaoAdmin}}
+
+# 400 - limite acima de 100 (detalhes.limite)
+###
+GET {{api}}/orcamentos?limite=500
+Cookie: sid={{sessaoAdmin}}
+
+@orcamentoId=SUBSTITUA_PELO_ID_DE_UM_ORCAMENTO
+
+# 200 - admin marca como em atendimento (só o status muda; nome e telefone do body são ignorados)
+###
+PATCH {{api}}/orcamentos/{{orcamentoId}}
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoAdmin}}
+
+{ "status": "em_atendimento", "nome": "Outro nome" }
+
+# 422 - status inválido (também sem trim: " novo " é recusado)
+###
+PATCH {{api}}/orcamentos/{{orcamentoId}}
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoAdmin}}
+
+{ "status": "aprovado" }
+
+# 400 - id que não é número
+###
+PATCH {{api}}/orcamentos/abc
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoAdmin}}
+
+{ "status": "concluido" }
+
+# 404 - id que não existe ('Orçamento não encontrado.')
+###
+PATCH {{api}}/orcamentos/999999
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoAdmin}}
+
+{ "status": "concluido" }
+
+# 403 - cliente não muda status
+###
+PATCH {{api}}/orcamentos/{{orcamentoId}}
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoCliente}}
+
+{ "status": "concluido" }
+
+# 403 - admin sem Origin
+###
+PATCH {{api}}/orcamentos/{{orcamentoId}}
+Content-Type: application/json
+Cookie: sid={{sessaoAdmin}}
+
+{ "status": "concluido" }
+
 
 ###
 get {{api}}/rota-que-nao-existe

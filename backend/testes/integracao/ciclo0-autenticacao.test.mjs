@@ -23,6 +23,7 @@ describe('Ciclo 0 — autenticação, limites e orçamento com PostgreSQL real',
     await cliente.query(`CREATE SCHEMA ${schema}`); schemaCriado = true
     await cliente.query(`SET search_path TO ${schema}`)
     await cliente.query(await readFile(new URL('../../db/init/10_clientes.sql', import.meta.url), 'utf8'))
+    await cliente.query(await readFile(new URL('../../db/init/15_orcamentos.sql', import.meta.url), 'utf8'))
     const hash = await gerarHash(senha)
     for (const papel of ['cliente', 'admin']) {
       const { rows } = await cliente.query('INSERT INTO clientes (nome,email,telefone,senha_hash,papel,aceitou_termos_em) VALUES ($1,$2,$3,$4,$5,now()) RETURNING id,email,papel',
@@ -112,8 +113,8 @@ describe('Ciclo 0 — autenticação, limites e orçamento com PostgreSQL real',
     const sessao = await login(admin)
     const r = await pedir('GET', '/api/orcamentos', undefined, { cookie: sessao.cookie })
     assert.equal(r.status, 200); assert.equal(r.headers.get('cache-control'), 'no-store')
-    const itens = await r.json(); assert.deepEqual(itens, [registro])
-    assert.deepEqual(Object.keys(itens[0]).sort(), ['id', 'criadoEm', 'nome', 'telefone', 'servico', 'mensagem'].sort())
+    const lista = await r.json(); assert.deepEqual(lista, { dados: [registro], total: 1, pagina: 1, limite: 20 })
+    assert.deepEqual(Object.keys(lista.dados[0]).sort(), ['id', 'criadoEm', 'atualizadoEm', 'nome', 'telefone', 'servico', 'mensagem', 'status'].sort())
     await cliente.query("UPDATE clientes SET papel='cliente' WHERE id=$1", [admin.id])
     try {
       await naoExpor(await pedir('GET', '/api/orcamentos', undefined, { cookie: sessao.cookie }), 403, Object.values(fixture))

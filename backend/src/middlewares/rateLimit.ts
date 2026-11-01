@@ -25,6 +25,15 @@ export const limiteCadastro = rateLimit({
   handler: responderLimite,
 })
 
+// Formulário público de orçamento: sem skipSuccessfulRequests, porque o abuso é mandar pedidos VÁLIDOS em massa
+export const limiteOrcamento = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: responderLimite,
+})
+
 // Quem roubar uma sessão não pode testar senhas atuais sem limite
 export const limiteTrocaSenha = rateLimit({
   windowMs: 15 * 60 * 1000,

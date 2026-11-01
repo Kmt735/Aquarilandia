@@ -19,6 +19,7 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
     await cliente.query(`CREATE SCHEMA ${schema}`); schemaCriado = true
     await cliente.query(`SET search_path TO ${schema}`)
     await cliente.query(await readFile(new URL('../../db/init/10_clientes.sql', import.meta.url), 'utf8'))
+    await cliente.query(await readFile(new URL('../../db/init/15_orcamentos.sql', import.meta.url), 'utf8'))
     for (const [chave, papel, ativo, validade] of [
       ['admin', 'admin', true, '1 hour'], ['cliente', 'cliente', true, '1 hour'],
       ['inativo', 'admin', false, '1 hour'], ['expirado', 'admin', true, '-1 hour'],
@@ -75,8 +76,8 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
   it('admin obtém somente os campos administrativos e a resposta não deve ser armazenada em cache', async () => {
     const resposta = await requisitar('admin')
     assert.equal(resposta.status, 200); assert.equal(resposta.headers.get('cache-control'), 'no-store')
-    assert.deepEqual(await resposta.json(), [criado])
-    assert.deepEqual(Object.keys(criado).sort(), ['id', 'criadoEm', 'nome', 'telefone', 'servico', 'mensagem'].sort())
+    assert.deepEqual(await resposta.json(), { dados: [criado], total: 1, pagina: 1, limite: 20 })
+    assert.deepEqual(Object.keys(criado).sort(), ['id', 'criadoEm', 'atualizadoEm', 'nome', 'telefone', 'servico', 'mensagem', 'status'].sort())
   })
   it('rebaixar o papel no banco bloqueia o mesmo cookie imediatamente; promover novamente restaura o acesso', async () => {
     assert.equal((await requisitar('mutavel')).status, 200)
@@ -101,13 +102,13 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
       assert.equal((await resposta.json()).nome, 'Outra pessoa sintética')
     } finally { await cliente.query('ALTER TABLE sessoes_indisponiveis RENAME TO sessoes') }
   })
-  for (const [method, sufixo] of [['GET', '/um-id'], ['PATCH', '/um-id'], ['DELETE', '/um-id']]) {
+  for (const [method, sufixo] of [['GET', '/um-id'], ['DELETE', '/um-id']]) {
     it(`${method} /orcamentos${sufixo} tem guarda administrativa, mas o CRUD segue ausente`, async () => {
       const caminho = `/api/orcamentos${sufixo}`
       await negar(await requisitar(null, method, caminho), 401)
       await negar(await requisitar('cliente', method, caminho), 403)
       assert.equal((await requisitar('admin', method, caminho)).status, 404)
-      const lista = await (await requisitar('admin')).json()
+      const lista = (await (await requisitar('admin')).json()).dados
       assert.deepEqual(lista.find((item) => item.id === criado.id), criado)
     })
   }
@@ -121,5 +122,48 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
     } finally {
       await cliente.query('ALTER TABLE sessoes_indisponiveis RENAME TO sessoes'); log.mock.restore()
     }
+  })
+  // PATCH real no PostgreSQL. Fica no fim porque muda o status do orçamento comparado nos casos acima.
+  function alterar(sessao, id, body, { comOrigem = true } = {}) {
+    const headers = { 'Content-Type': 'application/json' }
+    if (sessao) headers.Cookie = `sid=${tokens.get(sessao) ?? sessao}`
+    if (comOrigem) headers.Origin = origemCors
+    return fetch(`${origem}/api/orcamentos/${id}`, { method: 'PATCH', headers, body: JSON.stringify(body) })
+  }
+  const linha = async () => (await cliente.query(
+    'SELECT nome, telefone, status, criado_em < atualizado_em AS mudou FROM orcamentos WHERE id = $1', [criado.id])).rows[0]
+  it('PATCH: visitante 401, cliente 403 e admin sem Origin 403, sem mudar o banco', async () => {
+    const antes = await linha()
+    await negar(await alterar(null, criado.id, { status: 'concluido' }), 401)
+    await negar(await alterar('cliente', criado.id, { status: 'concluido' }), 403)
+    const semOrigem = await alterar('admin', criado.id, { status: 'concluido' }, { comOrigem: false })
+    assert.equal(semOrigem.status, 403)
+    assert.deepEqual(await semOrigem.json(), { erro: 'Origem da requisição não permitida.' })
+    assert.deepEqual(await linha(), antes)
+  })
+  it('PATCH: admin muda o status no banco, sem tocar em nome e telefone', async () => {
+    const resposta = await alterar('admin', criado.id, { status: 'em_atendimento', nome: 'Outro nome', telefone: '000' })
+    assert.equal(resposta.status, 200)
+    const corpo = await resposta.json()
+    assert.equal(corpo.status, 'em_atendimento'); assert.ok(new Date(corpo.atualizadoEm) > new Date(corpo.criadoEm))
+    assert.deepEqual(await linha(), { nome: fixture.nome, telefone: fixture.telefone, status: 'em_atendimento', mudou: true })
+    const filtrada = await (await requisitar('admin', 'GET', '/api/orcamentos?status=em_atendimento')).json()
+    assert.deepEqual(filtrada.dados.map((item) => item.id), [criado.id]); assert.equal(filtrada.total, 1)
+  })
+  it('PATCH: status inválido 422, id inválido 400 e inexistente 404, sem mudar o banco', async () => {
+    const antes = await linha()
+    for (const status of ['aprovado', ' novo ', undefined]) {
+      const resposta = await alterar('admin', criado.id, { status })
+      assert.equal(resposta.status, 422)
+      assert.deepEqual((await resposta.json()).detalhes, { status: 'Escolha um status válido: novo, em_atendimento ou concluido.' })
+    }
+    assert.equal((await alterar('admin', 'um-id', { status: 'novo' })).status, 400)
+    const inexistente = await alterar('admin', 999999, { status: 'novo' })
+    assert.equal(inexistente.status, 404); assert.deepEqual(await inexistente.json(), { erro: 'Orçamento não encontrado.' })
+    assert.deepEqual(await linha(), antes)
+  })
+  it('o CHECK do banco recusa status fora da lista', async () => {
+    await assert.rejects(cliente.query("UPDATE orcamentos SET status = 'xyz' WHERE id = $1", [criado.id]),
+      (err) => err.code === '23514' && err.constraint === 'ck_orcamentos_status')
   })
 })
