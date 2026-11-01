@@ -11,3 +11,5 @@ orcamentoRoutes.post('/', exigirOrigem, limiteOrcamento, orcamentoController.cri
 // Somente a criação é pública; consultas e futuros handlers administrativos ficam após a guarda (D-41).
 orcamentoRoutes.use(autenticar, exigirAdmin)
 orcamentoRoutes.get('/', orcamentoController.listar)
+// Escrita administrativa: exigirOrigem (CSRF) depois da guarda, como a D-41 prevê
+orcamentoRoutes.patch('/:id', exigirOrigem, orcamentoController.atualizarStatus)

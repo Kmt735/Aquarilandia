@@ -55,4 +55,18 @@ export const orcamentoService = {
     const { dados, total } = await orcamentoRepository.listar({ status, limite, offset: (pagina - 1) * limite })
     return { dados: dados.map(paraResposta), total, pagina, limite }
   },
+
+  async atualizarStatus(id: number, body: unknown): Promise<Orcamento> {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+    }
+
+    // Só o status pode mudar: nome, telefone, id etc. no body são ignorados
+    const { status } = body as Record<string, unknown>
+    if (!ehStatus(status)) throw new AppError('Dados inválidos', 422, { status: msgStatusInvalido })
+
+    const orcamento = await orcamentoRepository.atualizarStatus(id, status)
+    if (!orcamento) throw new AppError('Orçamento não encontrado.', 404)
+    return paraResposta(orcamento)
+  },
 }

@@ -1,5 +1,5 @@
 import { db } from '../../config/db.js'
-import type { FiltrosOrcamento, NovoOrcamento, Orcamento } from './orcamento.types.js'
+import type { FiltrosOrcamento, NovoOrcamento, Orcamento, StatusOrcamento } from './orcamento.types.js'
 
 const colunas = `id, nome, telefone, servico, mensagem, status,
   criado_em AS "criadoEm", atualizado_em AS "atualizadoEm"`
@@ -37,6 +37,14 @@ export const orcamentoRepository = {
 
   async buscarPorId(id: number): Promise<Orcamento | null> {
     const { rows } = await db.query<Orcamento>(`SELECT ${colunas} FROM orcamentos WHERE id = $1`, [id])
+    return rows[0] ?? null
+  },
+
+  async atualizarStatus(id: number, status: StatusOrcamento): Promise<Orcamento | null> {
+    const { rows } = await db.query<Orcamento>(
+      `UPDATE orcamentos SET status = $2, atualizado_em = now() WHERE id = $1 RETURNING ${colunas}`,
+      [id, status],
+    )
     return rows[0] ?? null
   },
 }
