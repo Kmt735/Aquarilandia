@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { opcoesServico } from '../../data/servicos.js'
-import type { NovoOrcamento, Orcamento } from '../../types/index.js'
 import { AppError } from '../../utils/AppError.js'
+import type { NovoOrcamento, Orcamento } from './orcamento.types.js'
 
 const orcamentos: Orcamento[] = []
 
