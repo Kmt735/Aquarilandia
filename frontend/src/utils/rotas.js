@@ -3,7 +3,8 @@ export const ROTAS = {
   loja: '/loja',
   peixes: '/peixes',
   compararPeixes: '/peixes/comparar',
-  primeiroAquario: '/primeiro-aquario',
+  primeiroAquario: '/meu-primeiro-aquario',
+  primeiroAquarioAntigo: '/primeiro-aquario',
   servicos: '/servicos',
   perguntas: '/perguntas-frequentes',
   politicas: '/politicas',
@@ -22,6 +23,13 @@ export function urlLoja({ categoria, disponibilidade } = {}) {
   if (disponibilidade) params.set('disponibilidade', disponibilidade)
   const query = params.toString()
   return query ? `${ROTAS.loja}?${query}` : ROTAS.loja
+}
+
+export function urlPeixes({ dificuldade } = {}) {
+  const params = new URLSearchParams()
+  if (dificuldade) params.set('dificuldade', dificuldade)
+  const query = params.toString()
+  return query ? `${ROTAS.peixes}?${query}` : ROTAS.peixes
 }
 
 export const urlCategoria = (nome) => (nome === 'Peixes' ? ROTAS.peixes : urlLoja({ categoria: nome }))

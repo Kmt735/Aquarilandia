@@ -2,6 +2,7 @@ import { ChevronDown, Clock, CreditCard, MapPin, QrCode } from 'lucide-react'
 import { Link } from 'react-router'
 import LogoCompleto from '../atoms/LogoCompleto'
 import WaterWave from '../atoms/WaterWave'
+import AquariumBackground from '../molecules/AquariumBackground'
 import WhatsAppIcon from '../icons/WhatsAppIcon'
 import { A_DEFINIR, AVISO_PAGAMENTO, formasPagamento, politicas, redes, unidades } from '../../data/loja'
 import useMediaQuery from '../../hooks/useMediaQuery'
@@ -10,6 +11,14 @@ import { ROTAS, urlPolitica } from '../../utils/rotas'
 
 const link = 'alvo-toque inline-block py-1 text-pequeno text-text-muted underline-offset-4 transition-colors hover:text-primary-text hover:underline'
 const ICONE_PAGAMENTO = { Cartão: CreditCard, PIX: QrCode }
+
+// Só as faixas vazias: o respiro acima das colunas e o lado direito da linha do copyright
+const RAIAS_PEIXES = [
+  { top: 6, de: 0, ate: 100, celular: true },
+  { bottom: 22, de: 56, ate: 98 },
+  { top: 24, de: 0, ate: 100, celular: true },
+  { bottom: 8, de: 56, ate: 98 },
+]
 
 // Rodapé completo (item 26 · crível): endereços, horário, Instagram, WhatsApp, pagamento e políticas.
 // No celular, cada grupo recolhe (<details>) para encurtar a página (item 19).
@@ -35,8 +44,9 @@ export default function Footer() {
   return (
     <footer>
       <WaterWave variante="rodape" />
-      <div className="bg-surface-tint">
-        <div className="mx-auto grid max-w-[1200px] gap-x-10 gap-y-2 px-4 pt-10 pb-8 sm:grid-cols-2 sm:gap-y-8 sm:px-6 desk:grid-cols-[1.3fr_1.2fr_1fr_1fr] desk:px-10">
+      <div className="agua-funda relative overflow-hidden bg-surface-tint">
+        <AquariumBackground raias={RAIAS_PEIXES} />
+        <div className="relative mx-auto grid max-w-[1200px] gap-x-10 gap-y-2 px-4 pt-10 pb-8 sm:grid-cols-2 sm:gap-y-8 sm:px-6 desk:grid-cols-[1.3fr_1.2fr_1fr_1fr] desk:px-10">
           <div className="pb-4 sm:pb-0">
             <LogoCompleto className="mb-3 h-16 w-auto" />
             <p className="max-w-[280px] text-pequeno text-text-muted">Peixes, plantas e projetos de aquários em São João del Rei/MG.</p>
@@ -124,7 +134,7 @@ export default function Footer() {
           </Grupo>
         </div>
 
-        <p className="mx-auto max-w-[1200px] border-t border-border-strong px-4 py-5 text-legenda text-text-muted sm:px-6 desk:px-10">
+        <p className="relative mx-auto max-w-[1200px] border-t border-border-strong px-4 py-5 text-legenda text-text-muted sm:px-6 desk:px-10">
           © {new Date().getFullYear()} Aquarilândia. Todos os direitos reservados.
         </p>
       </div>

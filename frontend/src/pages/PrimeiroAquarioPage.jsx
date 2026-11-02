@@ -1,46 +1,79 @@
 import { BookOpen, Play } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useLocation } from 'react-router'
 import Button from '../components/atoms/Button'
+import GuideStep from '../components/molecules/GuideStep'
+import IlustracaoAquario from '../components/molecules/IlustracaoAquario'
 import Faq from '../components/organisms/Faq'
 import Glossario from '../components/organisms/Glossario'
-import GuideBar from '../components/organisms/GuideBar'
-import GuideTimeline from '../components/organisms/GuideTimeline'
+import GuiaConteudo from '../components/organisms/GuiaConteudo'
+import GuiaResumo from '../components/organisms/GuiaResumo'
 import ProblemasComuns from '../components/organisms/ProblemasComuns'
 import SpecialistCta from '../components/organisms/SpecialistCta'
+import StepNav from '../components/organisms/StepNav'
 import PageTemplate from '../components/templates/PageTemplate'
 import { perguntasFrequentes } from '../data/faq'
 import { glossarioGuia } from '../data/glossario'
 import { passosGuia } from '../data/guia'
-import useToast from '../hooks/useToast'
+import useProgressoGuia from '../hooks/useProgressoGuia'
+import useReducedMotion from '../hooks/useReducedMotion'
+import useScrollSpy from '../hooks/useScrollSpy'
 import { ROTAS } from '../utils/rotas'
 
-// Termo do glossário ligado a cada etapa (sem mudar o formato de data/guia.js)
-const TERMO_DO_PASSO = { 'Prepare substrato e decoração': 'substrato', 'Faça a ciclagem': 'ciclagem', 'Teste a água': 'amonia' }
+const IDS = passosGuia.map((p) => p.id)
+
+// Depois do último passo vem o resumo
+const proximoDe = (i) =>
+  i < passosGuia.length - 1 ? { id: passosGuia[i + 1].id, rotulo: `Próximo passo: ${passosGuia[i + 1].titulo}` } : { id: 'resumo', rotulo: 'Ver o resumo' }
 
 export default function PrimeiroAquarioPage() {
-  const { state } = useLocation()
-  const [passo, setPasso] = useState(state?.iniciarGuia ? 0 : -1) // -1 = guia desligado
-  const { toast } = useToast()
-  const passos = passosGuia.map((p) => ({ ...p, termo: TERMO_DO_PASSO[p.titulo] }))
-  const ultimo = passo === passos.length - 1
+  const { hash } = useLocation()
+  const reduzido = useReducedMotion()
+  const ativo = useScrollSpy(IDS)
+  const [entendidos, alternarEntendido] = useProgressoGuia()
 
-  const encerrar = (concluido) => {
-    setPasso(-1)
-    if (concluido) toast('Guia concluído! Quando quiser, a loja pode montar o seu.', { tipo: 'sucesso' })
-  }
+  // A URL acompanha a rolagem sem criar histórico: voltar sai da página, não refaz a rolagem
+  useEffect(() => {
+    if (ativo) window.history.replaceState(window.history.state, '', `#${ativo}`)
+  }, [ativo])
+
+  // Link direto (/meu-primeiro-aquario#ciclagem): o MainLayout deixa essa rolagem para a página
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'instant' })
+  }, [hash])
+
+  const irPara = useCallback(
+    (id) => {
+      const secao = document.getElementById(id)
+      if (!secao) return
+      secao.scrollIntoView({ behavior: reduzido ? 'instant' : 'smooth' })
+      ;(secao.querySelector('h2[tabindex]') ?? secao).focus({ preventScroll: true })
+      window.history.replaceState(window.history.state, '', `#${id}`)
+    },
+    [reduzido],
+  )
 
   return (
     <PageTemplate
       eyebrow="Área educativa"
       titulo="Meu Primeiro Aquário"
-      descricao={`${passos.length} etapas simples para sair do zero até um aquário saudável, com as palavras difíceis explicadas.`}
+      descricao="Do zero ao primeiro peixe, passo a passo."
+      metaDescricao="Guia para iniciantes: equipamentos, ciclagem, qualidade da água, escolha dos peixes e manutenção, em 5 passos simples e com as palavras difíceis explicadas."
       trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Meu Primeiro Aquário' }]}
+      ilustracao={<IlustracaoAquario className="w-64 shrink-0 max-desk:hidden" />}
       cabecalhoExtra={
         <div className="mt-6 flex flex-wrap gap-3">
-          <Button tamanho="lg" onClick={() => setPasso(0)}>
-            <Play aria-hidden="true" />
-            {passo >= 0 ? 'Recomeçar o guia' : 'Iniciar o guia passo a passo'}
+          <Button tamanho="lg" asChild>
+            <a
+              href={`#${IDS[0]}`}
+              onClick={(e) => {
+                e.preventDefault()
+                irPara(IDS[0])
+              }}
+            >
+              <Play aria-hidden="true" />
+              Começar pelo passo 1
+            </a>
           </Button>
           <Button tamanho="lg" variant="secundario" asChild>
             <a href="#glossario">
@@ -51,22 +84,27 @@ export default function PrimeiroAquarioPage() {
         </div>
       }
     >
-      <section aria-labelledby="titulo-etapas" className="mx-auto max-w-[1200px] px-4 pt-12 pb-6 sm:px-6 desk:px-10">
-        <h2 id="titulo-etapas" className="mb-8 text-h2">
-          As {passos.length} etapas
-        </h2>
-        <GuideTimeline passos={passos} passoAtual={passo} />
-      </section>
-      {passo >= 0 && (
-        <GuideBar
-          passo={passo}
-          total={passos.length}
-          titulo={passos[passo].titulo}
-          onVoltar={() => setPasso((p) => Math.max(0, p - 1))}
-          onAvancar={() => (ultimo ? encerrar(true) : setPasso((p) => p + 1))}
-          onSair={() => encerrar(false)}
-        />
-      )}
+      <div className="mx-auto max-w-[1200px] px-4 sm:px-6 desk:grid desk:grid-cols-[230px_minmax(0,1fr)] desk:gap-12 desk:px-10">
+        <StepNav passos={passosGuia} ativo={ativo} entendidos={entendidos} onIr={irPara} />
+        <div className="min-w-0">
+          {passosGuia.map((passo, i) => (
+            <GuideStep
+              key={passo.id}
+              passo={passo}
+              numero={i + 1}
+              total={passosGuia.length}
+              anterior={passosGuia[i - 1]}
+              proximo={proximoDe(i)}
+              entendido={entendidos.includes(passo.id)}
+              onEntendi={alternarEntendido}
+              onIr={irPara}
+            >
+              <GuiaConteudo id={passo.id} />
+            </GuideStep>
+          ))}
+        </div>
+      </div>
+      <GuiaResumo passos={passosGuia} />
       <Glossario ids={glossarioGuia} />
       <ProblemasComuns />
       <Faq perguntas={perguntasFrequentes} link={{ to: ROTAS.perguntas, rotulo: 'Entrega, trocas e pagamento' }} />

@@ -44,7 +44,30 @@ export const termos = {
   amonia: { termo: 'Amônia e nitrito', texto: 'Substâncias tóxicas que surgem dos restos de ração e das fezes. Precisam estar em zero antes de colocar os peixes.' },
   nitrato: { termo: 'Nitrato', texto: 'O que sobra depois que as bactérias do filtro transformam a amônia. É bem menos tóxico e sai nas trocas parciais de água.' },
   plantado: { termo: 'Aquário plantado', texto: 'Aquário montado com plantas vivas como parte principal do cenário (aquapaisagismo).' },
+  // TODO: validar com a loja — termos novos do guia
+  termostato: { termo: 'Termostato/aquecedor', texto: 'O aquecedor esquenta a água e o termostato controla a temperatura. Muitos modelos já vêm com os dois juntos.' },
+  parametros: { termo: 'Parâmetros', texto: 'As medidas que mostram como está a água, como pH, amônia, nitrito e nitrato.' },
+  nitrito: { termo: 'Nitrito', texto: 'Substância tóxica que surge quando as bactérias transformam a amônia. Precisa estar em zero antes de colocar os peixes.' },
+  ppm: { termo: 'ppm', texto: 'Partes por milhão: a unidade usada nos testes para mostrar quanto de uma substância há na água.' },
+  trocaParcial: { termo: 'Troca parcial', texto: 'Tirar só uma parte da água do aquário e repor com água nova, tratada com condicionador. Nunca troque toda a água de uma vez.' },
+  aclimatacao: { termo: 'Aclimatação', texto: 'Acostumar o peixe aos poucos com a água do aquário, para ele não sofrer com a mudança de temperatura e de pH.' },
 }
 
 // Ordem do glossário na página "Meu Primeiro Aquário"
-export const glossarioGuia = ['ciclagem', 'substrato', 'condicionador', 'ph', 'amonia', 'nitrato', 'aquarioMinimo', 'temperamento', 'plantado']
+export const glossarioGuia = [
+  'ciclagem',
+  'substrato',
+  'termostato',
+  'condicionador',
+  'parametros',
+  'ph',
+  'ppm',
+  'amonia',
+  'nitrito',
+  'nitrato',
+  'trocaParcial',
+  'aclimatacao',
+  'aquarioMinimo',
+  'temperamento',
+  'plantado',
+]

@@ -13,7 +13,7 @@ export default function GuideCta() {
       titulo="Nunca teve um aquário? Comece aqui."
       texto={`Um passo a passo em ${passosGuia.length} etapas, do zero à manutenção, com as palavras difíceis explicadas.`}
       acoes={
-        <Button tamanho="lg" onClick={() => navigate(ROTAS.primeiroAquario, { state: { iniciarGuia: true } })}>
+        <Button tamanho="lg" onClick={() => navigate(`${ROTAS.primeiroAquario}#${passosGuia[0].id}`)}>
           Começar o guia
         </Button>
       }
