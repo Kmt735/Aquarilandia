@@ -7,13 +7,15 @@ import { precoEmCentavos } from '../utils/dinheiro'
 import { CartContext } from './contexts'
 
 const AVISO_FALHA = 'Não conseguimos conferir todos os produtos. Eles foram preservados para tentar novamente, sem usar preços salvos.'
-const chaveConferencia = (registros, revisao, aberto) => JSON.stringify([registros.map((r) => r.id), revisao, aberto])
+// Rede de segurança: qualquer formato inesperado vira lista vazia em vez de derrubar a página.
+const lista = (valor) => (Array.isArray(valor) ? valor : [])
+const chaveConferencia =(registros, revisao, aberto) => JSON.stringify([registros.map((r) => r.id), revisao, aberto])
 function estadoInicial() {
   let lido
   try { lido = lerCarrinhoSalvo(localStorage.getItem(CHAVE_CARRINHO)) } catch {
     lido = { registros: [], avisos: ['Não foi possível ler o carrinho neste navegador.'], bloqueado: false }
   }
-  return { ...lido, revisao: 0, conferida: null }
+  return { registros: lista(lido?.registros), avisos: lista(lido?.avisos), bloqueado: lido?.bloqueado === true, revisao: 0, conferida: null }
 }
 
 export default function CartProvider({ children }) {
@@ -102,16 +104,17 @@ export default function CartProvider({ children }) {
   const limpar = useCallback(() => setEstado({ registros: [], avisos: [], bloqueado: false, revisao: 0, conferida: null }), [])
 
   const value = useMemo(() => {
-    const linhas = estado.registros.filter((r) => r.item?.emEstoque && !r.erro)
-    const pendentes = estado.registros.filter((r) => !r.item || r.erro).length
+    const registros = lista(estado.registros)
+    const linhas = registros.filter((r) => r?.item?.emEstoque && !r.erro)
+    const pendentes = registros.filter((r) => !r?.item || r.erro).length
     return {
-      linhas, bump, conferindo, pendentes, avisos: estado.avisos, bloqueado: estado.bloqueado,
+      linhas, bump, conferindo, pendentes, avisos: lista(estado.avisos), bloqueado: estado.bloqueado,
       podeContinuar: !conferindo && !estado.bloqueado && !pendentes && linhas.length > 0,
-      quantidade: estado.registros.reduce((s, r) => s + r.qtd, 0),
+      quantidade: registros.reduce((s, r) => s + (r?.qtd || 0), 0),
       // Apresentação/frete do protótipo ainda recebem reais; itens e somas usam centavos.
-      total: linhas.reduce((s, l) => s + precoEmCentavos(l.item) * l.qtd, 0) / 100,
+      total: linhas.reduce((s, l) => s + (precoEmCentavos(l.item) || 0) * l.qtd, 0) / 100,
       temPeixe: linhas.some((l) => l.item.tipo === 'peixe'),
-      qtdNoCarrinho: (id) => estado.registros.find((r) => r.id === id)?.qtd ?? 0,
+      qtdNoCarrinho: (id) => registros.find((r) => r?.id === id)?.qtd ?? 0,
       adicionar, definirQtd, remover, limpar, revalidar,
     }
   }, [estado, bump, conferindo, adicionar, definirQtd, remover, limpar, revalidar])

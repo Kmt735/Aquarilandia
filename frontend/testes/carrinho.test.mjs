@@ -51,6 +51,18 @@ for (const bruto of ['{json-incompleto', 'null', '42', '{}', '{"versao":2,"itens
     const r = lerCarrinhoSalvo(bruto); assert.deepEqual(r.registros, []); assert.ok(r.avisos.length)
   })
 }
+for (const bruto of ['null', '"texto"', '42', 'true', '{}', '{"qualquer":1}', '']) {
+  test(`valor sem itens vira carrinho vazio utilizável, sem bloquear: ${JSON.stringify(bruto)}`, () => {
+    const r = lerCarrinhoSalvo(bruto); assert.deepEqual(r.registros, []); assert.equal(r.bloqueado, false)
+  })
+}
+for (const chave of ['itens', 'items']) {
+  test(`objeto antigo sem versão ({ ${chave}: [...] }) é migrado`, () => {
+    const r = lerCarrinhoSalvo(JSON.stringify({ [chave]: [{ id: 12, qtd: 2, item: { id: 12, preco: 10 } }, { id: 'antigo', qtd: 1 }] }))
+    assert.equal(r.bloqueado, false); assert.deepEqual(formatoParaSalvar(r.registros).itens, [{ id: 12, qtd: 2 }])
+    assert.ok(r.avisos.some((a) => a.includes('atualizado')))
+  })
+}
 test('versão futura é preservada, não migrada ou apagada automaticamente', () => {
   const r = lerCarrinhoSalvo('{"versao":3,"itens":[{"id":12,"qtd":1}]}')
   assert.equal(r.bloqueado, true); assert.ok(r.avisos[0].includes('preservado'))

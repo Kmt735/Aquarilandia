@@ -1,8 +1,7 @@
-import { ArrowRight, Fish } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router'
-import Button from '../atoms/Button'
 import CardItem, { CardItemSkeleton } from '../molecules/CardItem'
-import EmptyState from '../molecules/EmptyState'
+import ErroCompacto from '../molecules/ErroCompacto'
 import SectionHead from '../molecules/SectionHead'
 import useCart from '../../hooks/useCart'
 import useUI from '../../hooks/useUI'
@@ -25,9 +24,7 @@ export default function Vitrine({ id, eyebrow, titulo, descricao, consulta, verT
     <section aria-labelledby={id} className="mx-auto max-w-[1200px] px-4 py-14 sm:px-6 desk:px-10 desk:py-20">
       <SectionHead id={id} eyebrow={eyebrow} titulo={titulo} descricao={descricao} />
       {erro ? (
-        <EmptyState tom="erro" icone={<Fish />} titulo="Não conseguimos carregar agora" acoes={<Button onClick={recarregar}>Tentar de novo</Button>}>
-          Confira sua conexão e tente de novo.
-        </EmptyState>
+        <ErroCompacto onTentar={recarregar}>Não conseguimos carregar os peixes agora. Confira sua conexão e tente de novo.</ErroCompacto>
       ) : (
         <ul aria-busy={carregando} className={`${lista} ${COLUNAS[total] ?? 'desk:grid-cols-4'}`}>
           {carregando
