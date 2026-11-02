@@ -33,17 +33,17 @@ export const categoriasDestaque = [
 
 export const disponibilidades = [
   { valor: 'in', rotulo: 'Em estoque' },
-  { valor: 'out', rotulo: 'Sob encomenda' },
+  { valor: 'out', rotulo: 'Esgotado' },
 ]
 
 export const faixasPreco = [
-  { valor: 'ate-50', rotulo: 'Até R$ 49,99', min: 0, max: 50 },
-  { valor: '50-200', rotulo: 'R$ 50 a R$ 199,99', min: 50, max: 200 },
-  { valor: 'acima-200', rotulo: 'R$ 200 ou mais', min: 200, max: Infinity },
+  { valor: 'ate-50', rotulo: 'Até R$ 49,99', min: 0, max: 4999 },
+  { valor: '50-200', rotulo: 'R$ 50 a R$ 199,99', min: 5000, max: 19999 },
+  { valor: 'acima-200', rotulo: 'R$ 200 ou mais', min: 20000, max: Infinity },
 ]
 
 export const ordenacoes = [
-  { valor: 'padrao', rotulo: 'Mais relevantes' },
+  { valor: 'padrao', rotulo: 'Nome (padrão)' },
   { valor: 'menor-preco', rotulo: 'Menor preço' },
   { valor: 'maior-preco', rotulo: 'Maior preço' },
   { valor: 'a-z', rotulo: 'Nome: A a Z' },

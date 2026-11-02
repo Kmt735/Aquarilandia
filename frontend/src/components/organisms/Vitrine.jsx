@@ -55,6 +55,7 @@ export default function Vitrine({ id, eyebrow, titulo, descricao, consulta, verT
           </li>
         </ul>
       )}
+      {!carregando && !erro && !itens.length && <p role="status" className="mt-3 text-pequeno text-text-muted">Nenhum peixe disponível no momento.</p>}
       {carregando && <p className="sr-only">Carregando…</p>}
     </section>
   )

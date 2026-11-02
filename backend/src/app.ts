@@ -9,7 +9,8 @@ import { routes } from './routes/index.js'
 export const app = express()
 if (env.nodeEnv === 'production') app.set('trust proxy', 1)
 app.use(cors({ origin: env.corsOrigin, credentials: true }))
-app.use(express.json())
+// Defesa mantida após a atualização do body-parser: JSON de até 100 KiB, sem descompressão.
+app.use(express.json({ limit: '100kb', inflate: false }))
 app.use(cookieParser())
 app.use('/api', routes)
 

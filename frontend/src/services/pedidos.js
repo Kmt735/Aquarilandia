@@ -30,7 +30,7 @@ export async function criarPedido({ linhas, entrega }) {
     criadoEm: new Date().toISOString(),
     status: 'aguardando_pagamento',
     entrega,
-    itens: linhas.map((l) => ({ id: l.id, nome: l.item.nome, tipo: l.item.tipo, categoria: l.item.categoria, preco: l.item.preco, qtd: l.qtd })),
+    itens: linhas.map((l) => ({ id: l.id, nome: l.item.nome, tipo: l.item.tipo, categoria: l.item.categoria, preco: l.item.preco, centavos: l.item.centavos, qtd: l.qtd })),
     historico: [{ status: 'aguardando_pagamento', em: new Date().toISOString() }],
     rastreio: null,
   }

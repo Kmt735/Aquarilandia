@@ -11,15 +11,15 @@ import useConsulta from '../hooks/useConsulta'
 import useDestaque from '../hooks/useDestaque'
 import useFiltrosUrl from '../hooks/useFiltrosUrl'
 import { listarPeixes } from '../services/catalogo'
-import { opcoesDe, ordenarItens, paginar } from '../utils/catalogo'
-import { normalizar } from '../utils/format'
+import { TEMPERAMENTO, DIFICULDADE } from '../services/catalogo-mapeamento'
 import { ROTAS } from '../utils/rotas'
 
 const POR_PAGINA = 9
 const AGUA = [
-  { valor: '', rotulo: 'Doce e salgada' },
+  { valor: '', rotulo: 'Todos os tipos' },
   { valor: 'doce', rotulo: 'Água doce' },
-  { valor: 'salgada', rotulo: 'Água salgada' },
+  { valor: 'marinho', rotulo: 'Água salgada' },
+  { valor: 'salobra', rotulo: 'Água salobra' },
 ]
 const DISPONIBILIDADE = [
   { valor: '', rotulo: 'Todos' },
@@ -29,29 +29,18 @@ const DISPONIBILIDADE = [
 
 export default function PeixesPage() {
   const [f, aplicar, limpar] = useFiltrosUrl(['agua', 'temperamento', 'dificuldade', 'disponibilidade', 'preco', 'ordem', 'busca', 'pagina'])
-  const { dados, carregando, erro, recarregar } = useConsulta(listarPeixes)
+  const { dados, carregando, erro, recarregar } = useConsulta(() => listarPeixes({ ...f, limite: POR_PAGINA }), [JSON.stringify(f)])
   const [comparar, setComparar] = useState([])
   useDestaque()
 
-  const todos = dados ?? []
   const faixa = faixasPreco.find((x) => x.valor === f.preco)
-  const termo = normalizar(f.busca.trim())
-  const filtrados = todos.filter(
-    (p) =>
-      (!f.agua || p.filtros.agua === f.agua) &&
-      (!f.temperamento || p.filtros.temperamento === f.temperamento) &&
-      (!f.dificuldade || p.filtros.dificuldade === f.dificuldade) &&
-      (!f.disponibilidade || p.disponibilidade === f.disponibilidade) &&
-      (!faixa || (p.preco >= faixa.min && p.preco < faixa.max)) &&
-      (!termo || normalizar(`${p.nome} ${p.cientifico} ${p.combinaCom.join(' ')}`).includes(termo)),
-  )
-  const { pagina, totalPaginas, itens } = paginar(ordenarItens(filtrados, f.ordem), f.pagina, POR_PAGINA)
+  const { pagina = 1, totalPaginas = 1, itens = [], total = 0 } = dados ?? {}
+  const opcao = (valores, todosRotulo) => [{ valor: '', rotulo: todosRotulo }, ...Object.entries(valores).map(([valor, rotulo]) => ({ valor, rotulo }))]
 
-  const opcao = (valores, todosRotulo) => [{ valor: '', rotulo: todosRotulo }, ...valores.map((v) => ({ valor: v, rotulo: v }))]
   const ativos = [
     AGUA.find((a) => a.valor === f.agua && a.valor)?.rotulo,
-    f.temperamento,
-    f.dificuldade,
+    TEMPERAMENTO[f.temperamento],
+    DIFICULDADE[f.dificuldade],
     DISPONIBILIDADE.find((d) => d.valor === f.disponibilidade && d.valor)?.rotulo,
     faixa?.rotulo,
     f.busca.trim() && `“${f.busca.trim()}”`,
@@ -60,8 +49,8 @@ export default function PeixesPage() {
   const filtros = (
     <>
       <FilterGroup titulo="Tipo de água" nome="agua" itens={AGUA} ativo={f.agua} onSelecionar={(v) => aplicar({ agua: v })} />
-      <FilterGroup titulo="Temperamento" nome="temperamento" itens={opcao(opcoesDe(todos, (p) => p.filtros.temperamento), 'Todos')} ativo={f.temperamento} onSelecionar={(v) => aplicar({ temperamento: v })} />
-      <FilterGroup titulo="Dificuldade" nome="dificuldade" itens={opcao(opcoesDe(todos, (p) => p.filtros.dificuldade), 'Todas')} ativo={f.dificuldade} onSelecionar={(v) => aplicar({ dificuldade: v })} />
+      <FilterGroup titulo="Temperamento" nome="temperamento" itens={opcao(TEMPERAMENTO, 'Todos')} ativo={f.temperamento} onSelecionar={(v) => aplicar({ temperamento: v })} />
+      <FilterGroup titulo="Dificuldade" nome="dificuldade" itens={opcao(DIFICULDADE, 'Todas')} ativo={f.dificuldade} onSelecionar={(v) => aplicar({ dificuldade: v })} />
       <FilterGroup titulo="Disponibilidade" nome="disponibilidade" itens={DISPONIBILIDADE} ativo={f.disponibilidade} onSelecionar={(v) => aplicar({ disponibilidade: v })} />
       <FilterGroup titulo="Preço" nome="preco" itens={[{ valor: '', rotulo: 'Qualquer preço' }, ...faixasPreco]} ativo={f.preco} onSelecionar={(v) => aplicar({ preco: v })} />
     </>
@@ -85,7 +74,7 @@ export default function PeixesPage() {
         filtros={filtros}
         ativos={ativos}
         onLimpar={limpar}
-        total={filtrados.length}
+        total={erro ? 0 : total}
         carregando={carregando}
         unidade={{ singular: 'peixe', plural: 'peixes' }}
       >

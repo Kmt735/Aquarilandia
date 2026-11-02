@@ -7,32 +7,31 @@ import StatusBadge from '../components/atoms/StatusBadge'
 import Termo from '../components/atoms/Termo'
 import EmptyState from '../components/molecules/EmptyState'
 import PageTemplate from '../components/templates/PageTemplate'
-import { encontrarItem } from '../services/catalogo'
+import useConsulta from '../hooks/useConsulta'
+import { obterPeixe } from '../services/catalogo'
 import { ROTAS, urlPeixe } from '../utils/rotas'
 
 // Comparação lado a lado de até 3 peixes (item 6 · reconhecer em vez de lembrar; itens 30 e 31)
 const LINHAS = [
-  { termo: 'tipoAgua', rotulo: 'Tipo de água', ler: (p) => p.ficha.tipoAgua },
-  { termo: 'temperatura', rotulo: 'Temperatura', ler: (p) => p.ficha.temperatura },
-  { termo: 'ph', rotulo: 'pH', ler: (p) => p.ficha.ph },
-  { termo: 'temperamento', rotulo: 'Temperamento', ler: (p) => p.ficha.temperamento },
-  { termo: 'aquarioMinimo', rotulo: 'Aquário mínimo', ler: (p) => p.ficha.aquarioMinimo && `${p.ficha.aquarioMinimo} L` },
-  { termo: 'tamanhoAdulto', rotulo: 'Tamanho adulto', ler: (p) => p.ficha.tamanhoAdulto },
-  { termo: 'dificuldade', rotulo: 'Dificuldade', ler: (p) => p.ficha.dificuldade?.rotulo },
+  { termo: 'tipoAgua', rotulo: 'Tipo de água', ler: (p) => p.ficha?.tipoAgua },
+  { termo: 'temperatura', rotulo: 'Temperatura', ler: (p) => p.ficha?.temperatura },
+  { termo: 'ph', rotulo: 'pH', ler: (p) => p.ficha?.ph },
+  { termo: 'temperamento', rotulo: 'Temperamento', ler: (p) => p.ficha?.temperamento },
+  { termo: 'aquarioMinimo', rotulo: 'Aquário mínimo', ler: (p) => p.ficha?.aquarioMinimo && `${p.ficha?.aquarioMinimo} L` },
+  { termo: 'tamanhoAdulto', rotulo: 'Tamanho adulto', ler: (p) => p.ficha?.tamanhoAdulto },
+  { termo: 'dificuldade', rotulo: 'Dificuldade', ler: (p) => p.ficha?.dificuldade?.rotulo },
 ]
 
 export default function CompararPeixesPage() {
   const [params] = useSearchParams()
-  const peixes = (params.get('ids') ?? '')
-    .split(',')
-    .map(encontrarItem)
-    .filter((p) => p?.tipo === 'peixe')
-    .slice(0, 3)
+  const ids = [...new Set((params.get('ids') ?? '').split(',').filter(Boolean))].slice(0, 3)
+  const { dados, carregando, erro, recarregar } = useConsulta(() => Promise.all(ids.map(obterPeixe)), [ids.join(',')])
+  const peixes = dados ?? []
 
   return (
     <PageTemplate titulo="Comparar peixes" trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Loja', to: ROTAS.loja }, { rotulo: 'Peixes', to: ROTAS.peixes }, { rotulo: 'Comparar' }]}>
       <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6 desk:px-10">
-        {peixes.length < 2 ? (
+        {carregando ? <p role="status">Carregando a comparação…</p> : erro ? <EmptyState tom="erro" titulo="Não conseguimos carregar a comparação" acoes={<Button onClick={recarregar}>Tentar de novo</Button>}>Um peixe pode ter saído do catálogo. <Link to={ROTAS.peixes}>Escolher peixes</Link></EmptyState> : peixes.length < 2 ? (
           <EmptyState icone={<Columns3 />} titulo="Escolha pelo menos 2 peixes" acoes={<Button asChild><Link to={ROTAS.peixes}>Escolher peixes</Link></Button>}>
             Na lista de peixes, marque “Comparar” em até 3 cards.
           </EmptyState>
@@ -52,7 +51,7 @@ export default function CompararPeixesPage() {
                         {p.nome}
                       </Link>
                       <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <Preco valor={p.preco} tamanho="sm" />
+                        <Preco centavos={p.centavos} valor={p.preco} tamanho="sm" />
                         <StatusBadge tipo={p.disponibilidade} />
                       </div>
                     </th>

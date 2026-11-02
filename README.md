@@ -66,11 +66,12 @@ A conexão vem de `DATABASE_URL` no `.env`; o pool fica em `src/config/db.ts`. O
 | GET | `/api/produtos?categoria=&busca=&preco_min=&preco_max=&ordem=&pagina=1&limite=20` | Produtos ativos, filtros gerais e técnicos por ficha; resposta `{ itens, total }` e centavos |
 | GET | `/api/produtos/:id` | Produto ativo do PostgreSQL, ID numérico, centavos e ficha técnica da categoria |
 | POST | `/api/produtos` | Admin: cria produto e ficha na mesma transação, estoque inicial zero, retorna `201` |
+| PATCH | `/api/produtos/:id` | Admin: edita parcialmente produto/ficha; categoria, estoque e ativo protegidos; retorna `200` |
 | GET | `/api/peixes?temperatura=&ph=&tamanho_max=&aquario_litros=&dificuldade=&temperamento=&tipo_agua=&busca=&pagina=1&limite=20` | Produtos ativos da categoria peixes com ficha, resposta `{ itens, total }` |
 | GET | `/api/peixes/:id` | Mesmo ID e detalhe do produto, restrito a peixes com ficha |
 | GET | `/api/servicos` | Serviços |
 | POST | `/api/orcamentos` | Cria pedido de orçamento (`nome`, `telefone`, `servico`, `mensagem?`) |
-| GET | `/api/orcamentos` | Lista orçamentos recebidos |
+| GET | `/api/orcamentos` | Somente admin com sessão `sid`; dados de atendimento, sem cache |
 
 As rotas de categorias, a listagem e o detalhe de produtos e os atalhos de peixes já consultam o PostgreSQL.
 Escritas de categorias exigem o cookie `sid` de admin e `Origin` igual a `CORS_ORIGIN`.
@@ -84,5 +85,7 @@ Contrato da listagem de produtos: [`backend/api.md`](backend/api.md#produtos--li
 Filtros técnicos e ambiguidades do modelo: [`backend/api.md`](backend/api.md#produtos--filtros-técnicos-implementados-em-25102026).
 Contrato do detalhe: [`backend/api.md`](backend/api.md#produtos--detalhe-público-implementado-em-25102026).
 Contrato do cadastro: [`backend/api.md`](backend/api.md#produtos--cadastro-administrativo-implementado-em-25102026).
+Contrato da edição: [`backend/api.md`](backend/api.md#produtos--edição-parcial-implementada-em-26102026).
+Revisão de segurança: [`backend/docs/seguranca-backend-2026-10-26.md`](backend/docs/seguranca-backend-2026-10-26.md).
 Contrato dos atalhos de peixes: [`backend/api.md`](backend/api.md#peixes--atalhos-públicos-implementados-em-25102026).
 Verificações dos incrementos: [`backend/testes/README.md`](backend/testes/README.md).

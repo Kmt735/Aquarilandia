@@ -31,6 +31,7 @@ export const iconeCategoria = {
   Termostatos: ThermometerSun,
   Rações: Wheat,
   Condicionadores: FlaskConical,
+  'Condicionadores e medicamentos': FlaskConical,
   Substratos: Mountain,
   Plantas: LeafyGreen,
   Decorações: Castle,

@@ -122,12 +122,12 @@ describe('POST /api/produtos — PostgreSQL e sessões reais', {
     assert.equal(usuario.papel, 'cliente')
     assert.equal('senhaHash' in usuario, false)
     const duplicado = await fetch(`${origem}/api/auth/cadastro`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados),
+      method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origemCors }, body: JSON.stringify(dados),
     })
     assert.equal(duplicado.status, 409)
     async function login(senha) {
       return fetch(`${origem}/api/auth/login`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: dados.email, senha }),
+        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origemCors }, body: JSON.stringify({ email: dados.email, senha }),
       })
     }
     assert.equal((await login('SenhaErrada')).status, 401)
@@ -336,7 +336,7 @@ describe('POST /api/produtos — PostgreSQL e sessões reais', {
     const peixes = await ler('/api/peixes?temperatura=24.5&ph=6&busca=Betta&limite=100')
     assert.equal(peixes.total, 2)
     for (const peixe of peixes.itens) assert.deepEqual(await ler(`/api/produtos/${peixe.id}`), await ler(`/api/peixes/${peixe.id}`))
-    assert.equal((await fetch(`${origem}/api/produtos?incluir_inativos=true`)).status, 400)
+    assert.equal((await fetch(`${origem}/api/produtos?incluir_inativos=true`)).status, 401)
     assert.equal((await fetch(`${origem}/api/produtos/peixe-textual`)).status, 400)
     assert.equal((await fetch(`${origem}/api/categorias/2147483647`)).status, 404)
   })

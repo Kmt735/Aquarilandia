@@ -46,7 +46,7 @@ export default function CardItem({ item, onAdicionar, onAviseMe, nivelTitulo = 3
         )}
 
         <div className="mt-auto pt-4">
-          <Preco valor={item.preco} />
+          <Preco centavos={item.centavos} valor={item.preco} />
           {item.prazoEncomenda && <p className="text-legenda text-text-muted">Prazo: {item.prazoEncomenda}</p>}
         </div>
 

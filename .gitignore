@@ -3,3 +3,8 @@ dist
 .env
 *.log
 .DS_Store
+API_Aquarilandia_Rotas.pdf
+
+# Relatórios locais de testes do navegador
+frontend/test-results/
+frontend/playwright-report/

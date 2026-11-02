@@ -29,6 +29,8 @@ export interface FiltrosProdutos {
   indicadoPlantado?: boolean
   precisaCo2?: boolean
   iluminacao?: 'baixa' | 'media' | 'alta'
+  // Aceito somente no caminho administrativo autenticado.
+  ativo?: boolean
 }
 
 export interface ListaProdutos {
@@ -42,3 +44,16 @@ export interface DetalheProduto extends ProdutoPublico {
 export type NovoProduto = Pick<ProdutoPublico, 'categoriaId' | 'nome' | 'descricao' | 'marca' | 'preco'> & {
   ficha: FichaTecnica | null
 }
+
+// A forma é validada antes do lock; os valores só são aceitos após validar o estado final.
+export interface AtualizacaoProduto {
+  nome?: unknown
+  descricao?: unknown
+  marca?: unknown
+  preco?: unknown
+  ficha?: { dados: Record<string, unknown> }
+}
+
+export interface ProdutoAdministrativo extends ProdutoPublico { ativo: boolean }
+export interface ListaProdutosAdministrativos { itens: ProdutoAdministrativo[]; total: number }
+export interface DetalheProdutoAdministrativo extends DetalheProduto { ativo: boolean }

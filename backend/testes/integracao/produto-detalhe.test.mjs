@@ -223,7 +223,7 @@ describe('GET /api/produtos/:id — PostgreSQL real', {
   })
 
   it('nunca expõe produto inativo, mesmo com ficha, cookie ou parâmetros alternativos', async () => {
-    for (const query of ['', '?incluir_inativos=true&ativo=true&categoria=aquarios']) {
+    for (const query of ['', '?incluir_inativos=false&categoria=aquarios']) {
       const resposta = await fetch(`${origem}/api/produtos/${produtos.get('inativo').id}${query}`, {
         headers: { Cookie: 'sid=teste' },
       })

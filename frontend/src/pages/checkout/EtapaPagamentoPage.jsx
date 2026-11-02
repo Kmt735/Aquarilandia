@@ -23,7 +23,7 @@ export default function EtapaPagamentoPage() {
 
   if (!rascunho.entrega?.tipo) return <Navigate to={urlEtapaCheckout('entrega')} replace />
   const { entrega } = rascunho
-  const itens = linhas.map((l) => ({ id: l.id, nome: l.item.nome, preco: l.item.preco, qtd: l.qtd }))
+  const itens = linhas.map((l) => ({ id: l.id, nome: l.item.nome, preco: l.item.preco, centavos: l.item.centavos, qtd: l.qtd }))
 
   const pagar = async () => {
     setEnviando(true)

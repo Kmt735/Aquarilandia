@@ -94,11 +94,11 @@ export default function PeixeDetalhePage() {
       <div className="mx-auto max-w-[1200px] px-4 py-12 sm:px-6 desk:px-10">
         <h1 className="sr-only">Peixe não encontrado</h1>
         <EmptyState
-          tom={erro.status === 404 ? 'vazio' : 'erro'}
+          tom={[400, 404].includes(erro.status) ? 'vazio' : 'erro'}
           icone={<Fish />}
-          titulo={erro.status === 404 ? 'Não encontramos esse peixe' : 'Não conseguimos carregar a ficha'}
+          titulo={[400, 404].includes(erro.status) ? 'Não encontramos esse peixe' : 'Não conseguimos carregar a ficha'}
           acoes={
-            erro.status === 404 ? (
+            [400, 404].includes(erro.status) ? (
               <Button asChild>
                 <Link to={ROTAS.peixes}>Ver todos os peixes</Link>
               </Button>
@@ -107,13 +107,13 @@ export default function PeixeDetalhePage() {
             )
           }
         >
-          {erro.status === 404 ? 'Ele pode ter saído do catálogo. Veja os peixes disponíveis agora.' : 'Confira sua conexão e tente de novo.'}
+          {[400, 404].includes(erro.status) ? 'Ele pode ter saído do catálogo. Veja os peixes disponíveis agora.' : 'Confira sua conexão e tente de novo.'}
         </EmptyState>
       </div>
     )
   }
 
-  const { ficha } = peixe
+  const ficha = peixe.ficha ?? {}
 
   return (
     <article className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 desk:px-10 desk:py-12">
@@ -135,7 +135,7 @@ export default function PeixeDetalhePage() {
             </p>
           )}
 
-          <p className="mt-5 max-w-[60ch] text-corpo text-text-muted">{peixe.descricao}</p>
+          <p className="mt-5 max-w-[60ch] text-corpo text-text-muted">{peixe.descricao ?? 'Descrição ainda não disponível.'}</p>
 
           <div className="mt-6">
             <CaixaCompra item={peixe} />
@@ -148,6 +148,7 @@ export default function PeixeDetalhePage() {
           Ficha técnica
         </h2>
         <p className="mb-5 text-pequeno text-text-muted">Toque no ícone de ajuda ao lado de cada termo para ver o que ele significa.</p>
+        {!peixe.ficha && <p className="mb-4 text-pequeno text-text-muted">Ficha técnica ainda não disponível.</p>}
         <div className="grid gap-4 desk:grid-cols-3">
           <GrupoFicha
             titulo="Água"

@@ -21,7 +21,7 @@ import { ROTAS, urlEtapaCheckout } from '../../utils/rotas'
 // Gaveta do carrinho: foco preso, Esc fecha e o foco volta ao botão que abriu (Radix Dialog).
 export default function CartDrawer() {
   const { painel, fecharPaineis, devolverFoco } = useUI()
-  const { linhas, total, quantidade, temPeixe, definirQtd, remover } = useCart()
+  const { linhas, total, quantidade, temPeixe, definirQtd, remover, conferindo, pendentes, avisos, bloqueado, podeContinuar, revalidar, limpar } = useCart()
   const navigate = useNavigate()
   const abrirWhatsApp = useWhatsApp()
   const compatibilidade = analisarCompatibilidade(linhas)
@@ -43,12 +43,18 @@ export default function CartDrawer() {
           <SheetDescription className="sr-only">Revise os itens, calcule o frete e finalize a compra.</SheetDescription>
         </SheetHeader>
 
+        <div aria-live="polite" className="px-5">
+          {avisos.map((aviso) => <p key={aviso} role="status" className="mt-3 text-pequeno text-text-muted">{aviso}</p>)}
+          {conferindo && <p role="status" className="mt-3 text-pequeno">Conferindo preços e disponibilidade no catálogo…</p>}
+          {!conferindo && pendentes > 0 && <Button variant="secundario" className="mt-3" onClick={revalidar}>Tentar conferir carrinho novamente</Button>}
+          {bloqueado && <Button variant="secundario" className="mt-3" onClick={limpar}>Limpar carrinho salvo</Button>}
+        </div>
         {linhas.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
             <span className="mb-4 flex size-14 items-center justify-center rounded-full bg-surface-tint text-primary-text">
               <ShoppingCart aria-hidden="true" className="size-7" />
             </span>
-            <p className="font-display text-h4 font-extrabold">Seu carrinho está vazio</p>
+            <p className="font-display text-h4 font-extrabold">{conferindo ? 'Conferindo seu carrinho' : pendentes > 0 || bloqueado ? 'Carrinho aguardando conferência' : 'Seu carrinho está vazio'}</p>
             <p className="mt-1 text-pequeno text-text-muted">Que tal começar pelos peixes ou pelos itens da loja?</p>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <Button onClick={() => ir(ROTAS.loja)}>Ver produtos</Button>
@@ -71,19 +77,20 @@ export default function CartDrawer() {
                   {compatibilidade.texto}
                 </Aviso>
               )}
-              <CalculoFrete linhas={linhas} />
+              <p className="mt-3 text-legenda text-text-muted">Preços e disponibilidade são consultados no catálogo. O carrinho não reserva unidades.</p>
+              {!conferindo && !pendentes && <CalculoFrete linhas={linhas} />}
             </div>
 
             <div className="border-t border-border px-5 py-4">
               <div className="mb-1 flex justify-between text-pequeno text-text-muted">
                 <span>Subtotal</span>
-                <span className="tabular-nums">{formatarPreco(total)}</span>
+                <span className="tabular-nums">{conferindo || pendentes ? 'Aguardando conferência' : formatarPreco(total)}</span>
               </div>
               <div className="mb-4 flex items-baseline justify-between">
                 <span className="font-bold">Total sem frete</span>
-                <Preco valor={total} />
+                {conferindo || pendentes ? <span className="text-pequeno text-text-muted">Aguardando conferência</span> : <Preco valor={total} />}
               </div>
-              <Button tamanho="lg" largo onClick={() => ir(urlEtapaCheckout('carrinho'))}>
+              <Button tamanho="lg" largo disabled={!podeContinuar} onClick={() => ir(urlEtapaCheckout('carrinho'))}>
                 Finalizar compra
                 <ArrowRight aria-hidden="true" />
               </Button>

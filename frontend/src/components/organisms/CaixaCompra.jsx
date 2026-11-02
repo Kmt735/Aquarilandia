@@ -20,7 +20,7 @@ export default function CaixaCompra({ item }) {
   const [qtd, setQtd] = useState(1)
   const esgotado = item.disponibilidade === 'esgotado'
   const restante = item.estoque == null ? null : Math.max(item.estoque - qtdNoCarrinho(item.id), 0)
-  const qtdValida = Math.max(1, Math.min(qtd, restante || 1))
+  const qtdValida = Math.max(1, Math.min(qtd, restante == null ? 99 : (restante || 1)))
 
   return (
     <div className="rounded-card border border-border-strong bg-surface p-5">
@@ -29,14 +29,14 @@ export default function CaixaCompra({ item }) {
         {item.entregaLocal && <StatusBadge tipo="entrega-local" />}
       </div>
       <div className="mt-3">
-        <Preco valor={item.preco} tamanho="lg" />
+        <Preco centavos={item.centavos} valor={item.preco} tamanho="lg" />
       </div>
       <p className="mt-1 text-pequeno text-text-muted">
         {esgotado
           ? 'Esgotado no momento.'
           : item.disponibilidade === 'encomenda'
             ? `Sob encomenda · prazo: ${item.prazoEncomenda}`
-            : item.estoque != null && `${plural(item.estoque, 'unidade')} em estoque (exemplo)`}
+            : item.estoque != null ? `${plural(item.estoque, 'unidade')} em estoque` : 'Disponível. Quantidade a confirmar com a loja.'}
       </p>
 
       {item.entregaLocal && <AvisoEntregaPeixe compacto className="mt-4" />}

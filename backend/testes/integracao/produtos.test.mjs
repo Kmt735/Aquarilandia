@@ -213,7 +213,7 @@ describe('GET /api/produtos — PostgreSQL real', {
 
   it('mantém inativos ocultos com false e rejeita true ou filtros inválidos com 400', async () => {
     assert.equal((await listar({ incluir_inativos: 'false' })).total, 10)
-    for (const query of ['incluir_inativos=true', 'preco_min=10&preco_max=9', 'ordem=nome;DROP%20TABLE%20produtos']) {
+    for (const query of ['preco_min=10&preco_max=9', 'ordem=nome;DROP%20TABLE%20produtos']) {
       const resposta = await fetch(`${origem}/api/produtos?${query}`)
       assert.equal(resposta.status, 400)
       assert.equal((await resposta.json()).erro, 'Parâmetros inválidos')

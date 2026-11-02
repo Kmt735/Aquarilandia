@@ -87,7 +87,7 @@ export default function EtapaEntregaPage() {
     </label>
   )
 
-  const itens = linhas.map((l) => ({ id: l.id, nome: l.item.nome, preco: l.item.preco, qtd: l.qtd }))
+  const itens = linhas.map((l) => ({ id: l.id, nome: l.item.nome, preco: l.item.preco, centavos: l.item.centavos, qtd: l.qtd }))
 
   return (
     <div className="grid items-start gap-8 desk:grid-cols-[1fr_360px]">

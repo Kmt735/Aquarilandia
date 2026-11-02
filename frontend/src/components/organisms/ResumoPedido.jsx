@@ -1,9 +1,10 @@
+import { subtotalEmCentavos } from '../../utils/dinheiro'
 import Preco from '../atoms/Preco'
 import { formatarPreco } from '../../utils/format'
 
 // Resumo de valores, usado no checkout e no detalhe da compra (item 31 · decisão com tudo visível)
 export default function ResumoPedido({ itens, frete, titulo = 'Resumo', children }) {
-  const subtotal = itens.reduce((s, i) => s + i.preco * i.qtd, 0)
+  const subtotal = subtotalEmCentavos(itens) / 100
   const freteTexto = frete === undefined ? 'calculado na entrega' : frete === null ? 'a definir com a loja' : frete === 0 ? 'Grátis' : formatarPreco(frete)
   const total = subtotal + (frete ?? 0)
 
@@ -18,7 +19,7 @@ export default function ResumoPedido({ itens, frete, titulo = 'Resumo', children
             <span>
               {i.qtd} × {i.nome}
             </span>
-            <span className="shrink-0 tabular-nums">{formatarPreco(i.preco * i.qtd)}</span>
+            <span className="shrink-0 tabular-nums">{formatarPreco(i.preco * i.qtd, { centavos: i.centavos })}</span>
           </li>
         ))}
       </ul>
