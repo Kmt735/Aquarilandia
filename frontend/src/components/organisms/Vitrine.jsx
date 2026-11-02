@@ -24,7 +24,7 @@ export default function Vitrine({ id, eyebrow, titulo, descricao, consulta, verT
     <section aria-labelledby={id} className="mx-auto max-w-[1200px] px-4 py-14 sm:px-6 desk:px-10 desk:py-20">
       <SectionHead id={id} eyebrow={eyebrow} titulo={titulo} descricao={descricao} />
       {erro ? (
-        <ErroCompacto onTentar={recarregar}>Não conseguimos carregar os peixes agora. Confira sua conexão e tente de novo.</ErroCompacto>
+        <ErroCompacto onTentar={recarregar}>Não conseguimos carregar os peixes agora. Tente de novo em instantes.</ErroCompacto>
       ) : (
         <ul aria-busy={carregando} className={`${lista} ${COLUNAS[total] ?? 'desk:grid-cols-4'}`}>
           {carregando

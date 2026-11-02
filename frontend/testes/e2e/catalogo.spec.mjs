@@ -130,7 +130,7 @@ test('menu móvel usa categorias do banco e leva à listagem existente', async (
 test('falha na consulta de categorias é visível na home, sem lista estática', async ({ page }) => {
   await page.route('**/api/categorias?**', (route) => route.abort('failed'))
   await page.goto('/')
-  await expect(page.getByText('Não conseguimos carregar as categorias.', { exact: false }).first()).toBeVisible()
+  await expect(page.getByText('Não conseguimos carregar as categorias agora.', { exact: true }).first()).toBeVisible()
   await expect(page.locator('#lista-categorias').getByRole('link')).toHaveCount(0)
 })
 

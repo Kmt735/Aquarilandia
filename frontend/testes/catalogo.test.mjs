@@ -97,6 +97,45 @@ test('filtros reais de peixes são enviados; faixa de preço e ordem ficam locai
   assert.equal(r.total, 2)
 })
 
+test('vitrine consulta só uma página de disponíveis, sem depender do endpoint de categorias', async () => {
+  const chamadas = []
+  const api = criarCatalogo(async (rota, params) => {
+    chamadas.push(rota)
+    assert.equal(rota, '/peixes')
+    assert.deepEqual(params, { busca: undefined, tipo_agua: undefined, temperamento: undefined,
+      dificuldade: undefined, em_estoque: 'true', pagina: 1, limite: 3 })
+    return { itens: [produto(9, { categoria: 'peixes', ficha })], total: 106 }
+  })
+  const lista = await api.listarPeixes({ disponibilidade: 'disponivel', limite: 3 })
+  assert.equal(lista.total, 106)
+  assert.equal(lista.totalPaginas, 36)
+  assert.equal(lista.itens[0].categoria, 'Peixes')
+  assert.deepEqual(chamadas, ['/peixes'])
+})
+
+for (const disponibilidade of ['in', 'out', 'disponivel', 'esgotado']) {
+  test(`disponibilidade de peixes ${disponibilidade} usa o filtro público do servidor`, async () => {
+    const api = criarCatalogo(async (rota, params) => {
+      assert.equal(rota, '/peixes')
+      assert.equal(params.em_estoque, String(['in', 'disponivel'].includes(disponibilidade)))
+      assert.equal(params.pagina, 2)
+      assert.equal(params.limite, 9)
+      return { itens: [], total: 10 }
+    })
+    assert.equal((await api.listarPeixes({ disponibilidade, pagina: 2 })).total, 10)
+  })
+}
+
+test('detalhe de peixe usa o DTO real sem consultar categorias e preserva falhas de peixes', async () => {
+  const api = criarCatalogo(async (rota) => {
+    assert.equal(rota, '/peixes/12')
+    return produto(12, { categoria: 'peixes', ficha })
+  })
+  assert.equal((await api.obterPeixe(12)).categoria, 'Peixes')
+  await assert.rejects(criarCatalogo(async () => { throw new Error('API indisponível') })
+    .listarPeixes({ disponibilidade: 'disponivel', limite: 3 }), /API indisponível/)
+})
+
 test('lista vazia mantém envelope e erros não retornam dados fictícios', async () => {
   const api = catalogoCom(async () => ({ itens: [], total: 0 }))
   assert.equal((await api.listarProdutos()).itens.length, 0)

@@ -29,7 +29,7 @@ export function imagemSegura(valor) {
 export function normalizarProduto(p, categorias) {
   if (!p || !Number.isSafeInteger(p.id) || p.id < 1 || !Number.isSafeInteger(p.preco) || p.preco < 0
     || typeof p.nome !== 'string' || typeof p.categoria !== 'string' || typeof p.emEstoque !== 'boolean') invalida()
-  const categoria = categorias.find((c) => c.slug === p.categoria)?.nome ?? p.categoria
+  const categoria = categorias.find((c) => c.slug === p.categoria)?.nome ?? (p.categoria === 'peixes' ? 'Peixes' : p.categoria)
   const fichaTecnica = p.ficha ?? null
   const dados = fichaTecnica?.dados
   const peixe = fichaTecnica?.tipo === 'peixes' ? dados : null

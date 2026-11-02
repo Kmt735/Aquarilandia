@@ -149,6 +149,18 @@ describe('GET /api/peixes e /api/peixes/:id — PostgreSQL real', {
     }
   })
 
+  it('filtra disponibilidade real antes de total/paginação, preservando os critérios públicos', async () => {
+    await esperar({ em_estoque: 'true' }, ['salobra', 'betta', 'cardinalB', 'marinho', 'literal'])
+    await esperar({ em_estoque: 'false' }, ['cardinalA'])
+    await esperar({ em_estoque: 'true', busca: 'cardinal', ph: '7' }, ['cardinalB'])
+    await esperar({ em_estoque: 'false', tipo_agua: 'marinho' }, [])
+    const segunda = await listar({ em_estoque: 'true', pagina: '2', limite: '2' })
+    assert.equal(segunda.total, 5)
+    assert.deepEqual(segunda.itens.map((p) => p.id), ['cardinalB', 'marinho'].map((chave) => produtos.get(chave).id))
+    assert.deepEqual(await listar({ em_estoque: 'true', pagina: '4', limite: '2' }), { itens: [], total: 5 })
+    await esperar({}, ordemPublica)
+  })
+
   for (const [query, chaves] of [
     [{ temperatura: '26' }, ['salobra', 'betta', 'cardinalA', 'cardinalB', 'marinho']],
     [{ ph: '7' }, ['salobra', 'betta', 'cardinalA', 'cardinalB', 'literal']],
@@ -243,7 +255,8 @@ describe('GET /api/peixes e /api/peixes/:id — PostgreSQL real', {
 
   it('recusa IDs e filtros inválidos com 400 sem modificar outras rotas', async () => {
     for (const caminho of ['/peixes/betta-splendens', '/peixes/2147483648', '/peixes/0', '/peixes?ph=15',
-      '/peixes?tipo_agua=salgada', '/peixes?filtros=doce', '/peixes?aquario_litros=0']) {
+      '/peixes?tipo_agua=salgada', '/peixes?filtros=doce', '/peixes?aquario_litros=0',
+      '/peixes?em_estoque=1', '/peixes?em_estoque=true&em_estoque=false']) {
       const resposta = await fetch(`${origem}/api${caminho}`)
       assert.equal(resposta.status, 400)
       assert.equal((await resposta.json()).erro, 'Parâmetros inválidos')

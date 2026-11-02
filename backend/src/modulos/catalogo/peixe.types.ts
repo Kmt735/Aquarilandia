@@ -19,6 +19,7 @@ export interface FiltrosPeixes {
   temperamento?: FichaPeixePublica['dados']['temperamento']
   tipoAgua?: FichaPeixePublica['dados']['tipoAgua']
   busca?: string
+  emEstoque?: boolean
 }
 
 export interface ListaPeixes {

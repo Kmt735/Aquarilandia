@@ -8,6 +8,20 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-46 — Vitrine de peixes independente do menu e paginada no servidor
+- **Data:** 02/11/2026
+- **Decisão:** lista/detalhe de peixes usam o próprio DTO, sem depender da consulta de metadados de categorias.
+  A UI usa “Peixes” para o slug estrutural nesses atalhos; categorias do menu continuam vindo da API e
+  falhas do menu permanecem visíveis. Não há fallback de produtos, fichas, preços ou disponibilidade.
+- **Consulta:** adicionar `em_estoque=true|false` opcional à lista pública de peixes, como extensão ao PDF.
+  Filtrar saldo antes de total/paginação, preservando ativo/categoria/ficha e ordem SQL nome/ID. Omitir o
+  parâmetro mantém o contrato anterior. Home pede página 1/limite 3; não baixa todas as fichas para três cartões.
+- **Motivo:** a revisão reproduziu categorias 500 bloqueando peixes 200 e 106 fichas transferidas para três
+  destaques. API fora do ar é erro; catálogo sem peixe elegível é vazio legítimo. Estoque zero permanece zero.
+- **Impacto:** Backend 1 e serviço público do frontend; sem alteração em autenticação, vendas ou schema.
+  Preservar o redesign da home integrado no último pull. Testes HTTP/PG e E2E desktop/mobile cobrem vitrine,
+  inelegíveis, paginação, indisponibilidade, retry e carregamento com respostas reais retidas.
+
 ### D-45 — Carrinho versionado guarda intenção e revalida pelo catálogo público
 - **Data:** 31/10/2026
 - **Decisão:** manter a chave `aquarilandia-carrinho`, migrar arrays legados para `{versao:2,itens:[{id,qtd}]}`.

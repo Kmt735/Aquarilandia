@@ -13,7 +13,7 @@ Aquarilandia/
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev      # http://localhost:5173
 ```
 
@@ -27,7 +27,7 @@ Estrutura (Atomic Design) em `frontend/src/`:
 | `components/templates/` | Esqueletos de página: MainLayout, PageTemplate |
 | `pages/` | Telas: Home, Loja, Peixes, Primeiro Aquário, Serviços |
 | `context/` · `hooks/` | Estado global (carrinho, toasts, painéis) e hooks de acesso |
-| `data/` | Dados mockados (produtos, peixes, serviços, guia, FAQ) |
+| `data/` | Conteúdo editorial, filtros e arquivos legados; o catálogo exibido consulta a API |
 | `utils/` | Formatação, máscara de telefone, rotas, busca |
 
 As cores, fontes e gradientes da marca ficam no `@theme` de `src/index.css` (Tailwind v4).
@@ -36,7 +36,7 @@ As cores, fontes e gradientes da marca ficam no `@theme` de `src/index.css` (Tai
 
 ```bash
 cd backend
-npm install
+npm ci
 cp .env.example .env
 npm run db:up    # sobe o PostgreSQL no Docker (porta 5432)
 npm run dev      # http://localhost:3333/api
@@ -44,7 +44,7 @@ npm run dev      # http://localhost:3333/api
 
 ### Banco de dados (PostgreSQL + Docker)
 
-O `backend/docker-compose.yml` sobe um PostgreSQL 17. Na primeira subida (volume vazio) o Postgres executa os scripts de `backend/db/init/` — o `01_schema.sql` cria as tabelas do catálogo e as categorias iniciais.
+O `backend/docker-compose.yml` sobe um PostgreSQL 17. Na primeira subida (volume vazio) o Postgres executa os scripts de `backend/db/init/` — o `01_catalogo.sql` cria as tabelas do catálogo e as categorias iniciais; os scripts seguintes criam clientes, orçamentos e vendas.
 
 | Script | O que faz |
 | --- | --- |
@@ -77,8 +77,8 @@ As rotas de categorias, a listagem e o detalhe de produtos e os atalhos de peixe
 Escritas de categorias exigem o cookie `sid` de admin e `Origin` igual a `CORS_ORIGIN`.
 O cadastro de produtos usa as mesmas proteções e exige a ficha da categoria especializada.
 Serviços ainda leem os dados em memória (`src/data/`). O detalhe de produto inclui `ficha: { tipo, dados }` ou `null` quando
-não existe ficha. O frontend continua usando seus próprios dados locais. O seed cria categorias, mas não
-produtos. Com os dois rodando, o Vite encaminha
+não existe ficha. O frontend consulta o catálogo público com IDs numéricos e preços em centavos. O seed cria
+categorias, mas não produtos. Com os dois rodando, o Vite encaminha
 `/api` para o backend. Contrato de categorias: [`backend/api.md`](backend/api.md#categorias--contrato-implementado-em-25102026).
 Administração de categorias: [`backend/api.md`](backend/api.md#categorias--detalhe-e-administração-implementados-em-25102026).
 Contrato da listagem de produtos: [`backend/api.md`](backend/api.md#produtos--listagem-pública-implementada-em-25102026).
@@ -89,3 +89,25 @@ Contrato da edição: [`backend/api.md`](backend/api.md#produtos--edição-parci
 Revisão de segurança: [`backend/docs/seguranca-backend-2026-10-26.md`](backend/docs/seguranca-backend-2026-10-26.md).
 Contrato dos atalhos de peixes: [`backend/api.md`](backend/api.md#peixes--atalhos-públicos-implementados-em-25102026).
 Verificações dos incrementos: [`backend/testes/README.md`](backend/testes/README.md).
+
+### Desenvolvimento e diagnóstico da vitrine
+
+Mantenha **dois terminais abertos**: `npm run dev` em `backend/` (3333), depois `npm run dev` em
+`frontend/` (5173). O banco precisa estar ativo (`npm run db:up` em `backend/`); iniciar somente o Vite
+não inicia a API ou o PostgreSQL. Não use `db:reset` para corrigir carregamento: esse comando apaga dados.
+
+```bash
+curl -i http://localhost:3333/api/health
+curl -i 'http://localhost:3333/api/peixes?em_estoque=true&pagina=1&limite=3'
+curl -i 'http://localhost:5173/api/peixes?em_estoque=true&pagina=1&limite=3'
+```
+
+Saúde deve retornar `200 {"status":"ok","banco":"ok"}`. A consulta direta e a consulta pelo proxy devem
+retornar `200 {"itens":[...],"total":N}`. Conexão recusada/502 aponta para API/porta indisponível; saúde 503
+aponta para conexão do banco. Confira `DATABASE_URL` e o proxy de `frontend/vite.config.js` se usar outras portas.
+Se mudar a origem do frontend, ajuste também `CORS_ORIGIN` no backend para preservar cookies e escritas autenticadas.
+
+`200 {"itens":[],"total":0}` é catálogo vazio válido: os destaques exigem produto ativo da categoria
+`peixes`, ficha de peixe e saldo positivo. Seed sem produtos, inativos, ausência de ficha e saldo zero não
+devem ser mascarados por mocks nem por criação artificial de estoque. Falha da API mostra erro e permite retry;
+falha dos metadados de categorias não deve bloquear a consulta de peixes.
