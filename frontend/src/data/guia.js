@@ -108,7 +108,7 @@ export const frequenciaTestes = [
 
 // TODO: validar com a loja — dicas de escolha dos peixes
 export const dicasPeixes = [
-  { id: 'resistentes', titulo: 'Comece com poucos e resistentes', texto: 'Peixes de dificuldade "Fácil" perdoam melhor os erros de quem está começando.' },
+  { id: 'resistentes', titulo: 'Comece com poucos e resistentes', texto: 'Peixes de dificuldade "Iniciante" perdoam melhor os erros de quem está começando.' },
   { id: 'temperamento', titulo: 'Veja se eles combinam', texto: 'Confira o [[temperamento|temperamento]] de cada espécie e com quem ela convive bem.' },
   { id: 'tamanho', titulo: 'Respeite o tamanho do aquário', texto: 'Veja o [[aquarioMinimo|aquário mínimo]] e pense no [[tamanhoAdulto|tamanho adulto]], não no filhote.' },
   { id: 'aos-poucos', titulo: 'Adicione aos poucos', texto: 'Coloque poucos peixes de cada vez e faça a [[aclimatacao|aclimatação]]. Assim as bactérias acompanham o aumento de sujeira.' },

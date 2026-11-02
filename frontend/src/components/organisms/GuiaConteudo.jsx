@@ -125,7 +125,7 @@ function PassoPeixes() {
         ))}
       </ul>
       <Button variant="secundario" asChild>
-        <Link to={urlPeixes({ dificuldade: 'Fácil' })}>
+        <Link to={urlPeixes({ dificuldade: 'iniciante' })}>
           <Fish aria-hidden="true" />
           Ver peixes para iniciantes
         </Link>
