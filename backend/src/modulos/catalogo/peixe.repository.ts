@@ -20,6 +20,7 @@ export const peixeRepository = {
             AND ($6::text IS NULL OR f.temperamento = $6)
             AND ($7::text IS NULL OR f.tipo_agua = $7)
             AND ($8::text IS NULL OR p.nome ILIKE $8 ESCAPE '!' OR f.nome_cientifico ILIKE $8 ESCAPE '!')
+            AND ($11::boolean IS NULL OR (p.estoque > 0) = $11)
        )
        SELECT COALESCE(
                 (SELECT json_agg(pagina ORDER BY pagina.nome, pagina.id)
@@ -31,7 +32,7 @@ export const peixeRepository = {
               (SELECT COUNT(*)::integer FROM filtrados) AS total`,
       [filtros.temperatura ?? null, filtros.ph ?? null, filtros.tamanhoMax ?? null, filtros.aquarioLitros ?? null,
         filtros.dificuldade ?? null, filtros.temperamento ?? null, filtros.tipoAgua ?? null, busca,
-        filtros.limite, (filtros.pagina - 1) * filtros.limite],
+        filtros.limite, (filtros.pagina - 1) * filtros.limite, filtros.emEstoque ?? null],
     )
     return rows[0]
   },

@@ -8,7 +8,7 @@ function lerFiltros(query: Request['query']): FiltrosPeixes {
   const erros: Record<string, string> = Object.create(null)
   const permitidos = new Set([
     'pagina', 'limite', 'temperatura', 'ph', 'tamanho_max', 'aquario_litros',
-    'dificuldade', 'temperamento', 'tipo_agua', 'busca',
+    'dificuldade', 'temperamento', 'tipo_agua', 'busca', 'em_estoque',
   ])
   for (const campo of Object.keys(query)) {
     if (!permitidos.has(campo)) erros[campo] = 'Parâmetro não permitido nesta consulta.'
@@ -56,6 +56,8 @@ function lerFiltros(query: Request['query']): FiltrosPeixes {
   const dificuldade = opcao('dificuldade', ['iniciante', 'intermediario', 'avancado'] as const)
   const temperamento = opcao('temperamento', ['pacifico', 'semi_agressivo', 'agressivo'] as const)
   const tipoAgua = opcao('tipo_agua', ['doce', 'salobra', 'marinho'] as const)
+  const disponibilidade = opcao('em_estoque', ['true', 'false'] as const)
+  const emEstoque = disponibilidade === undefined ? undefined : disponibilidade === 'true'
   const valorBusca = query.busca
   let busca: string | undefined
   if (valorBusca !== undefined) {
@@ -67,7 +69,7 @@ function lerFiltros(query: Request['query']): FiltrosPeixes {
   }
 
   if (Object.keys(erros).length) throw new AppError('Parâmetros inválidos', 400, erros)
-  return { pagina, limite, temperatura, ph, tamanhoMax, aquarioLitros, dificuldade, temperamento, tipoAgua, busca }
+  return { pagina, limite, temperatura, ph, tamanhoMax, aquarioLitros, dificuldade, temperamento, tipoAgua, busca, emEstoque }
 }
 
 export const peixeController = {

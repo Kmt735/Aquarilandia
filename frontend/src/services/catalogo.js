@@ -36,12 +36,14 @@ export function criarCatalogo(consultar = consultarApi) {
     const disponibilidade = escolher(filtros.disponibilidade, ['in', 'out', 'disponivel', 'esgotado'])
     const faixa = faixasPreco.find((x) => x.valor === filtros.preco)
     if (filtros.preco && !faixa) throw new ErroApi('Faixa de preço inválida.')
-    const categorias = await listarCategorias()
+    // Peixes já trazem categoria e ficha no próprio DTO; metadados do menu são independentes.
+    const categorias = peixes ? [] : await listarCategorias()
     const parametros = { busca: filtros.busca?.trim() || undefined }
     if (peixes) {
       parametros.tipo_agua = escolher(filtros.agua === 'salgada' ? 'marinho' : filtros.agua, ['doce', 'marinho', 'salobra'])
       parametros.temperamento = escolher(filtros.temperamento, ['pacifico', 'semi_agressivo', 'agressivo'])
       parametros.dificuldade = escolher(filtros.dificuldade, ['iniciante', 'intermediario', 'avancado'])
+      if (disponibilidade) parametros.em_estoque = String(['in', 'disponivel'].includes(disponibilidade))
     } else {
       const categoria = categorias.find((c) => c.slug === filtros.categoria || c.nome === filtros.categoria)
       if (filtros.categoria && !categoria) throw new ErroApi('Categoria não encontrada.', {}, 404)
@@ -51,9 +53,9 @@ export function criarCatalogo(consultar = consultarApi) {
       parametros.ordem = ORDENS[ordem ?? 'padrao']
     }
     const caminho = peixes ? '/peixes' : '/produtos'
-    // A API de peixes não ordena por preço; disponibilidade e Z–A também são opções só da UI.
+    // A API de peixes não ordena por preço; disponibilidade de produtos e Z–A são opções só da UI.
     // Nesses casos, filtra o conjunto completo, nunca somente uma página do servidor.
-    const local = Boolean(disponibilidade || ordem === 'z-a' || (peixes && (faixa || (ordem && !['padrao', 'a-z'].includes(ordem)))))
+    const local = Boolean((!peixes && disponibilidade) || ordem === 'z-a' || (peixes && (faixa || (ordem && !['padrao', 'a-z'].includes(ordem)))))
     if (local) {
       let itens = (await todasPaginas(caminho, parametros)).map((p) => normalizarProduto(p, categorias))
       if (disponibilidade) itens = itens.filter((p) => p.emEstoque === ['in', 'disponivel'].includes(disponibilidade))
@@ -66,7 +68,7 @@ export function criarCatalogo(consultar = consultarApi) {
   }
   async function obter(id, caminho) {
     const numero = idValido(id)
-    const [produto, categorias] = await Promise.all([consultar(`${caminho}/${numero}`), listarCategorias()])
+    const [produto, categorias] = await Promise.all([consultar(`${caminho}/${numero}`), caminho === '/peixes' ? [] : listarCategorias()])
     return normalizarProduto(produto, categorias)
   }
   return {

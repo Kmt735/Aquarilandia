@@ -884,6 +884,7 @@ retorna `itens: []` preservando o total filtrado. Página e total usam o mesmo s
 | `dificuldade` | `iniciante`, `intermediario` ou `avancado`. |
 | `temperamento` | `pacifico`, `semi_agressivo` ou `agressivo`. |
 | `tipo_agua` | `doce`, `salobra` ou `marinho`. |
+| `em_estoque` | Extensão pública de 02/11/2026: somente `true` ou `false`, sem repetições. `true` exige `produtos.estoque > 0`; `false` exige saldo zero. Omitido preserva ambos. Aplicado antes de `total` e da paginação, sem ampliar acesso a inativos ou produtos sem ficha. |
 | `busca` | Após `trim`, 1–150 caracteres; trecho do nome popular (`produtos.nome`) **ou** científico (`peixes.nome_cientifico`), sem diferenciar caixa. Não busca descrição/marca nem remove acentos. |
 
 Decimais usam ponto, sem notação exponencial ou vírgula. A consulta não arredonda os filtros à precisão
@@ -904,8 +905,16 @@ não previstos retornam `400`. IDs seguem a mesma validação numérica de produ
 `500 { "erro": "Erro interno do servidor" }`. O formato do PDF `{ erro: codigo, mensagem }` continua pendente;
 o `400` para ID inválido segue a convenção local, embora o PDF só liste `200/404` para o detalhe. Os mocks de
 peixes do backend e seus tipos antigos foram removidos após verificar seus únicos consumidores no catálogo.
-O frontend não faz chamadas HTTP a essas rotas e não foi alterado: continua com seus próprios mocks, IDs e
-filtros locais. O seed cria categorias, mas nenhum produto/ficha; sem registros reais, os atalhos retornam vazio/404.
+Desde o Ciclo 1, o frontend consulta essas rotas com IDs numéricos e centavos, sem fallback para mocks.
+A vitrine consulta `GET /api/peixes?em_estoque=true&pagina=1&limite=3`: seleção/ordenação nome-ID no
+PostgreSQL, no máximo três fichas por resposta, sem baixar todas as páginas. Lista e detalhe de peixes
+não dependem da chamada HTTP de metadados de categorias. A categoria exibida nesses atalhos é “Peixes”,
+derivada do slug estrutural; o menu continua exibindo os nomes vindos de `/api/categorias` e seus próprios erros.
+Preço e ordenações não disponíveis na API de peixes ainda usam filtragem local sobre todas as páginas.
+`em_estoque` não consta no PDF: é uma extensão compatível para corrigir a consulta da vitrine; DTO, acesso,
+paginação e comportamento sem esse filtro permanecem iguais. O seed cria categorias, mas nenhum produto/ficha;
+sem registros reais, os atalhos retornam vazio/404. Produto sem saldo não é destacado; não se cria estoque
+ou produto fictício para preencher a seção. API indisponível produz erro com retry, sem lista substituta.
 
 ---
 

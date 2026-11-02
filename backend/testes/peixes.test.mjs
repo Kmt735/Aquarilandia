@@ -33,7 +33,7 @@ describe('GET /api/peixes e /api/peixes/:id — contrato HTTP', () => {
     const resposta = await fetch(`${origem}/api/peixes`)
     assert.equal(resposta.status, 200)
     assert.deepEqual(await resposta.json(), { itens: [peixe], total: 1 })
-    assert.deepEqual(consulta.mock.calls[0].arguments[1], [null, null, null, null, null, null, null, null, 20, 0])
+    assert.deepEqual(consulta.mock.calls[0].arguments[1], [null, null, null, null, null, null, null, null, 20, 0, null])
   })
 
   it('parametriza filtros combinados, busca literal e paginação', async () => {
@@ -46,9 +46,18 @@ describe('GET /api/peixes e /api/peixes/:id — contrato HTTP', () => {
     assert.equal(resposta.status, 200)
     assert.deepEqual(await resposta.json(), { itens: [], total: 7 })
     const [sql, parametros] = consulta.mock.calls[0].arguments
-    assert.deepEqual(parametros, [24.55, 7.25, 6.5, 60, 'iniciante', 'pacifico', 'doce', "%Betta 100!%!_!! d'água%", 5, 5])
+    assert.deepEqual(parametros, [24.55, 7.25, 6.5, 60, 'iniciante', 'pacifico', 'doce', "%Betta 100!%!_!! d'água%", 5, 5, null])
     assert.equal(sql.includes("Betta 100%_! d'água"), false)
   })
+
+  for (const disponivel of [true, false]) {
+    it(`parametriza em_estoque=${disponivel} sem autenticação administrativa`, async () => {
+      const consulta = mock.method(db, 'query', async () => ({ rows: [{ itens: [], total: 0 }] }))
+      const resposta = await fetch(`${origem}/api/peixes?em_estoque=${disponivel}&pagina=2&limite=3`)
+      assert.equal(resposta.status, 200)
+      assert.deepEqual(consulta.mock.calls[0].arguments[1].slice(8), [3, 3, disponivel])
+    })
+  }
 
   for (const query of [
     'temperatura=-999.9&ph=0&tamanho_max=0.1&aquario_litros=1',
@@ -80,6 +89,8 @@ describe('GET /api/peixes e /api/peixes/:id — contrato HTTP', () => {
   })
 
   const invalidos = [
+    ['em_estoque=', 'em_estoque'], ['em_estoque=1', 'em_estoque'], ['em_estoque=True', 'em_estoque'],
+    ['em_estoque=true&em_estoque=false', 'em_estoque'], ['em_estoque[]=true', 'em_estoque[]'],
     ['pagina=0', 'pagina'], ['pagina=01', 'pagina'], ['pagina=1.5', 'pagina'], ['pagina=1e2', 'pagina'],
     ['pagina=9007199254740992', 'pagina'], ['pagina=9007199254740991&limite=100', 'pagina'],
     ['pagina=1&pagina=2', 'pagina'], ['pagina[]=1', 'pagina[]'],
