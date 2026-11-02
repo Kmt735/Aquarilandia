@@ -35,6 +35,7 @@
     --wave-front: var(--primary);
     --wave-mid: #4f7ff0;
     --wave-back: #93b4f5;
+    --water-deep: var(--wave-mid); /* AA: fim do degradê da água no rodapé; mais fundo que isso, --primary-text cai abaixo de 4,5:1 */
     --shadow-color: 15 42 107;
     --overlay: rgb(15 42 107 / 0.45); /* fundo atrás de modais e gavetas */
 
@@ -76,6 +77,7 @@
     --danger: #ef4444;
     --wave-mid: #2a55c4;
     --wave-back: #1e3f96;
+    --water-deep: color-mix(in srgb, var(--background) 70%, black);
     --shadow-color: 0 0 0;
     --overlay: rgb(0 0 0 / 0.65);
 
@@ -158,6 +160,11 @@
         38% { opacity: 0; transform: translate3d(-3px, -66px, 0) scale(1.15); }
         100% { opacity: 0; transform: translate3d(-3px, -66px, 0) scale(1.15); }
     }
+}
+
+/* Água que escurece com a profundidade; continua a cor da onda do rodapé (só decoração) */
+@utility agua-funda {
+    background-image: linear-gradient(to bottom, var(--surface-tint), var(--water-deep) 70%);
 }
 
 @layer base {

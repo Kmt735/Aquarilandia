@@ -15,7 +15,9 @@ export default function MainLayout() {
   const { painel, abrirPainel, fecharPaineis } = useUI()
   const abrirWhatsApp = useWhatsApp()
 
+  // Com âncora na URL (ex.: #ciclagem) quem posiciona a rolagem é a própria página
   useEffect(() => {
+    if (window.location.hash) return
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [pathname])
 

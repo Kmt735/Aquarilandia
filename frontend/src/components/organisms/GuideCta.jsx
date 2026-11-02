@@ -10,6 +10,7 @@ export default function GuideCta() {
     <CtaBanner
       eyebrow="Área educativa"
       titulo="Nunca teve um aquário? Comece aqui."
+<<<<<<< Updated upstream
       texto="Um passo a passo simples, do zero à manutenção, pensado pra quem nunca montou um aquário na vida."
       acao="Começar guia"
       onAcao={() => navigate(ROTAS.primeiroAquario, { state: { iniciarGuia: true } })}
@@ -21,5 +22,15 @@ export default function GuideCta() {
         ))}
       </div>
     </CtaBanner>
+=======
+      texto={`Um passo a passo em ${passosGuia.length} etapas, do zero à manutenção, com as palavras difíceis explicadas.`}
+      acoes={
+        <Button tamanho="lg" onClick={() => navigate(`${ROTAS.primeiroAquario}#${passosGuia[0].id}`)}>
+          Começar o guia
+        </Button>
+      }
+      className="py-4"
+    />
+>>>>>>> Stashed changes
   )
 }
