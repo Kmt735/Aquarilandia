@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router'
 import MainLayout from './components/templates/MainLayout'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import AuthProvider from './context/AuthProvider'
@@ -35,6 +35,12 @@ const RedefinirSenhaPage = lazy(() => import('./pages/conta/RedefinirSenhaPage')
 const CheckoutLayout = lazy(() => import('./components/templates/CheckoutLayout'))
 const ContaLayout = lazy(() => import('./components/templates/ContaLayout'))
 
+// Endereço antigo do guia: quem já tinha o link cai no novo, mantendo a âncora
+function RedirecionarPrimeiroAquario() {
+  const { hash } = useLocation()
+  return <Navigate to={{ pathname: ROTAS.primeiroAquario, hash }} replace />
+}
+
 // As URLs antigas continuam iguais (ex.: /peixes/acara-disco); as novas só se somam a elas
 export default function App() {
   return (
@@ -53,6 +59,7 @@ export default function App() {
                     <Route path={ROTAS.compararPeixes} element={<CompararPeixesPage />} />
                     <Route path={`${ROTAS.peixes}/:id`} element={<PeixeDetalhePage />} />
                     <Route path={ROTAS.primeiroAquario} element={<PrimeiroAquarioPage />} />
+                    <Route path={ROTAS.primeiroAquarioAntigo} element={<RedirecionarPrimeiroAquario />} />
                     <Route path={ROTAS.servicos} element={<ServicosPage />} />
                     <Route path={ROTAS.perguntas} element={<PerguntasFrequentesPage />} />
                     <Route path={`${ROTAS.politicas}/:tipo`} element={<PoliticaPage />} />

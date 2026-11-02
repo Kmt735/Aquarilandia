@@ -18,7 +18,9 @@ export default function MainLayout() {
   const abrirWhatsApp = useWhatsApp()
   const noCheckout = pathname.startsWith('/checkout') || pathname.startsWith('/pagamento')
 
+  // Com âncora na URL (ex.: #ciclagem) quem posiciona a rolagem é a própria página
   useEffect(() => {
+    if (window.location.hash) return
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [pathname])
 

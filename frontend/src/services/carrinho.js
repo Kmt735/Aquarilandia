@@ -4,16 +4,18 @@ export const LIMITE_QUANTIDADE = 99 // mesmo limite visual do seletor existente,
 const idValido = (id) => Number.isInteger(id) && id > 0 && id <= 2147483647
 
 export function lerCarrinhoSalvo(bruto) {
-  if (bruto === null) return { registros: [], avisos: [], bloqueado: false }
+  if (bruto == null || bruto === '') return { registros: [], avisos: [], bloqueado: false }
   let dados
   try { dados = JSON.parse(bruto) } catch {
     return { registros: [], avisos: ['O carrinho salvo estava malformado e foi limpo. Adicione os produtos novamente.'], bloqueado: false }
   }
-  const legado = Array.isArray(dados)
-  if (!legado && dados?.versao !== 2) {
+  // Só uma versão futura conhecida é preservada; null, texto, número ou objeto sem itens viram carrinho vazio.
+  if (typeof dados?.versao === 'number' && dados.versao > 2) {
     return { registros: [], avisos: ['Não reconhecemos o formato do carrinho salvo. Ele foi preservado; limpe o carrinho para começar novamente.'], bloqueado: true }
   }
-  const itens = legado ? dados : dados.itens
+  // Formatos antigos: lista pura ([{ id, qtd, item }]) ou objeto sem versão ({ itens } / { items }).
+  const legado = Array.isArray(dados) || dados?.versao !== 2
+  const itens = Array.isArray(dados) ? dados : (dados?.itens ?? dados?.items)
   if (!Array.isArray(itens)) return { registros: [], avisos: ['O carrinho salvo estava incompleto e foi limpo.'], bloqueado: false }
   const unicos = new Map()
   let descartados = 0, ajustados = 0
