@@ -7,6 +7,7 @@ import { clienteRepository } from './cliente.repository.js'
 import type {
   AtualizacaoCliente,
   Cliente,
+  DetalheClienteAdmin,
   ListaClientesAdmin,
   PapelCliente,
 } from './cliente.types.js'
@@ -23,6 +24,7 @@ import { enderecoRepository } from './endereco.repository.js'
 import { verificarSenha } from './senha.js'
 
 const msgAlteracaoRecusada = 'Não foi possível salvar as alterações.'
+const msgClienteNaoEncontrado = 'Cliente não encontrado.'
 
 // Lê só nome, email e telefone; qualquer outra chave (papel, ativo, id, senhaHash...) é ignorada (api.md, seção 11)
 function validarAtualizacao(body: unknown): AtualizacaoCliente {
@@ -188,5 +190,17 @@ export const clienteService = {
       pagina,
       limite,
     }
+  },
+
+  async buscarParaAdmin(id: number): Promise<DetalheClienteAdmin> {
+    // Anonimizado também aparece (nome 'Cliente removido', e-mail e telefone nulos): é o dono das vendas antigas
+    const cliente = await clienteRepository.buscarParaAdmin(id)
+    if (!cliente) throw new AppError(msgClienteNaoEncontrado, 404)
+
+    const [enderecos, resumo] = await Promise.all([
+      enderecoRepository.listarDoCliente(id),
+      vendaService.resumoDoCliente(id),
+    ])
+    return { ...cliente, enderecos, ...resumo }
   },
 }

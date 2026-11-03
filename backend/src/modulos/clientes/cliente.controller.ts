@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import { idParam } from '../../utils/validacao.js'
 import { authService } from '../auth/auth.service.js'
 import { opcoesCookie } from '../auth/sessao.cookie.js'
 import { clienteService } from './cliente.service.js'
@@ -29,5 +30,10 @@ export const clienteController = {
   // no-store nas respostas de admin: têm dados pessoais e não podem ficar em cache (como na D-41)
   async listarParaAdmin(req: Request, res: Response): Promise<void> {
     res.set('Cache-Control', 'no-store').json(await clienteService.listarParaAdmin(req.query))
+  },
+
+  async buscarParaAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    res.set('Cache-Control', 'no-store').json(await clienteService.buscarParaAdmin(id))
   },
 }

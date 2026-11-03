@@ -25,3 +25,5 @@ clienteRoutes.delete('/me/enderecos/:enderecoId', exigirOrigem, autenticar, ende
 // Por isso qualquer rota /me nova (ex.: /me/vendas) precisa ser registrada ACIMA desta linha.
 clienteRoutes.use(autenticar, exigirAdmin)
 clienteRoutes.get('/', clienteController.listarParaAdmin)
+clienteRoutes.get('/:id', clienteController.buscarParaAdmin)
+// GET /:id/vendas (#37) fica para depois: depende da listagem de vendas (#33)

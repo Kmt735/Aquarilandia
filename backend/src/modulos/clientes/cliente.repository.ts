@@ -94,6 +94,11 @@ export const clienteRepository = {
         )
         return rows[0] ?? null
     },
+    // Sem filtrar ativo nem anonimizado: o admin vê também quem foi desativado ou removido
+    async buscarParaAdmin(id: number, executor: Queryable = db): Promise<ClienteAdmin | null> {
+        const { rows } = await executor.query<ClienteAdmin>(`SELECT ${colunasAdmin} FROM clientes WHERE id = $1`, [id])
+        return rows[0] ?? null
+    },
     async listarParaAdmin(filtro: FiltrosClienteAdmin): Promise<{ dados: ClienteAdmin[]; total: number }> {
         // Tudo entra como parâmetro; a busca já chega com \, % e _ escapados pelo service (ESCAPE '\')
         const valores: unknown[] = [filtro.papel]

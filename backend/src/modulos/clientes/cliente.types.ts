@@ -50,6 +50,12 @@ export interface ListaClientesAdmin {
     limite: number
 }
 
+export interface DetalheClienteAdmin extends ClienteAdmin {
+    enderecos: Endereco[]
+    totalVendas: number
+    totalGasto: number
+}
+
 export interface Endereco {
     id: number
     clienteId: number
