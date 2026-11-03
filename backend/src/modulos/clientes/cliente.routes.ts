@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { autenticar } from '../../middlewares/autenticar.js'
+import { exigirAdmin } from '../../middlewares/exigirAdmin.js'
 import { exigirOrigem } from '../../middlewares/exigirOrigem.js'
 import { limiteTrocaSenha } from '../../middlewares/rateLimit.js'
 import { clienteController } from './cliente.controller.js'
@@ -19,3 +20,13 @@ clienteRoutes.get('/me/enderecos', autenticar, enderecoController.listarMeus)
 clienteRoutes.post('/me/enderecos', exigirOrigem, autenticar, enderecoController.criar)
 clienteRoutes.patch('/me/enderecos/:enderecoId', exigirOrigem, autenticar, enderecoController.atualizar)
 clienteRoutes.delete('/me/enderecos/:enderecoId', exigirOrigem, autenticar, enderecoController.excluir)
+
+// Daqui para baixo, só admin; rota nova já nasce protegida (D-41).
+// Por isso qualquer rota /me nova (ex.: /me/vendas) precisa ser registrada ACIMA desta linha.
+clienteRoutes.use(autenticar, exigirAdmin)
+clienteRoutes.get('/', clienteController.listarParaAdmin)
+clienteRoutes.get('/:id', clienteController.buscarParaAdmin)
+// Escritas de admin: exigirOrigem (CSRF) depois da guarda, como em orçamentos
+clienteRoutes.patch('/:id', exigirOrigem, clienteController.definirAtivoPeloAdmin)
+clienteRoutes.delete('/:id', exigirOrigem, clienteController.removerPeloAdmin)
+// GET /:id/vendas (#37) fica para depois: depende da listagem de vendas (#33)

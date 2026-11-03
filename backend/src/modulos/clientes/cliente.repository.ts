@@ -1,8 +1,18 @@
 import{db} from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
-import type { AtualizacaoCliente, Cliente, ClienteComSenha, NovoCliente } from './cliente.types.js'
+import type {
+    AtualizacaoCliente,
+    Cliente,
+    ClienteAdmin,
+    ClienteComSenha,
+    FiltrosClienteAdmin,
+    NovoCliente,
+    PapelCliente,
+} from './cliente.types.js'
 
 const colunas = ' id, nome, email, telefone, papel, ativo, criado_em AS "criadoEm", atualizado_em AS "atualizadoEm" '
+// Mesmas colunas (nunca senha_hash) mais a data da anonimização, só para as rotas de admin
+const colunasAdmin = `${colunas}, anonimizado_em AS "anonimizadoEm" `
 
 // Única origem dos nomes de coluna do UPDATE dinâmico: chaves vindas do objeto recebido nunca viram SQL
 const colunasAtualizaveis: Record<keyof AtualizacaoCliente, string> = {
@@ -74,6 +84,50 @@ export const clienteRepository = {
     async travarParaAlteracao(id: number, executor: Queryable): Promise<boolean> {
         const { rows } = await executor.query('SELECT id FROM clientes WHERE id = $1 AND ativo FOR UPDATE', [id])
         return rows.length > 0
+    },
+    // A mesma linha que o travarParaAlteracao trava, mas sem exigir ativo, para o admin poder reativar ou
+    // anonimizar um cliente desativado. Os dois usam FOR UPDATE na mesma linha: um espera o outro, sem deadlock
+    async travarParaAdmin(id: number, executor: Queryable): Promise<{ papel: PapelCliente; ativo: boolean } | null> {
+        const { rows } = await executor.query<{ papel: PapelCliente; ativo: boolean }>(
+            'SELECT papel, ativo FROM clientes WHERE id = $1 AND anonimizado_em IS NULL FOR UPDATE',
+            [id],
+        )
+        return rows[0] ?? null
+    },
+    // Sem filtrar ativo nem anonimizado: o admin vê também quem foi desativado ou removido
+    async buscarParaAdmin(id: number, executor: Queryable = db): Promise<ClienteAdmin | null> {
+        const { rows } = await executor.query<ClienteAdmin>(`SELECT ${colunasAdmin} FROM clientes WHERE id = $1`, [id])
+        return rows[0] ?? null
+    },
+    async listarParaAdmin(filtro: FiltrosClienteAdmin): Promise<{ dados: ClienteAdmin[]; total: number }> {
+        // Tudo entra como parâmetro; a busca já chega com \, % e _ escapados pelo service (ESCAPE '\')
+        const valores: unknown[] = [filtro.papel]
+        let where = 'WHERE anonimizado_em IS NULL AND papel = $1'
+        if (filtro.busca) {
+            valores.push(filtro.busca)
+            const n = valores.length
+            where += ` AND (nome ILIKE '%' || $${n} || '%' ESCAPE '\\' OR email ILIKE '%' || $${n} || '%' ESCAPE '\\')`
+        }
+
+        // O count usa o mesmo WHERE da página
+        const { rows: contagem } = await db.query<{ total: number }>(
+            `SELECT count(*)::int AS total FROM clientes ${where}`,
+            valores,
+        )
+        const { rows } = await db.query<ClienteAdmin>(
+            `SELECT ${colunasAdmin} FROM clientes ${where}
+             ORDER BY criado_em DESC, id DESC
+             LIMIT $${valores.length + 1} OFFSET $${valores.length + 2}`,
+            [...valores, filtro.limite, filtro.offset],
+        )
+        return { dados: rows, total: contagem[0].total }
+    },
+    async definirAtivo(id: number, ativo: boolean, executor: Queryable): Promise<ClienteAdmin> {
+        const { rows } = await executor.query<ClienteAdmin>(
+            `UPDATE clientes SET ativo = $2, atualizado_em = now() WHERE id = $1 RETURNING ${colunasAdmin}`,
+            [id, ativo],
+        )
+        return rows[0]
     },
     // LGPD (D-23): a linha fica, porque as vendas apontam para ela; só os dados pessoais saem.
     // Os CHECKs ck_clientes_anonimizado_* exigem exatamente esta combinação (sem e-mail, senha e telefone, inativo)

@@ -24,10 +24,10 @@
 -- Fluxo:
 --   aguardando_pagamento → paga → em_separacao → enviada → entregue        (correios / propria)
 --   aguardando_pagamento → paga → em_separacao → pronta_retirada → entregue (retirada na loja)
---   aguardando_pagamento → cancelada
---   paga / em_separacao / pronta_retirada → cancelada                        (estorno aprovado na hora)
+--   aguardando_pagamento → cancelada                                         (venda não paga)
 --   paga / em_separacao / pronta_retirada → cancelamento_solicitado → cancelada
---     cancelamento_solicitado = estorno pendente (o gateway falhou); só segue para cancelada
+--     toda venda paga passa por cancelamento_solicitado = estorno em andamento ou pendente;
+--     só segue para cancelada (sistema, ou admin depois de 5 tentativas). Ver D-11, D-17 e D-22.
 -- ---------------------------------------------------------------------
 
 CREATE DOMAIN status_venda AS TEXT

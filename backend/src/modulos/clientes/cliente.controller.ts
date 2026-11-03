@@ -1,9 +1,11 @@
 import type { Request, Response } from 'express'
+import { idParam } from '../../utils/validacao.js'
 import { authService } from '../auth/auth.service.js'
 import { opcoesCookie } from '../auth/sessao.cookie.js'
 import { clienteService } from './cliente.service.js'
 
 // O `!` em req.usuario é seguro só porque toda rota /me passa antes pelo `autenticar`
+// e as de admin pela guarda `autenticar, exigirAdmin` do router
 export const clienteController = {
   async buscarMeusDados(req: Request, res: Response): Promise<void> {
     res.json(await clienteService.buscarMeusDados(req.usuario!.id))
@@ -22,6 +24,27 @@ export const clienteController = {
     await clienteService.apagarMinhaConta(req.usuario!.id, req.body)
     // Mesmos atributos do login, senão o navegador não apaga o cookie da sessão
     res.clearCookie('sid', opcoesCookie)
+    res.status(204).end()
+  },
+
+  // no-store nas respostas de admin: têm dados pessoais e não podem ficar em cache (como na D-41)
+  async listarParaAdmin(req: Request, res: Response): Promise<void> {
+    res.set('Cache-Control', 'no-store').json(await clienteService.listarParaAdmin(req.query))
+  },
+
+  async buscarParaAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    res.set('Cache-Control', 'no-store').json(await clienteService.buscarParaAdmin(id))
+  },
+
+  async definirAtivoPeloAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    res.set('Cache-Control', 'no-store').json(await clienteService.definirAtivoPeloAdmin(req.usuario!.id, id, req.body))
+  },
+
+  async removerPeloAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    await clienteService.removerPeloAdmin(req.usuario!.id, id)
     res.status(204).end()
   },
 }

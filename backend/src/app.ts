@@ -10,7 +10,15 @@ export const app = express()
 if (env.nodeEnv === 'production') app.set('trust proxy', 1)
 app.use(cors({ origin: env.corsOrigin, credentials: true }))
 // Defesa mantida após a atualização do body-parser: JSON de até 100 KiB, sem descompressão.
-app.use(express.json({ limit: '100kb', inflate: false }))
+// verify guarda o corpo cru: o HMAC do webhook é calculado sobre o corpo exatamente como chegou, e re-serializar
+// o JSON mudaria os bytes. O req do verify é o Request do Express (o body-parser o tipa como IncomingMessage).
+app.use(express.json({
+  limit: '100kb',
+  inflate: false,
+  verify: (req, _res, buf) => {
+    (req as express.Request).rawBody = buf
+  },
+}))
 app.use(cookieParser())
 app.use('/api', routes)
 

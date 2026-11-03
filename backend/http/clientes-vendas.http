@@ -957,3 +957,116 @@ Origin: {{origem}}
   "telefone": "00900000000",
   "aceiteTermos": true
 }
+
+
+# ===== ADMIN DE CLIENTES (/api/clientes) =====
+# Só admin: GET /, GET /:id, PATCH /:id { ativo } e DELETE /:id. As /me continuam do cliente (registradas antes da guarda).
+# Contas de teste: cadastre teste.adm.chefe@exemplo.com e promova por SQL, depois faça login de novo:
+#   UPDATE clientes SET papel = 'admin' WHERE email = 'teste.adm.chefe@exemplo.com';
+# Anote os ids (SELECT id, email FROM clientes WHERE email LIKE 'teste.adm.%') e preencha as variáveis abaixo.
+# Para limpar, pelos ids: DELETE FROM historico_status_venda WHERE venda_id IN (...); DELETE FROM vendas WHERE cliente_id IN (...);
+# DELETE FROM clientes WHERE id IN (...);
+@idClienteAdm=SUBSTITUA_PELO_ID_DO_CLIENTE
+@idOutroAdmin=SUBSTITUA_PELO_ID_DE_OUTRO_ADMIN
+
+# 401 - sem login
+###
+# @no-cookie-jar
+GET {{api}}/clientes
+
+# 403 - cliente logado (também em /clientes/xyz: a guarda vem antes do id, não é 404)
+###
+# @no-cookie-jar
+GET {{api}}/clientes/xyz
+Cookie: sid={{sessaoCliente}}
+
+# 200 - lista paginada de clientes (sem admins e sem anonimizados), com quantidadeVendas; Cache-Control: no-store
+###
+GET {{api}}/clientes?pagina=1&limite=20
+Cookie: sid={{sessaoAdmin}}
+
+# 200 - busca por nome ou e-mail (sem diferenciar maiúsculas); % e _ são texto literal: 50% acha só quem tem "50%"
+###
+GET {{api}}/clientes?busca=50%25
+Cookie: sid={{sessaoAdmin}}
+
+# 200 - só os admins
+###
+GET {{api}}/clientes?papel=admin
+Cookie: sid={{sessaoAdmin}}
+
+# 400 - papel fora da lista: detalhes.papel 'Use cliente ou admin.'
+###
+GET {{api}}/clientes?papel=xyz
+Cookie: sid={{sessaoAdmin}}
+
+# 400 - limite acima de 100
+###
+GET {{api}}/clientes?limite=500
+Cookie: sid={{sessaoAdmin}}
+
+# 200 - detalhe: dados, enderecos, totalVendas (todas) e totalGasto (centavos, só pagas/em andamento/entregues)
+###
+GET {{api}}/clientes/{{idClienteAdm}}
+Cookie: sid={{sessaoAdmin}}
+
+# 400 - id inválido / 404 - inexistente
+###
+GET {{api}}/clientes/abc
+Cookie: sid={{sessaoAdmin}}
+
+###
+GET {{api}}/clientes/999999
+Cookie: sid={{sessaoAdmin}}
+
+# 200 - desativar: as sessões e os links de recuperação do cliente caem na hora; repetir devolve 200 sem mudar nada
+###
+PATCH {{api}}/clientes/{{idClienteAdm}}
+Cookie: sid={{sessaoAdmin}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "ativo": false }
+
+# 200 - reativar (o login volta a funcionar; as sessões antigas não voltam)
+###
+PATCH {{api}}/clientes/{{idClienteAdm}}
+Cookie: sid={{sessaoAdmin}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "ativo": true }
+
+# 422 - ativo precisa ser exatamente true ou false ('false', 0, null e {} são recusados)
+###
+PATCH {{api}}/clientes/{{idClienteAdm}}
+Cookie: sid={{sessaoAdmin}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "ativo": "false" }
+
+# 409 - conta de administrador (outro admin ou o próprio): 'Não é possível alterar uma conta de administrador.'
+###
+PATCH {{api}}/clientes/{{idOutroAdmin}}
+Cookie: sid={{sessaoAdmin}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "ativo": false }
+
+# 403 - sem Origin
+###
+PATCH {{api}}/clientes/{{idClienteAdm}}
+Cookie: sid={{sessaoAdmin}}
+Content-Type: application/json
+
+{ "ativo": false }
+
+# 409 - com venda em andamento: 'Este cliente tem compras em andamento. Aguarde a entrega ou o cancelamento antes de remover a conta.'
+# 204 - sem venda em andamento: a conta é anonimizada (vale também para cliente desativado)
+# 404 - repetir (já anonimizado) / 409 - conta de admin
+###
+DELETE {{api}}/clientes/{{idClienteAdm}}
+Cookie: sid={{sessaoAdmin}}
+Origin: {{origem}}

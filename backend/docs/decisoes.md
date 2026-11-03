@@ -322,14 +322,14 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 ## Vendas e estoque
 
 ### D-10 — Compra pelo site, com entrega
-- **Data:** 15/10/2026
-- **Decisão:** a compra é feita pelo próprio site, com entrega dos produtos. A retirada na loja já está prevista no
-  banco (`tipo_entrega = 'retirada'` e status `pronta_retirada`), mas depende de confirmação da loja.
-- **Motivo:** é o fluxo pedido pela loja; deixar a retirada pronta no schema evita migração depois.
-- **Impacto:** módulo `vendas`; regras de entrega provisórias na D-29.
+- **Data:** 15/10/2026 (atualizado em 02/11/2026: retirada confirmada, conforme a D-29)
+- **Decisão:** a compra é feita pelo próprio site, com entrega dos produtos. A retirada na loja está **confirmada**
+  pela loja, com frete zero (`tipo_entrega = 'retirada'` e status `pronta_retirada`), conforme a D-29.
+- **Motivo:** é o fluxo pedido pela loja; deixar a retirada pronta no schema evitou migração depois.
+- **Impacto:** módulo `vendas`; regras de entrega na D-29.
 
 ### D-11 — Status da venda
-- **Data:** 15/10/2026 (atualizado em 19/10/2026)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10)
 - **Decisão:** a lista de status é a do `DOMAIN status_venda` em `db/init/20_vendas.sql`, usada em `vendas.status`
   e no `historico_status_venda`:
   `aguardando_pagamento`, `paga`, `em_separacao`, `enviada`, `pronta_retirada`, `entregue`,
@@ -337,10 +337,11 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   ```
   aguardando_pagamento → paga → em_separacao → enviada → entregue          (correios / propria)
   aguardando_pagamento → paga → em_separacao → pronta_retirada → entregue  (retirada)
-  aguardando_pagamento → cancelada
-  paga / em_separacao / pronta_retirada → cancelada                         (estorno aprovado na hora)
-  paga / em_separacao / pronta_retirada → cancelamento_solicitado → cancelada   (estorno pendente: o gateway falhou)
+  aguardando_pagamento → cancelada                                          (venda não paga)
+  paga / em_separacao / pronta_retirada → cancelamento_solicitado → cancelada   (estorno em andamento ou pendente)
   ```
+  Não existe caminho direto de `paga`, `em_separacao` ou `pronta_retirada` para `cancelada`: toda venda paga passa
+  por `cancelamento_solicitado`. Quem pode fazer cada transição está em `modulos/vendas/venda.transicoes.ts` (#29).
 - **Motivo:** um `DOMAIN` só garante que a lista nunca fique diferente entre as tabelas.
 - **Impacto:** vendas, pagamentos, frontend (telas de pedido e do admin).
 
@@ -391,10 +392,13 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
 
 ### D-17 — Cancelamento direto pelo cliente até antes do envio
-- **Data:** 15/10/2026 (atualizado em 19/10/2026)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10)
 - **Decisão:** o cliente cancela a própria venda em `POST /api/vendas/:id/cancelar` enquanto ela não foi enviada,
-  com estorno automático se já estiver paga (D-22). Não existe "solicitar cancelamento". O status
-  `cancelamento_solicitado` indica apenas estorno pendente após falha no gateway.
+  com estorno automático se já estiver paga (D-22). Não existe "solicitar cancelamento" para o admin aprovar.
+  O status `cancelamento_solicitado` significa "estorno em andamento ou pendente" (não só "o gateway falhou"):
+  toda venda paga cancelada passa por ele. Enquanto a venda está nele, nenhuma outra transição é permitida, só a
+  conclusão para `cancelada`, que é sempre registrada como `sistema` (ou `admin`, só depois de 5 tentativas de
+  estorno, D-22).
 - **Motivo:** depois de enviada, o produto já saiu da loja; com o estorno automático, não há pedido para o admin
   aprovar.
 - **Impacto:** rotas de vendas; tela de "minhas compras" no frontend; pagamentos.
@@ -422,61 +426,105 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Motivo:** o aviso depende do estoque, e esses e-mails estão fora do escopo da entrega de 19/11 (D-24).
 - **Impacto:** catálogo e estoque (Dev 2); painel do admin no frontend.
 
-### D-29 — Regras de entrega (provisórias)
-- **Data:** 19/10/2026
-- **Decisão:** **provisório até a loja confirmar**; os valores ficam em `frete.config.ts`:
-  - entrega só em São João del Rei, frete fixo de R$ 10,00 (`1000` centavos), prazo de 1 dia útil;
-  - peixe vivo só nessa área;
-  - retirada na loja disponível, com frete zero (status `pronta_retirada`);
-  - sem frete grátis.
-- **Motivo:** permite implementar e testar o frete sem esperar a resposta da loja.
+### D-29 — Regras de entrega
+- **Data:** 19/10/2026 (atualizado em 02/11/2026, com as regras combinadas com a loja em 24/10/2026)
+- **Decisão:** as regras abaixo estão confirmadas; só os **valores** continuam provisórios.
+  - entrega para **todo o Brasil**: São João del Rei com entrega própria (`tipo_entrega = 'propria'`) e o resto
+    pelos Correios (`'correios'`), por faixas de CEP;
+  - **peixe vivo** (produto da categoria de slug `peixes`) só é entregue em São João del Rei; fora dela, `422` com
+    um detalhe por item de peixe;
+  - **retirada na loja** com frete zero (status `pronta_retirada`), inclusive com peixe;
+  - os valores de `modulos/vendas/frete.config.ts` são **PROVISÓRIOS** até a loja responder. Falta: o preço e o
+    prazo para o resto do Brasil, o valor e o prazo locais (São João del Rei) e se haverá frete grátis (e a partir
+    de que valor). Hoje: R$ 10,00 e 1 dia em São João del Rei, de R$ 25,00 a R$ 55,00 no resto do Brasil, sem
+    frete grátis;
+  - a regra fica em `calcularFrete` (`modulos/vendas/frete.service.ts`, função pura, #27).
+- **Motivo:** permite implementar e testar o frete sem esperar os valores; quando a loja responder, só o
+  `frete.config.ts` muda.
 - **Impacto:** módulo `vendas` (`POST /api/frete/calcular`, `vendas.frete`, `prazo_entrega_dias`, `tipo_entrega`).
 
 ---
 
 ## Pagamento
 
-### D-18 — Pagamento em página hospedada pelo gateway
-- **Data:** 15/10/2026
-- **Decisão:** cartão e PIX são pagos numa página hospedada pelo gateway. O backend nunca recebe dados de cartão.
-- **Motivo:** dados de cartão fora do nosso servidor = sem exigência de PCI e sem risco de vazamento do nosso lado.
-- **Impacto:** módulo `pagamentos`.
+### D-18 — Pix transparente, sem página do gateway
+- **Data:** 15/10/2026 (alterada em 02/11/2026, #43: Pix transparente no lugar da página hospedada)
+- **Decisão:**
+  - Começa só com **Pix transparente**: o backend cria a cobrança na AbacatePay com o valor em centavos e recebe o
+    código Pix (copia e cola) e a imagem do QR code; o cliente paga no app do banco, sem sair do site.
+  - A cobrança vai **sem `customer`** (D-31: não coletamos CPF).
+  - Cartão fica para depois. Quando entrar, o número do cartão continua sem passar pelo nosso servidor: o
+    navegador gera um token com o script da AbacatePay e o backend só cobra com esse token.
+  - O requisito "página de pagamento hospedada" deixa de valer.
+- **Motivo:** o checkout hospedado da AbacatePay exige produtos cadastrados nela e calcula o total por eles: não
+  aceita o frete nem um valor livre. O Pix transparente cobra exatamente o total da venda.
+- **Impacto:** módulo `pagamentos`; a #44 responde o código Pix e a imagem do QR code ao frontend (`api.md`,
+  seção 8).
 
-### D-19 — Gateway ainda não definido
-- **Data:** 15/10/2026 (atualizado em 19/10/2026)
-- **Decisão:** o gateway ainda **não** foi escolhido. Prazo: **29/10/2026**. Requisitos: página de pagamento
-  hospedada, API de estorno, webhooks com assinatura, ambiente de testes e conta no nome da loja.
-- **Motivo:** a escolha depende da loja (taxas e conta própria).
+### D-19 — Gateway: AbacatePay (API v2)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; gateway escolhido em 02/11/2026; Pix transparente em 02/11/2026)
+- **Decisão:**
+  - **AbacatePay, API v2**, escolhida pelo grupo em 02/11/2026.
+  - Começa com **Pix**; cartão fica para depois.
+  - Checkout **transparente**, só Pix por enquanto (D-18, definido na #43 em 02/11/2026); o hospedado foi descartado.
+  - Desenvolvimento na conta de teste do dev, em **Dev mode**. Produção na conta da loja, com o CNPJ ou CPF e a
+    conta bancária dela (**pendente**; necessária para o deploy, #66).
+  - Credenciais só nas variáveis `GATEWAY_ACCESS_TOKEN` e `GATEWAY_WEBHOOK_SECRET`, nunca no Git.
+- **Motivo:** fecha a pendência do gateway (o prazo anterior era 29/10/2026); a conta da loja continua necessária
+  para receber os pagamentos em produção.
 - **Impacto:** toda a parte de pagamento. O banco usa nomes genéricos (`gateway_*`) e a coluna `pagamentos.gateway`
-  registra qual gateway foi usado.
+  registra qual gateway foi usado; o código do gateway fica isolado em `modulos/pagamentos/gateway.ts` (D-20).
 
 ### D-20 — Código do gateway isolado em `gateway.ts`
-- **Data:** 15/10/2026
+- **Data:** 15/10/2026 (atualizado em 02/11/2026, #43)
 - **Decisão:** toda chamada ao gateway fica num único arquivo, `gateway.ts`, dentro do módulo `pagamentos`.
+  - **fetch nativo do Node, sem SDK** (nenhum pacote novo), com **timeout de 5 s** em toda chamada;
+  - **tipos próprios** do projeto na interface (`cobrancaId`, `codigoPix`, `qrCodeImagem`, status do projeto):
+    nenhum nome da AbacatePay sai do arquivo, exceto o id da cobrança, tratado como texto opaco;
+  - mapa fixo dos status da AbacatePay para os do projeto; status desconhecido é erro (`502`), nunca "aprovado";
+  - id de cobrança conferido (`pix_char_...`) antes de ir para a URL; toda resposta conferida antes de ser usada;
+  - logs só com a operação e o status HTTP: nunca o token, o corpo das respostas nem o código Pix.
 - **Motivo:** trocar de gateway não pode afetar o resto do código.
 - **Impacto:** módulo `pagamentos`.
 
 ### D-21 — Webhook só confirma o pagamento
-- **Data:** 15/10/2026
+- **Data:** 15/10/2026 (atualizado em 02/11/2026, #45)
 - **Decisão:**
   - O webhook só confirma o pagamento (venda → `paga`); não mexe em estoque.
   - Sempre valida a assinatura e reconsulta o pagamento na API do gateway antes de agir.
   - Toda notificação é gravada em `eventos_webhook` antes de ser processada (idempotência).
   - Pagamento aprovado de venda já cancelada ou expirada → estorno.
+  - **Três camadas** (atualizado em 02/11/2026, #45): (1) o `webhookSecret` na URL, que só nós e a AbacatePay
+    conhecemos e que prova a origem; (2) a assinatura `X-Webhook-Signature` (HMAC-SHA256 do corpo cru com a
+    chave pública da AbacatePay), que só prova que o corpo não foi alterado, porque a chave é pública; (3) a
+    reconsulta da cobrança na API (#47), que decide se o pagamento existe e quanto vale.
+  - **Códigos de resposta:** `401` para segredo ou assinatura inválidos (a AbacatePay não reenvia 4xx, e o pedido
+    não ficaria certo numa nova tentativa); `5xx` para falha nossa (ela reenvia até 7 vezes em cerca de 18 h);
+    `200` para evento aceito ou ignorado. Nunca `410`, que desativa o webhook na AbacatePay.
 - **Motivo:** o corpo do webhook pode ser forjado ou repetido; o estoque já foi resolvido na criação/cancelamento.
 - **Impacto:** módulo `pagamentos`.
 
 ### D-22 — Estorno automático no cancelamento de venda paga
-- **Data:** 15/10/2026 (atualizado em 19/10/2026)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10;
+  atualizada em 02/11/2026 no Lote 7, com a AbacatePay)
 - **Decisão:**
-  - Cancelar venda paga dispara estorno automático pela API do gateway, sempre do valor total, com chave de
-    idempotência derivada do id da venda (`estorno-venda-<id>`).
-  - Se o gateway falhar, a venda fica em `cancelamento_solicitado` (= estorno pendente) e a tarefa agendada tenta
+  - Cancelar venda paga dispara estorno automático pela API do gateway, sempre do valor total.
+  - A AbacatePay **não tem chave de idempotência** no estorno e só faz **estorno total**. Repetir é seguro: o
+    segundo pedido é recusado com "Esta cobrança já foi reembolsada.", que conta como **sucesso** (já estornado).
+  - O estorno da AbacatePay sai do **SALDO DISPONÍVEL** da conta. Se a loja tiver sacado tudo, ou se o dinheiro do
+    Pix ainda não estiver disponível, o estorno falha com "Saldo insuficiente para realizar o reembolso.". O modelo
+    da #35 cobre isso: a venda fica em `cancelamento_solicitado` e a #49 tenta de novo; depois de 5 tentativas, o
+    admin conclui à mão. A loja precisa saber que estornos dependem de manter saldo na conta.
+  - O estorno é controlado por pagamento, pela coluna `pagamentos.estorno_solicitado_em` (entra na #35), em três
+    etapas: **travar** (numa transação, a venda vai para `cancelamento_solicitado` e o pagamento é marcado com
+    `estorno_solicitado_em`), **estornar** (chamada ao gateway, fora da transação) e **concluir** (numa nova
+    transação, a venda vai para `cancelada`, registrada como `sistema`).
+  - Se o gateway falhar, a venda continua em `cancelamento_solicitado` (= estorno pendente) e a tarefa agendada tenta
     de novo, até 5 vezes. Contador em `pagamentos.estorno_tentativas` e último erro em
     `pagamentos.estorno_ultimo_erro`. Esgotadas as tentativas, a venda continua em `cancelamento_solicitado` e o
-    admin resolve manualmente.
-- **Motivo:** o cliente não depende de ação manual para receber de volta; a chave de idempotência evita estorno em dobro
-  na nova tentativa; o limite de tentativas evita insistir num erro que não se resolve sozinho.
+    admin resolve manualmente (só então o admin pode concluir para `cancelada`).
+- **Motivo:** o cliente não depende de ação manual para receber de volta; a recusa do segundo estorno pela AbacatePay
+  evita estorno em dobro na nova tentativa; o limite de tentativas evita insistir num erro que não se resolve sozinho.
 - **Impacto:** pagamentos, vendas.
 
 ### D-30 — Conta do gateway
@@ -534,14 +582,13 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 | Pergunta | Com quem | Prazo | O que trava |
 |---|---|---|---|
-| Qual gateway de pagamento? | grupo + loja | 29/10/2026 | toda a parte de pagamento (semana 4) |
-| Qual provedor de e-mail? | grupo | 22/10/2026 | recuperação de senha (semana 2) |
+| Qual provedor de e-mail? | grupo | 22/10/2026 (vencido) | envio real da recuperação de senha (#19a, passo 3, e #19b). Falta: escolher o provedor, combinar o SDK no `package.json`, a chave `EMAIL_API_KEY` e o remetente verificado `EMAIL_REMETENTE` |
+| Valores do frete | loja | a definir | valores definitivos do frete (#4). Falta: preço e prazo para o resto do Brasil, valor e prazo locais e frete grátis; só o `frete.config.ts` muda |
 
 Requisitos do provedor de e-mail: plano gratuito suficiente para testes, envio a partir de um remetente verificado
 sem exigir domínio próprio, SDK para Node.js.
 
-Requisitos do gateway: ver `api.md` (seção de pagamento). As regras de entrega são provisórias até a confirmação
-da loja (ver decisão de entrega, D-29).
+As regras de entrega já estão confirmadas; só os valores do frete são provisórios (ver D-29).
 
 ---
 

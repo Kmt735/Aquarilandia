@@ -147,6 +147,10 @@ Cada rota indica quem pode usá-la: **(público)** qualquer visitante · **(loga
 **(cliente)** cliente logado · **(cliente, dono)** só se o recurso for do cliente logado ·
 **(admin)** equipe da loja · **(gateway)** notificação do gateway de pagamento.
 Rotas `/me` são registradas no router **antes** das rotas `/:id`.
+Em `/api/clientes`, logo depois das `/me` vem a guarda única `clienteRoutes.use(autenticar, exigirAdmin)`, o mesmo
+padrão da D-41 em orçamentos: toda rota registrada abaixo dela já nasce só de admin. Uma rota `/me` nova (ex.:
+`/me/vendas`) precisa ser registrada **acima** da guarda. Caminho desconhecido em `/api/clientes` responde `401`
+(sem login) ou `403` (cliente) antes de chegar ao `404`.
 
 **Celio — auth / clientes / vendas / pagamentos / orçamentos**
 ```
@@ -168,11 +172,11 @@ DELETE /api/clientes/me/enderecos/:enderecoId   (cliente, dono)
 GET    /api/clientes/me/vendas                  ?status=&pagina=&limite=   (cliente)
 GET    /api/clientes/me/vendas/:id              (cliente, dono — inclui itens e histórico)
 
-GET    /api/clientes                            ?busca=&papel=&pagina=&limite=   (admin)
-GET    /api/clientes/:id                        (admin — inclui endereços)
-PATCH  /api/clientes/:id                        (admin — ativar/desativar)
-DELETE /api/clientes/:id                        (admin — anonimiza, LGPD)
-GET    /api/clientes/:id/vendas                 (admin)
+GET    /api/clientes                            ?busca=&papel=&pagina=&limite=   (admin — ver seção 6)
+GET    /api/clientes/:id                        (admin — inclui endereços, totalVendas e totalGasto; ver seção 6)
+PATCH  /api/clientes/:id                        { ativo }   (admin — ativar/desativar; ver seção 6)
+DELETE /api/clientes/:id                        (admin — anonimiza, LGPD; ver seção 6)
+GET    /api/clientes/:id/vendas                 (admin — ainda não implementada, depende da #33)
 
 POST   /api/frete/calcular                      (público, rate limit)
 
@@ -1115,6 +1119,60 @@ Body `{ senha }` (a senha atual, sem `trim`). Anonimiza a conta (D-23): ver seç
 | `422` | `senha` errada (ou com mais de 128 caracteres) | `{ senha: 'Senha incorreta.' }` |
 | `429` | Rate limit compartilhado com `PATCH /me/senha`: 5 respostas de erro em 15 min, somando as duas rotas | `'Muitas tentativas…'` |
 
+### Admin de clientes (`/api/clientes`) — implementado em 02/11/2026
+
+As quatro rotas ficam atrás da guarda única depois das `/me` (seção 3): sem login → `401`
+`'Faça login para continuar.'`; cliente → `403` `'Acesso permitido somente para administradores.'`.
+Todas as respostas `200` vão com `Cache-Control: no-store` (dados pessoais, como na D-41). Nenhuma traz `senha_hash`.
+`:id` que não é inteiro positivo → `400` `'Id inválido.'`.
+
+**`GET /api/clientes`** — lista paginada (seção 4: `{ dados, total, pagina, limite }`), ordenada por
+`criadoEm` decrescente e depois `id` decrescente. Nunca lista contas anonimizadas.
+
+| Query | Regra | Erro (`400` `'Parâmetros inválidos'`) |
+|---|---|---|
+| `papel` | `cliente` (padrão) ou `admin`, exatamente | `{ papel: 'Use cliente ou admin.' }` |
+| `busca` | `trim`; vazio = sem filtro; até 100 caracteres; procura em `nome` **ou** `email`, sem diferenciar maiúsculas; `%`, `_` e `\` são texto literal (`50%` acha só quem tem "50%") | `{ busca: 'A busca pode ter até 100 caracteres.' }`; repetida (`?busca=a&busca=b`) → `{ busca: 'Informe um único texto de busca.' }` |
+| `pagina`, `limite` | seção 4 (padrão 1 e 20, máximo 100) | mensagens da seção 4 |
+
+Cada item: `id`, `nome`, `email`, `telefone`, `papel`, `ativo`, `criadoEm` e `quantidadeVendas` (todas as vendas
+do cliente, em qualquer status; `0` se não tiver nenhuma).
+
+**`GET /api/clientes/:id`** — os campos do cliente (`id`, `nome`, `email`, `telefone`, `papel`, `ativo`, `criadoEm`,
+`atualizadoEm`, `anonimizadoEm`), mais:
+- `enderecos`: os endereços do cliente (mesmo formato de `GET /me/enderecos`);
+- `totalVendas`: quantidade de vendas do cliente, em qualquer status;
+- `totalGasto`: soma do `total` (centavos) das vendas em `paga`, `em_separacao`, `enviada`, `pronta_retirada` ou
+  `entregue`. Ficam fora `aguardando_pagamento` (não pago), `cancelamento_solicitado` (estorno em andamento) e `cancelada`.
+
+Mostra também desativados e anonimizados (anonimizado: `nome` `'Cliente removido'`, `email` e `telefone` `null`,
+`anonimizadoEm` preenchido, sem endereços). Inexistente → `404` `'Cliente não encontrado.'`.
+
+**`PATCH /api/clientes/:id`** — body `{ ativo }`; só o `ativo` é lido, as outras chaves são ignoradas. Exige `Origin`.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `200` | Ativo alterado; pedir o estado atual devolve o cliente sem gravar nada | o cliente (campos do detalhe, sem `enderecos`/totais) |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `404` | Inexistente ou anonimizado | `'Cliente não encontrado.'` |
+| `409` | Conta de admin (outro admin ou o próprio) | `'Não é possível alterar uma conta de administrador.'` |
+| `422` | Body que não é objeto | `{ body: 'Formato de dados inválido.' }` |
+| `422` | `ativo` que não seja exatamente `true` ou `false` (`'false'`, `0`, `null` ou ausente) | `{ ativo: 'Informe true ou false.' }` |
+
+Desativar apaga, na mesma transação, todas as sessões e os tokens de recuperação de senha do cliente: ele é
+deslogado na hora e o login responde `401` até ser reativado. Reativar não devolve as sessões antigas.
+
+**`DELETE /api/clientes/:id`** — anonimiza o cliente (D-23, o mesmo núcleo do `DELETE /me`, sem pedir senha),
+inclusive se estiver desativado. Exige `Origin`.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `204` | Conta anonimizada (endereços, sessões e tokens apagados; vendas mantidas) | sem corpo |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `404` | Inexistente ou já anonimizado | `'Cliente não encontrado.'` |
+| `409` | Conta de admin (outro admin ou o próprio) | `'Não é possível alterar uma conta de administrador.'` |
+| `409` | Venda em andamento (mesmos status do `DELETE /me`) | `'Este cliente tem compras em andamento. Aguarde a entrega ou o cancelamento antes de remover a conta.'` |
+
 ---
 
 ## 7. Banco de dados
@@ -1228,16 +1286,23 @@ servicoService.listarOpcoes(): Promise<string[]>   // valores aceitos no campo s
 4. Abre `comTransacao`: insere `vendas` e `itens_venda` (guardando `preco_unitario` do momento da venda) → chama `estoqueService.baixarParaVenda(vendaId, itens, client)`. A venda nasce como `'aguardando_pagamento'`, com `expira_em` = criação + 30 minutos.
 5. Se qualquer passo lançar erro, tudo é desfeito.
 
-### Gateway de pagamento
-O gateway de pagamento **ainda não foi escolhido** (prazo: **29/10/2026**). Requisitos:
-- página de pagamento hospedada pelo gateway (cartão e PIX) — o backend nunca recebe dados de cartão;
-- API de estorno;
-- webhooks com assinatura;
-- ambiente de testes;
-- conta no nome da loja.
+### Gateway de pagamento — AbacatePay, Pix transparente (02/11/2026)
+O gateway é a **AbacatePay, API v2** (D-19). Começa só com **Pix transparente** (D-18): o backend cria a cobrança
+com o valor em centavos e recebe o código Pix e a imagem do QR code; o cliente paga no app do banco, sem página do
+gateway e sem sair do site. A cobrança vai sem dados do cliente (D-31). Cartão fica para depois.
 
-Todo o código do gateway fica isolado em `modulos/pagamentos/gateway.ts`, e o banco usa nomes genéricos
+Todo o código do gateway fica isolado em `modulos/pagamentos/gateway.ts` (D-20), e o banco usa nomes genéricos
 (`gateway_*`), para que a escolha afete só esse arquivo. Variáveis: `GATEWAY_ACCESS_TOKEN` e `GATEWAY_WEBHOOK_SECRET`.
+
+**Contrato proposto, implementado na #44:** `POST /api/vendas/:id/pagamentos` responde
+`{ pagamentoId, codigoPix, qrCodeImagem, expiraEm }`. `codigoPix` é o copia e cola; `qrCodeImagem` é um data URL
+(`data:image/png;base64,...`) para usar direto num `<img>`; `expiraEm` em ISO 8601.
+
+**Webhook:** `POST /api/pagamentos/webhook?webhookSecret=<segredo>` (gateway). Sem `autenticar`, sem `exigirOrigem`
+e sem rate limit, porque quem chama é a AbacatePay, que não manda Origin nem cookie. Valida o `webhookSecret` e a
+assinatura `X-Webhook-Signature` sobre o corpo cru (D-21): inválido → `401` `{ erro: 'Não autorizado.' }`;
+válido → `200` `{ recebido: true }`. Gravar o evento, reconsultar a cobrança e marcar a venda como paga é da #46
+e da #47.
 
 ### Venda não paga, pagamento e cancelamento
 - Uma tarefa agendada do módulo `vendas` cancela vendas `'aguardando_pagamento'` vencidas e chama
