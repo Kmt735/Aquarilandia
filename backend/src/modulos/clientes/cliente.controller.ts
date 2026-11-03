@@ -4,6 +4,7 @@ import { opcoesCookie } from '../auth/sessao.cookie.js'
 import { clienteService } from './cliente.service.js'
 
 // O `!` em req.usuario é seguro só porque toda rota /me passa antes pelo `autenticar`
+// e as de admin pela guarda `autenticar, exigirAdmin` do router
 export const clienteController = {
   async buscarMeusDados(req: Request, res: Response): Promise<void> {
     res.json(await clienteService.buscarMeusDados(req.usuario!.id))
@@ -23,5 +24,10 @@ export const clienteController = {
     // Mesmos atributos do login, senão o navegador não apaga o cookie da sessão
     res.clearCookie('sid', opcoesCookie)
     res.status(204).end()
+  },
+
+  // no-store nas respostas de admin: têm dados pessoais e não podem ficar em cache (como na D-41)
+  async listarParaAdmin(req: Request, res: Response): Promise<void> {
+    res.set('Cache-Control', 'no-store').json(await clienteService.listarParaAdmin(req.query))
   },
 }

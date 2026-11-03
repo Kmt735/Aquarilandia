@@ -1,9 +1,15 @@
 import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
+import { paginacao } from '../../utils/validacao.js'
 import { authService } from '../auth/auth.service.js'
 import { vendaService } from '../vendas/venda.service.js'
 import { clienteRepository } from './cliente.repository.js'
-import type { AtualizacaoCliente, Cliente } from './cliente.types.js'
+import type {
+  AtualizacaoCliente,
+  Cliente,
+  ListaClientesAdmin,
+  PapelCliente,
+} from './cliente.types.js'
 import {
   detalhesEmailEmUso,
   ehEmailDuplicado,
@@ -66,6 +72,30 @@ function validarApagarConta(body: unknown): string {
   const senha = String((body as Record<string, unknown>).senha ?? '')
   if (senha === '') throw new AppError('Dados inválidos', 422, { senha: 'Digite sua senha para confirmar.' })
   return senha
+}
+
+// ?papel= padrão 'cliente'. ?busca= sem curingas: \, % e _ ganham uma barra antes e viram texto literal no
+// ILIKE ... ESCAPE '\'. A barra do usuário também é escapada, senão "\%" dele viraria um % literal "de graça"
+function lerFiltrosAdmin(parametros: Record<string, unknown>): { papel: PapelCliente; busca?: string } {
+  let papel: PapelCliente = 'cliente'
+  if (parametros.papel !== undefined) {
+    if (parametros.papel !== 'cliente' && parametros.papel !== 'admin') {
+      throw new AppError('Parâmetros inválidos', 400, { papel: 'Use cliente ou admin.' })
+    }
+    papel = parametros.papel
+  }
+
+  if (parametros.busca === undefined) return { papel }
+  // ?busca=a&busca=b chega como array: só um texto de busca é aceito
+  if (typeof parametros.busca !== 'string') {
+    throw new AppError('Parâmetros inválidos', 400, { busca: 'Informe um único texto de busca.' })
+  }
+  const busca = parametros.busca.trim()
+  if (busca.length > 100) {
+    throw new AppError('Parâmetros inválidos', 400, { busca: 'A busca pode ter até 100 caracteres.' })
+  }
+  if (busca === '') return { papel }
+  return { papel, busca: busca.replace(/[\\%_]/g, '\\$&') }
 }
 
 export const clienteService = {
@@ -133,5 +163,30 @@ export const clienteService = {
     if (!senhaConfere) throw new AppError('Dados inválidos', 422, { senha: 'Senha incorreta.' })
 
     await clienteService.anonimizarConta(clienteId)
+  },
+
+  async listarParaAdmin(query: unknown): Promise<ListaClientesAdmin> {
+    const parametros = (typeof query === 'object' && query !== null ? query : {}) as Record<string, unknown>
+    const { pagina, limite } = paginacao(parametros)
+    const { papel, busca } = lerFiltrosAdmin(parametros)
+
+    const offset = (pagina - 1) * limite
+    const { dados, total } = await clienteRepository.listarParaAdmin({ busca, papel, limite, offset })
+    const vendas = await vendaService.contarPorClientes(dados.map((cliente) => cliente.id))
+    return {
+      dados: dados.map((cliente) => ({
+        id: cliente.id,
+        nome: cliente.nome,
+        email: cliente.email,
+        telefone: cliente.telefone,
+        papel: cliente.papel,
+        ativo: cliente.ativo,
+        criadoEm: cliente.criadoEm,
+        quantidadeVendas: vendas.get(cliente.id) ?? 0,
+      })),
+      total,
+      pagina,
+      limite,
+    }
   },
 }

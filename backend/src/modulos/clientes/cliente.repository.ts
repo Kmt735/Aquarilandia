@@ -3,12 +3,16 @@ import type { Queryable } from '../../utils/transacao.js'
 import type {
     AtualizacaoCliente,
     Cliente,
+    ClienteAdmin,
     ClienteComSenha,
+    FiltrosClienteAdmin,
     NovoCliente,
     PapelCliente,
 } from './cliente.types.js'
 
 const colunas = ' id, nome, email, telefone, papel, ativo, criado_em AS "criadoEm", atualizado_em AS "atualizadoEm" '
+// Mesmas colunas (nunca senha_hash) mais a data da anonimização, só para as rotas de admin
+const colunasAdmin = `${colunas}, anonimizado_em AS "anonimizadoEm" `
 
 // Única origem dos nomes de coluna do UPDATE dinâmico: chaves vindas do objeto recebido nunca viram SQL
 const colunasAtualizaveis: Record<keyof AtualizacaoCliente, string> = {
@@ -89,6 +93,29 @@ export const clienteRepository = {
             [id],
         )
         return rows[0] ?? null
+    },
+    async listarParaAdmin(filtro: FiltrosClienteAdmin): Promise<{ dados: ClienteAdmin[]; total: number }> {
+        // Tudo entra como parâmetro; a busca já chega com \, % e _ escapados pelo service (ESCAPE '\')
+        const valores: unknown[] = [filtro.papel]
+        let where = 'WHERE anonimizado_em IS NULL AND papel = $1'
+        if (filtro.busca) {
+            valores.push(filtro.busca)
+            const n = valores.length
+            where += ` AND (nome ILIKE '%' || $${n} || '%' ESCAPE '\\' OR email ILIKE '%' || $${n} || '%' ESCAPE '\\')`
+        }
+
+        // O count usa o mesmo WHERE da página
+        const { rows: contagem } = await db.query<{ total: number }>(
+            `SELECT count(*)::int AS total FROM clientes ${where}`,
+            valores,
+        )
+        const { rows } = await db.query<ClienteAdmin>(
+            `SELECT ${colunasAdmin} FROM clientes ${where}
+             ORDER BY criado_em DESC, id DESC
+             LIMIT $${valores.length + 1} OFFSET $${valores.length + 2}`,
+            [...valores, filtro.limite, filtro.offset],
+        )
+        return { dados: rows, total: contagem[0].total }
     },
     // LGPD (D-23): a linha fica, porque as vendas apontam para ela; só os dados pessoais saem.
     // Os CHECKs ck_clientes_anonimizado_* exigem exatamente esta combinação (sem e-mail, senha e telefone, inativo)

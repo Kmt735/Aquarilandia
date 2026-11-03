@@ -24,6 +24,32 @@ export interface ClienteComSenha extends Cliente {
     senhaHash : string
 }
 
+// Como o admin vê o cliente: inclui os desativados e os anonimizados (anonimizadoEm preenchido)
+export interface ClienteAdmin extends Cliente {
+    anonimizadoEm: Date | null
+}
+
+export interface FiltrosClienteAdmin {
+    busca?: string
+    papel: PapelCliente
+    limite: number
+    offset: number
+}
+
+export type ResumoClienteAdmin = Pick<
+    ClienteAdmin,
+    'id' | 'nome' | 'email' | 'telefone' | 'papel' | 'ativo' | 'criadoEm'
+> & {
+    quantidadeVendas: number
+}
+
+export interface ListaClientesAdmin {
+    dados: ResumoClienteAdmin[]
+    total: number
+    pagina: number
+    limite: number
+}
+
 export interface Endereco {
     id: number
     clienteId: number
