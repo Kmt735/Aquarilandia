@@ -58,7 +58,7 @@ export const clienteRepository = {
         const { rows } = await db.query<Cliente>(`SELECT ${colunas} FROM clientes WHERE id = $1 AND ativo `,[id])
         return rows[0] ?? null
     },
-    async atualizar(id: number, dados: AtualizacaoCliente): Promise<Cliente | null> {
+    async atualizar(id: number, dados: AtualizacaoCliente, executor: Queryable = db): Promise<Cliente | null> {
         const sets: string[] = []
         const valores: unknown[] = []
         // Percorre o mapa fixo, não o objeto recebido: só nome, email e telefone podem entrar no SET
@@ -70,7 +70,7 @@ export const clienteRepository = {
         sets.push('atualizado_em = now()')
         valores.push(id)
 
-        const { rows } = await db.query<Cliente>(
+        const { rows } = await executor.query<Cliente>(
             `UPDATE clientes SET ${sets.join(', ')} WHERE id = $${valores.length} AND ativo RETURNING ${colunas}`,
             valores,
         )
