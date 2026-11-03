@@ -7,6 +7,7 @@ import { clienteRepository } from './cliente.repository.js'
 import type {
   AtualizacaoCliente,
   Cliente,
+  ClienteAdmin,
   DetalheClienteAdmin,
   ListaClientesAdmin,
   PapelCliente,
@@ -25,6 +26,14 @@ import { verificarSenha } from './senha.js'
 
 const msgAlteracaoRecusada = 'Não foi possível salvar as alterações.'
 const msgClienteNaoEncontrado = 'Cliente não encontrado.'
+// O admin nunca altera nem remove outro admin, nem a própria conta (a loja não fica sem admin)
+const msgContaAdmin = 'Não é possível alterar uma conta de administrador.'
+
+// Mesma mensagem de sempre para o cliente (#24); o admin recebe o texto escrito para quem gerencia a loja
+const msgCompraEmAndamento = {
+  cliente: 'Você tem compras em andamento. Aguarde a entrega ou cancele antes de apagar a conta.',
+  admin: 'Este cliente tem compras em andamento. Aguarde a entrega ou o cancelamento antes de remover a conta.',
+} as const
 
 // Lê só nome, email e telefone; qualquer outra chave (papel, ativo, id, senhaHash...) é ignorada (api.md, seção 11)
 function validarAtualizacao(body: unknown): AtualizacaoCliente {
@@ -100,6 +109,17 @@ function lerFiltrosAdmin(parametros: Record<string, unknown>): { papel: PapelCli
   return { papel, busca: busca.replace(/[\\%_]/g, '\\$&') }
 }
 
+// Só o ativo é lido; papel, nome, email etc. no body são ignorados (api.md, seção 11)
+function validarAtivo(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+  }
+  // Exatamente true ou false: 'false', 0 e null não viram booleano
+  const { ativo } = body as Record<string, unknown>
+  if (typeof ativo !== 'boolean') throw new AppError('Dados inválidos', 422, { ativo: 'Informe true ou false.' })
+  return ativo
+}
+
 export const clienteService = {
   async buscarMeusDados(clienteId: number): Promise<Cliente> {
     const cliente = await clienteRepository.buscarPorId(clienteId)
@@ -130,8 +150,9 @@ export const clienteService = {
   },
 
   // Núcleo da anonimização (LGPD, D-23), reaproveitado pela #38 (admin): NÃO confere senha nem papel,
-  // quem chama decide quem pode apagar. As vendas não são tocadas: ficam com o cliente_id e os entrega_*
-  async anonimizarConta(clienteId: number): Promise<void> {
+  // quem chama decide quem pode apagar. As vendas não são tocadas: ficam com o cliente_id e os entrega_*.
+  // contexto só escolhe a mensagem do 409 de compras em andamento.
+  async anonimizarConta(clienteId: number, contexto: 'cliente' | 'admin' = 'cliente'): Promise<void> {
     await comTransacao(async (client) => {
       // Trava a linha do cliente primeiro, como as rotas de endereço: todas pegam os locks na mesma ordem.
       // Sem exigir ativo: o admin pode anonimizar um cliente desativado (pelo /me ele está sempre ativo)
@@ -139,7 +160,7 @@ export const clienteService = {
         throw new AppError('Cliente não encontrado.', 404)
       }
       if (await vendaService.temCompraEmAndamento(clienteId, client)) {
-        throw new AppError('Você tem compras em andamento. Aguarde a entrega ou cancele antes de apagar a conta.', 409)
+        throw new AppError(msgCompraEmAndamento[contexto], 409)
       }
 
       await enderecoRepository.excluirTodosDoCliente(clienteId, client)
@@ -202,5 +223,35 @@ export const clienteService = {
       vendaService.resumoDoCliente(id),
     ])
     return { ...cliente, enderecos, ...resumo }
+  },
+
+  async definirAtivoPeloAdmin(adminId: number, id: number, body: unknown): Promise<ClienteAdmin> {
+    const ativo = validarAtivo(body)
+
+    return comTransacao(async (client) => {
+      const atual = await clienteRepository.travarParaAdmin(id, client)
+      if (!atual) throw new AppError(msgClienteNaoEncontrado, 404)
+      if (atual.papel === 'admin' || id === adminId) throw new AppError(msgContaAdmin, 409)
+
+      // Pedir o estado que já está valendo não escreve nada (repetir o PATCH dá o mesmo resultado)
+      if (atual.ativo === ativo) {
+        const cliente = await clienteRepository.buscarParaAdmin(id, client)
+        if (!cliente) throw new Error('Cliente travado não encontrado na própria transação.')
+        return cliente
+      }
+
+      const cliente = await clienteRepository.definirAtivo(id, ativo, client)
+      // Na mesma transação: o cliente é deslogado na hora e os links de recuperação pendentes deixam de valer
+      if (!ativo) await authService.revogarAcessos(id, client)
+      return cliente
+    })
+  },
+
+  async removerPeloAdmin(adminId: number, id: number): Promise<void> {
+    const cliente = await clienteRepository.buscarParaAdmin(id)
+    if (!cliente || cliente.anonimizadoEm) throw new AppError(msgClienteNaoEncontrado, 404)
+    if (cliente.papel === 'admin' || id === adminId) throw new AppError(msgContaAdmin, 409)
+
+    await clienteService.anonimizarConta(id, 'admin')
   },
 }

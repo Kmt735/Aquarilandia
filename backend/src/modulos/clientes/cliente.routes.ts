@@ -26,4 +26,7 @@ clienteRoutes.delete('/me/enderecos/:enderecoId', exigirOrigem, autenticar, ende
 clienteRoutes.use(autenticar, exigirAdmin)
 clienteRoutes.get('/', clienteController.listarParaAdmin)
 clienteRoutes.get('/:id', clienteController.buscarParaAdmin)
+// Escritas de admin: exigirOrigem (CSRF) depois da guarda, como em orçamentos
+clienteRoutes.patch('/:id', exigirOrigem, clienteController.definirAtivoPeloAdmin)
+clienteRoutes.delete('/:id', exigirOrigem, clienteController.removerPeloAdmin)
 // GET /:id/vendas (#37) fica para depois: depende da listagem de vendas (#33)

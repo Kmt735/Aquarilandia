@@ -122,6 +122,13 @@ export const clienteRepository = {
         )
         return { dados: rows, total: contagem[0].total }
     },
+    async definirAtivo(id: number, ativo: boolean, executor: Queryable): Promise<ClienteAdmin> {
+        const { rows } = await executor.query<ClienteAdmin>(
+            `UPDATE clientes SET ativo = $2, atualizado_em = now() WHERE id = $1 RETURNING ${colunasAdmin}`,
+            [id, ativo],
+        )
+        return rows[0]
+    },
     // LGPD (D-23): a linha fica, porque as vendas apontam para ela; só os dados pessoais saem.
     // Os CHECKs ck_clientes_anonimizado_* exigem exatamente esta combinação (sem e-mail, senha e telefone, inativo)
     async anonimizar(id: number, executor: Queryable): Promise<boolean> {
