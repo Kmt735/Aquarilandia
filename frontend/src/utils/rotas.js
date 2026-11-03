@@ -5,6 +5,7 @@ export const ROTAS = {
   compararPeixes: '/peixes/comparar',
   primeiroAquario: '/meu-primeiro-aquario',
   primeiroAquarioAntigo: '/primeiro-aquario',
+  monteSeuAquario: '/monte-seu-aquario',
   servicos: '/servicos',
   perguntas: '/perguntas-frequentes',
   politicas: '/politicas',

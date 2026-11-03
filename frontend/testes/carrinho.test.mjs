@@ -108,3 +108,20 @@ test('revalidação limita requisições simultâneas sem perder itens', async (
   })
   assert.equal(r.length, 15); assert.ok(maximo <= 4)
 })
+
+test('planejarAdicao respeita estoque, teto de 99, esgotados e o que já está no carrinho', async () => {
+  const { planejarAdicao } = await import('../src/services/carrinho.js')
+  const item = (id, extra = {}) => ({ id, nome: `Item ${id}`, emEstoque: true, estoque: null, ...extra })
+  const r = planejarAdicao([{ id: 1, qtd: 2, item: null, erro: false }, { id: 5, qtd: 99, item: null, erro: false }], [
+    { item: item(1, { estoque: 5 }), qtd: 4 }, // já tem 2, estoque 5 → entra 3
+    { item: item(2), qtd: 150 }, // sem estoque informado → teto 99
+    { item: item(3, { emEstoque: false, estoque: 0 }), qtd: 1 },
+    { item: item(4), qtd: 2 },
+    { item: item(5), qtd: 1 }, // já está no teto
+    { item: { id: 'x' }, qtd: 1 },
+  ])
+  assert.deepEqual(r.registros.map(({ id, qtd }) => [id, qtd]), [[1, 5], [5, 99], [2, 99], [4, 2]])
+  assert.deepEqual(r.adicionados.map((a) => [a.item.id, a.qtd]), [[1, 3], [2, 99], [4, 2]])
+  assert.deepEqual(r.limitados.map((l) => [l.item.id, l.pedido, l.adicionado, l.motivo]), [[1, 4, 3, 'estoque'], [2, 150, 99, 'limite']])
+  assert.deepEqual(r.ignorados.map((i) => [i.item.id, i.motivo]), [[3, 'esgotado'], [5, 'limite'], ['x', 'invalido']])
+})

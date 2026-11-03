@@ -1,3 +1,4 @@
+import { CATALOGO_MOCK } from '../config/ambiente.js'
 import { consultarApi } from './api-publica.js'
 import { lerCategoria, lerEnvelope, normalizarProduto } from './catalogo-mapeamento.js'
 import { ErroApi, simularRede } from './http.js'
@@ -78,7 +79,13 @@ export function criarCatalogo(consultar = consultarApi) {
   }
 }
 
-export const { listarCategorias, listarProdutos, listarPeixes, obterProduto, obterPeixe } = criarCatalogo()
+// VITE_CATALOGO_MOCK=true (só no .env.local) usa os dados de demonstração. O import é dinâmico: o mock
+// fica num arquivo separado, que só é baixado com a chave ligada.
+const consultaPadrao = CATALOGO_MOCK
+  ? async (...args) => (await import('../mocks/catalogo-api.js')).consultarMock(...args)
+  : consultarApi
+
+export const { listarCategorias, listarProdutos, listarPeixes, obterProduto, obterPeixe } = criarCatalogo(consultaPadrao)
 
 // Protótipo independente do catálogo público; ainda não existe POST /api/avise-me.
 export async function aviseMe({ itemId, email }) {

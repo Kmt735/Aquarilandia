@@ -17,6 +17,22 @@ npm ci
 npm run dev      # http://localhost:5173
 ```
 
+### Dados de demonstração (sem backend com produtos)
+
+O seed do banco cria só as categorias, então a loja, a vitrine e o **Monte seu Aquário** ficam vazios sem
+produtos cadastrados. Para ver o site com um catálogo de exemplo, ligue o mock **só na sua máquina**:
+
+```bash
+cd frontend
+echo "VITE_CATALOGO_MOCK=true" > .env.local   # .env.local está no .gitignore
+npm run dev                                   # reinicie o dev server depois de mudar o .env.local
+```
+
+- A chave é **desligada por padrão** (`frontend/.env.example`). Sem ela, o site usa a API real.
+- Com ela ligada, aparece o selo **"Dados de demonstração"** no canto da tela.
+- Os dados ficam em `frontend/src/mocks/catalogo-api.js`, no mesmo formato da API (`backend/api.md`).
+  Para voltar à API, apague a linha do `.env.local` (ou use `false`) e reinicie o `npm run dev`.
+
 Estrutura (Atomic Design) em `frontend/src/`:
 
 | Pasta | Conteúdo |

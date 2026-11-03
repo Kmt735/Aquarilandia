@@ -4,6 +4,7 @@
 
 | Arquivo | Substitui | Ponto de integração |
 | --- | --- | --- |
+| `catalogo-api.js` | catálogo inteiro no formato da API (`/categorias`, `/produtos`, `/peixes`), só com `VITE_CATALOGO_MOCK=true` | `services/catalogo.js` (`criarCatalogo`) |
 | `catalogo.js` | estoque em número (`GET /api/produtos`, `GET /api/peixes`) | `services/catalogo.js` |
 | `conta.js` | cliente logado e endereços (rotas de auth/clientes) | `services/conta.js` |
 | `pedidos.js` | minhas compras e status (rotas de vendas/pagamentos) | `services/pedidos.js` |
