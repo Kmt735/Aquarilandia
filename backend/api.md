@@ -157,12 +157,12 @@ padrão da D-41 em orçamentos: toda rota registrada abaixo dela já nasce só d
 POST   /api/auth/cadastro                       (público, rate limit)
 POST   /api/auth/login                          (público, rate limit — cria sessão, cookie "sid")
 POST   /api/auth/logout                         (logado)
-POST   /api/auth/esqueci-senha                  (público, rate limit — responde 202 sempre)
-POST   /api/auth/redefinir-senha                (público, rate limit)
+POST   /api/auth/esqueci-senha                  { email }   (público, rate limit por IP e por e-mail — 202 sempre igual; ver seção 6)
+POST   /api/auth/redefinir-senha                { token, novaSenha }   (público, rate limit — 204; ver seção 6)
 GET    /api/auth/sessao                         (logado — usuário da sessão atual)
 
 GET    /api/clientes/me                         (cliente)
-PATCH  /api/clientes/me                         (cliente)
+PATCH  /api/clientes/me                         { nome?, email?, telefone?, senhaAtual? }   (cliente — senhaAtual quando o e-mail muda, D-47; ver seção 6)
 PATCH  /api/clientes/me/senha                   (cliente)
 DELETE /api/clientes/me                         { senha }   (cliente — anonimiza, LGPD; ver seção 6)
 GET    /api/clientes/me/enderecos               (cliente)
@@ -1103,6 +1103,53 @@ enviados. Os dois leem só as 9 chaves abaixo: `id`, `clienteId`, `criadoEm` etc
 - `DELETE` do principal → o endereço mais recente que sobrou vira o principal.
 - Endereço de outro cliente ou inexistente → `404` `'Endereço não encontrado.'`; `:enderecoId` inválido → `400`.
 
+### Dados da conta (`PATCH /api/clientes/me`) — senha atual para trocar o e-mail (D-47, 03/11/2026)
+
+Lê só `nome`, `email` e `telefone` (regras do cadastro, acima), mais `senhaAtual` (sem `trim`) quando o `email` vem.
+A `senhaAtual` só é exigida se o `email`, já normalizado, for **diferente** do atual: mandar o próprio e-mail
+(inclusive em maiúsculas), ou só nome e telefone, não pede senha. Exige `Origin`.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `200` | Dados atualizados | o cliente (mesmo formato do `GET /me`) |
+| `401` | Sem login | `'Faça login para continuar.'` |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `409` | E-mail de outra conta (conferido depois da senha) | `'Não foi possível salvar as alterações.'` com `{ email: 'Este e-mail já está cadastrado.' }` |
+| `422` | Body que não é objeto | `{ body: 'Formato de dados inválido.' }` |
+| `422` | Nenhum dos três campos | `{ body: 'Informe pelo menos um campo para atualizar: nome, e-mail ou telefone.' }` |
+| `422` | Campo fora da regra | uma mensagem por campo (tabela do cadastro) |
+| `422` | E-mail novo sem `senhaAtual` (ou vazia) | `{ senhaAtual: 'Digite sua senha atual para trocar o e-mail.' }` |
+| `422` | `senhaAtual` errada (ou com mais de 128 caracteres) | `{ senhaAtual: 'Senha atual incorreta.' }` |
+| `429` | Só com `email` no body: limite compartilhado com `PATCH /me/senha` e `DELETE /me` (5 respostas de erro em 15 min) | `'Muitas tentativas…'` |
+
+Quando o e-mail muda, a gravação e a exclusão dos links de recuperação pendentes vão juntas numa transação, e
+depois um aviso ("Aquarilândia: seu e-mail foi alterado", sem o e-mail novo e sem link) vai para o e-mail **antigo**.
+
+### Recuperação de senha — implementado em 03/11/2026
+
+Regras na seção 11 e na D-09. As duas rotas exigem `Origin`.
+
+**`POST /api/auth/esqueci-senha`** — body `{ email }` (`trim` + minúsculas).
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `202` | E-mail com formato válido, **exista a conta ou não** | `{ mensagem: 'Se este e-mail estiver cadastrado, você receberá um link para criar uma senha nova.' }` |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `422` | Body que não é objeto | `{ body: 'Formato de dados inválido.' }` |
+| `422` | E-mail ausente ou mal formado | `{ email: 'Digite um e-mail válido. Exemplo: nome@email.com.' }` |
+| `429` | 4º pedido em 1 hora do mesmo IP **ou** para o mesmo e-mail (contam todos os pedidos, inclusive os `202` e `422`) | `'Muitas tentativas…'` |
+
+**`POST /api/auth/redefinir-senha`** — body `{ token, novaSenha }`. `novaSenha` sem `trim`, regra da `senha` do cadastro.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `204` | Senha trocada; todos os links e todas as sessões da conta apagados (o frontend manda a pessoa para o login) | sem corpo |
+| `400` | Token ausente, fora do formato, inexistente, vencido ou já usado; conta desativada ou anonimizada | `'Link inválido ou expirado.'` (sempre a mesma) |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `422` | Body que não é objeto | `{ body: 'Formato de dados inválido.' }` |
+| `422` | `novaSenha` fora da regra | `{ novaSenha: 'A senha precisa ter pelo menos 8 caracteres.' }` |
+| `429` | 11º pedido em 1 hora do mesmo IP (contam todos os pedidos) | `'Muitas tentativas…'` |
+
 ### Apagar a conta (`DELETE /api/clientes/me`) — implementado em 31/10/2026
 
 Body `{ senha }` (a senha atual, sem `trim`). Anonimiza a conta (D-23): ver seção 11.
@@ -1310,12 +1357,13 @@ e da #47.
 - O webhook só confirma o pagamento (venda → `'paga'`); não mexe em estoque. Sempre valida a
   assinatura e reconsulta o pagamento na API do gateway antes de confirmar.
 - Pagamento aprovado de venda já cancelada ou expirada → o módulo `vendas` solicita o estorno.
-- Cancelar venda paga: estorno **automático** do valor total pela API do gateway, com chave de
-  idempotência; depois `estornarVenda`. Se o gateway falhar, a venda fica `'cancelamento_solicitado'`
-  e o estorno é tentado de novo.
+- Cancelar venda paga: estorno **automático** do valor total pela API do gateway; depois `estornarVenda`.
+  Se o gateway falhar, a venda fica `'cancelamento_solicitado'` e o estorno é tentado de novo.
 - O estorno é tentado até 5 vezes pela tarefa agendada (contador em `pagamentos.estorno_tentativas`);
   depois disso a venda continua em `'cancelamento_solicitado'` e o admin resolve manualmente.
-  A chave de idempotência do estorno é derivada do id da venda (`estorno-venda-<id>`).
+  A AbacatePay não tem chave de idempotência no estorno (D-22). Repetir é seguro mesmo assim: o segundo pedido é
+  recusado com "Esta cobrança já foi reembolsada.", que conta como **sucesso** (já estornado). (Corrigido em
+  03/11/2026; antes este item citava uma chave `estorno-venda-<id>` que o gateway não oferece.)
 - O cliente pode cancelar até antes de a venda ser enviada.
 
 ---
@@ -1523,6 +1571,7 @@ clienteRoutes.get('/', autenticar, exigirAdmin, clienteController.listar)       
   redefinir a senha ou ser anonimizado.
 - Rate limit nas duas rotas (por IP e, no `esqueci-senha`, também por e-mail).
 - O token nunca é logado nem devolvido em resposta; ele só existe no link do e-mail.
+- Implementado em 03/11/2026 (#19b, #19c): status e mensagens na seção 6, regras completas na D-09.
 
 ### Regras
 - O dono vem do login: rotas `/me` usam `req.usuario.id`; nunca aceitar `clienteId` do body ou da URL
