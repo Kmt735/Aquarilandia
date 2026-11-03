@@ -426,14 +426,21 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Motivo:** o aviso depende do estoque, e esses e-mails estão fora do escopo da entrega de 19/11 (D-24).
 - **Impacto:** catálogo e estoque (Dev 2); painel do admin no frontend.
 
-### D-29 — Regras de entrega (provisórias)
-- **Data:** 19/10/2026
-- **Decisão:** **provisório até a loja confirmar**; os valores ficam em `frete.config.ts`:
-  - entrega só em São João del Rei, frete fixo de R$ 10,00 (`1000` centavos), prazo de 1 dia útil;
-  - peixe vivo só nessa área;
-  - retirada na loja disponível, com frete zero (status `pronta_retirada`);
-  - sem frete grátis.
-- **Motivo:** permite implementar e testar o frete sem esperar a resposta da loja.
+### D-29 — Regras de entrega
+- **Data:** 19/10/2026 (atualizado em 02/11/2026, com as regras combinadas com a loja em 24/10/2026)
+- **Decisão:** as regras abaixo estão confirmadas; só os **valores** continuam provisórios.
+  - entrega para **todo o Brasil**: São João del Rei com entrega própria (`tipo_entrega = 'propria'`) e o resto
+    pelos Correios (`'correios'`), por faixas de CEP;
+  - **peixe vivo** (produto da categoria de slug `peixes`) só é entregue em São João del Rei; fora dela, `422` com
+    um detalhe por item de peixe;
+  - **retirada na loja** com frete zero (status `pronta_retirada`), inclusive com peixe;
+  - os valores de `modulos/vendas/frete.config.ts` são **PROVISÓRIOS** até a loja responder. Falta: o preço e o
+    prazo para o resto do Brasil, o valor e o prazo locais (São João del Rei) e se haverá frete grátis (e a partir
+    de que valor). Hoje: R$ 10,00 e 1 dia em São João del Rei, de R$ 25,00 a R$ 55,00 no resto do Brasil, sem
+    frete grátis;
+  - a regra fica em `calcularFrete` (`modulos/vendas/frete.service.ts`, função pura, #27).
+- **Motivo:** permite implementar e testar o frete sem esperar os valores; quando a loja responder, só o
+  `frete.config.ts` muda.
 - **Impacto:** módulo `vendas` (`POST /api/frete/calcular`, `vendas.frete`, `prazo_entrega_dias`, `tipo_entrega`).
 
 ---
@@ -446,13 +453,19 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Motivo:** dados de cartão fora do nosso servidor = sem exigência de PCI e sem risco de vazamento do nosso lado.
 - **Impacto:** módulo `pagamentos`.
 
-### D-19 — Gateway ainda não definido
-- **Data:** 15/10/2026 (atualizado em 19/10/2026)
-- **Decisão:** o gateway ainda **não** foi escolhido. Prazo: **29/10/2026**. Requisitos: página de pagamento
-  hospedada, API de estorno, webhooks com assinatura, ambiente de testes e conta no nome da loja.
-- **Motivo:** a escolha depende da loja (taxas e conta própria).
+### D-19 — Gateway: AbacatePay (API v2)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; gateway escolhido em 02/11/2026)
+- **Decisão:**
+  - **AbacatePay, API v2**, escolhida pelo grupo em 02/11/2026.
+  - Começa com **Pix**; cartão fica para depois.
+  - O tipo de checkout (hospedado ou transparente) fica para a #43.
+  - Desenvolvimento na conta de teste do dev, em **Dev mode**. Produção na conta da loja, com o CNPJ ou CPF e a
+    conta bancária dela (**pendente**; necessária para o deploy, #66).
+  - Credenciais só nas variáveis `GATEWAY_ACCESS_TOKEN` e `GATEWAY_WEBHOOK_SECRET`, nunca no Git.
+- **Motivo:** fecha a pendência do gateway (o prazo anterior era 29/10/2026); a conta da loja continua necessária
+  para receber os pagamentos em produção.
 - **Impacto:** toda a parte de pagamento. O banco usa nomes genéricos (`gateway_*`) e a coluna `pagamentos.gateway`
-  registra qual gateway foi usado.
+  registra qual gateway foi usado; o código do gateway fica isolado em `modulos/pagamentos/gateway.ts` (D-20).
 
 ### D-20 — Código do gateway isolado em `gateway.ts`
 - **Data:** 15/10/2026
@@ -542,14 +555,13 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 | Pergunta | Com quem | Prazo | O que trava |
 |---|---|---|---|
-| Qual gateway de pagamento? | grupo + loja | 29/10/2026 | toda a parte de pagamento (semana 4) |
-| Qual provedor de e-mail? | grupo | 22/10/2026 | recuperação de senha (semana 2) |
+| Qual provedor de e-mail? | grupo | 22/10/2026 (vencido) | envio real da recuperação de senha (#19a, passo 3, e #19b). Falta: escolher o provedor, combinar o SDK no `package.json`, a chave `EMAIL_API_KEY` e o remetente verificado `EMAIL_REMETENTE` |
+| Valores do frete | loja | a definir | valores definitivos do frete (#4). Falta: preço e prazo para o resto do Brasil, valor e prazo locais e frete grátis; só o `frete.config.ts` muda |
 
 Requisitos do provedor de e-mail: plano gratuito suficiente para testes, envio a partir de um remetente verificado
 sem exigir domínio próprio, SDK para Node.js.
 
-Requisitos do gateway: ver `api.md` (seção de pagamento). As regras de entrega são provisórias até a confirmação
-da loja (ver decisão de entrega, D-29).
+As regras de entrega já estão confirmadas; só os valores do frete são provisórios (ver D-29).
 
 ---
 
