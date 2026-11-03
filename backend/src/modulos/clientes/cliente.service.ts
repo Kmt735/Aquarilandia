@@ -101,8 +101,9 @@ export const clienteService = {
   // quem chama decide quem pode apagar. As vendas não são tocadas: ficam com o cliente_id e os entrega_*
   async anonimizarConta(clienteId: number): Promise<void> {
     await comTransacao(async (client) => {
-      // Trava a linha do cliente primeiro, como as rotas de endereço: todas pegam os locks na mesma ordem
-      if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) {
+      // Trava a linha do cliente primeiro, como as rotas de endereço: todas pegam os locks na mesma ordem.
+      // Sem exigir ativo: o admin pode anonimizar um cliente desativado (pelo /me ele está sempre ativo)
+      if (!(await clienteRepository.travarParaAdmin(clienteId, client))) {
         throw new AppError('Cliente não encontrado.', 404)
       }
       if (await vendaService.temCompraEmAndamento(clienteId, client)) {

@@ -1,6 +1,12 @@
 import{db} from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
-import type { AtualizacaoCliente, Cliente, ClienteComSenha, NovoCliente } from './cliente.types.js'
+import type {
+    AtualizacaoCliente,
+    Cliente,
+    ClienteComSenha,
+    NovoCliente,
+    PapelCliente,
+} from './cliente.types.js'
 
 const colunas = ' id, nome, email, telefone, papel, ativo, criado_em AS "criadoEm", atualizado_em AS "atualizadoEm" '
 
@@ -74,6 +80,15 @@ export const clienteRepository = {
     async travarParaAlteracao(id: number, executor: Queryable): Promise<boolean> {
         const { rows } = await executor.query('SELECT id FROM clientes WHERE id = $1 AND ativo FOR UPDATE', [id])
         return rows.length > 0
+    },
+    // A mesma linha que o travarParaAlteracao trava, mas sem exigir ativo, para o admin poder reativar ou
+    // anonimizar um cliente desativado. Os dois usam FOR UPDATE na mesma linha: um espera o outro, sem deadlock
+    async travarParaAdmin(id: number, executor: Queryable): Promise<{ papel: PapelCliente; ativo: boolean } | null> {
+        const { rows } = await executor.query<{ papel: PapelCliente; ativo: boolean }>(
+            'SELECT papel, ativo FROM clientes WHERE id = $1 AND anonimizado_em IS NULL FOR UPDATE',
+            [id],
+        )
+        return rows[0] ?? null
     },
     // LGPD (D-23): a linha fica, porque as vendas apontam para ela; só os dados pessoais saem.
     // Os CHECKs ck_clientes_anonimizado_* exigem exatamente esta combinação (sem e-mail, senha e telefone, inativo)
