@@ -252,6 +252,19 @@ describe('Clientes — rotas de admin com sessões, papéis e vendas reais no Po
       tokens.set('bia3', sid)
       assert.equal((await requisitar('bia3', 'GET', '/me')).status, 200)
     })
+    it('reativar apaga sessões órfãs criadas enquanto o cliente estava inativo', async () => {
+      await criarConta('orfao', 'Órfão Teste')
+      await cliente.query('UPDATE clientes SET ativo = false WHERE id = $1', [ids.get('orfao')])
+      // Simula a corrida: a sessão do login entrou depois da desativação
+      await criarSessao('orfao')
+      assert.equal(await contar('sessoes', 'orfao'), 1)
+      assert.equal((await requisitar('orfao', 'GET', '/me')).status, 401, 'inativo: a sessão não vale')
+
+      const resposta = await requisitar('chefe', 'PATCH', `/${ids.get('orfao')}`, { ativo: true })
+      assert.equal(resposta.status, 200); assert.equal((await resposta.json()).ativo, true)
+      assert.equal(await contar('sessoes', 'orfao'), 0)
+      assert.equal((await requisitar('orfao', 'GET', '/me')).status, 401, 'a sessão órfã não volta a valer')
+    })
     it('ativo precisa ser exatamente true ou false; outras chaves são ignoradas', async () => {
       for (const [body, detalhes] of [
         [{ ativo: 'false' }, { ativo: 'Informe true ou false.' }],

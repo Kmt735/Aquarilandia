@@ -242,7 +242,8 @@ export const clienteService = {
 
       const cliente = await clienteRepository.definirAtivo(id, ativo, client)
       // Na mesma transação: o cliente é deslogado na hora e os links de recuperação pendentes deixam de valer
-      if (!ativo) await authService.revogarAcessos(id, client)
+      // Também ao reativar: sessão da corrida login × desativação voltaria a valer (nenhuma é legítima)
+      await authService.revogarAcessos(id, client)
       return cliente
     })
   },
