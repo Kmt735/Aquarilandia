@@ -1,4 +1,7 @@
+import { env } from '../../config/env.js'
 import { AppError } from '../../utils/AppError.js'
+import { enviarEmail } from '../../utils/email.js'
+import type { MensagemEmail } from '../../utils/email.js'
 import { comTransacao } from '../../utils/transacao.js'
 import type { Queryable } from '../../utils/transacao.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
@@ -108,6 +111,37 @@ function validarTrocaSenha(body: unknown): { senhaAtual: string; novaSenha: stri
   return { senhaAtual, novaSenha }
 }
 
+function validarEsqueciSenha(body: unknown): string {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+  }
+
+  // O formato é checado antes de qualquer consulta: o 422 vale igual para quem tem e para quem não tem conta
+  const email = normalizarEmail((body as Record<string, unknown>).email)
+  const msgEmail = erroEmail(email)
+  if (msgEmail) throw new AppError('Dados inválidos', 422, { email: msgEmail })
+  return email
+}
+
+// O token vai codificado na URL (o base64url já é seguro em URL; o encodeURIComponent protege se o formato mudar)
+export function montarEmailRecuperacao(para: string, token: string, frontendUrl: string): MensagemEmail {
+  const link = `${frontendUrl}/redefinir-senha?token=${encodeURIComponent(token)}`
+  return {
+    para,
+    assunto: 'Aquarilândia: criar uma senha nova',
+    texto: [
+      'Olá!',
+      '',
+      'Recebemos um pedido para criar uma senha nova na sua conta da Aquarilândia.',
+      'Para criar a senha nova, abra o link abaixo. Ele vale por 30 minutos e só pode ser usado uma vez:',
+      '',
+      link,
+      '',
+      'Se você não pediu uma senha nova, pode ignorar este e-mail: a sua senha continua a mesma.',
+    ].join('\n'),
+  }
+}
+
 export const authService = {
   async cadastrar(body: unknown): Promise<Cliente> {
     const dados = validarCadastro(body)
@@ -204,6 +238,38 @@ export const authService = {
     await comTransacao(async (client) => {
       await clienteRepository.atualizarSenha(clienteId, novoHash, client)
       await sessaoRepository.excluirOutrasDoCliente(clienteId, hashToken(tokenAtual), client)
+    })
+  },
+  // #19b. Não devolve nada: o controller responde sempre o mesmo 202, exista a conta ou não
+  async esqueciSenha(body: unknown): Promise<void> {
+    const email = validarEsqueciSenha(body)
+
+    // Sem FRONTEND_URL o link sairia quebrado: nenhum token é criado (o log não leva o e-mail)
+    const frontendUrl = env.frontendUrl
+    if (!frontendUrl) {
+      console.error('[esqueci-senha] FRONTEND_URL ausente')
+      return
+    }
+
+    const clienteId = await clienteRepository.buscarIdAtivoPorEmail(email)
+    if (clienteId === null) return
+
+    const token = gerarToken()
+    const criado = await comTransacao(async (client) => {
+      // Cliente travado primeiro, na mesma ordem do redefinir-senha e das outras operações da conta (sem deadlock).
+      // false: a conta foi desativada ou anonimizada entre a busca e a trava
+      if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) return false
+      // Um link novo invalida o anterior
+      await tokenRepository.excluirDoCliente(clienteId, client)
+      await tokenRepository.inserir(clienteId, hashToken(token), client)
+      return true
+    })
+    if (!criado) return
+
+    // Depois do COMMIT e sem await: esperar o provedor deixaria a resposta de quem tem conta bem mais lenta que a de
+    // quem não tem, e o tempo revelaria a conta. O catch não leva o e-mail nem o token
+    void enviarEmail(montarEmailRecuperacao(email, token, frontendUrl)).catch(() => {
+      console.error('[esqueci-senha] falha ao enviar e-mail')
     })
   },
   // Apaga todas as sessões e tokens; usado ao apagar a conta (LGPD) e, na #38, pelo admin
