@@ -1286,16 +1286,23 @@ servicoService.listarOpcoes(): Promise<string[]>   // valores aceitos no campo s
 4. Abre `comTransacao`: insere `vendas` e `itens_venda` (guardando `preco_unitario` do momento da venda) → chama `estoqueService.baixarParaVenda(vendaId, itens, client)`. A venda nasce como `'aguardando_pagamento'`, com `expira_em` = criação + 30 minutos.
 5. Se qualquer passo lançar erro, tudo é desfeito.
 
-### Gateway de pagamento
-O gateway de pagamento **ainda não foi escolhido** (prazo: **29/10/2026**). Requisitos:
-- página de pagamento hospedada pelo gateway (cartão e PIX) — o backend nunca recebe dados de cartão;
-- API de estorno;
-- webhooks com assinatura;
-- ambiente de testes;
-- conta no nome da loja.
+### Gateway de pagamento — AbacatePay, Pix transparente (02/11/2026)
+O gateway é a **AbacatePay, API v2** (D-19). Começa só com **Pix transparente** (D-18): o backend cria a cobrança
+com o valor em centavos e recebe o código Pix e a imagem do QR code; o cliente paga no app do banco, sem página do
+gateway e sem sair do site. A cobrança vai sem dados do cliente (D-31). Cartão fica para depois.
 
-Todo o código do gateway fica isolado em `modulos/pagamentos/gateway.ts`, e o banco usa nomes genéricos
+Todo o código do gateway fica isolado em `modulos/pagamentos/gateway.ts` (D-20), e o banco usa nomes genéricos
 (`gateway_*`), para que a escolha afete só esse arquivo. Variáveis: `GATEWAY_ACCESS_TOKEN` e `GATEWAY_WEBHOOK_SECRET`.
+
+**Contrato proposto, implementado na #44:** `POST /api/vendas/:id/pagamentos` responde
+`{ pagamentoId, codigoPix, qrCodeImagem, expiraEm }`. `codigoPix` é o copia e cola; `qrCodeImagem` é um data URL
+(`data:image/png;base64,...`) para usar direto num `<img>`; `expiraEm` em ISO 8601.
+
+**Webhook:** `POST /api/pagamentos/webhook?webhookSecret=<segredo>` (gateway). Sem `autenticar`, sem `exigirOrigem`
+e sem rate limit, porque quem chama é a AbacatePay, que não manda Origin nem cookie. Valida o `webhookSecret` e a
+assinatura `X-Webhook-Signature` sobre o corpo cru (D-21): inválido → `401` `{ erro: 'Não autorizado.' }`;
+válido → `200` `{ recebido: true }`. Gravar o evento, reconsultar a cobrança e marcar a venda como paga é da #46
+e da #47.
 
 ### Venda não paga, pagamento e cancelamento
 - Uma tarefa agendada do módulo `vendas` cancela vendas `'aguardando_pagamento'` vencidas e chama
