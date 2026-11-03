@@ -18,6 +18,14 @@ export default function GuiaResumo({ passos }) {
         acoes={
           <div className="flex flex-col gap-3">
             <Button tamanho="lg" asChild>
+              <Link to={ROTAS.monteSeuAquario}>Monte seu aquário</Link>
+            </Button>
+            <Button
+              tamanho="lg"
+              variant="secundario"
+              asChild
+              className="border-on-primary-dark/60 text-on-primary-dark hover:border-on-primary-dark hover:bg-on-primary-dark/10 hover:text-on-primary-dark"
+            >
               <Link to={ROTAS.loja}>Ir para a loja</Link>
             </Button>
             <Button

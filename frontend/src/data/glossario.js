@@ -52,6 +52,10 @@ export const termos = {
   ppm: { termo: 'ppm', texto: 'Partes por milhão: a unidade usada nos testes para mostrar quanto de uma substância há na água.' },
   trocaParcial: { termo: 'Troca parcial', texto: 'Tirar só uma parte da água do aquário e repor com água nova, tratada com condicionador. Nunca troque toda a água de uma vez.' },
   aclimatacao: { termo: 'Aclimatação', texto: 'Acostumar o peixe aos poucos com a água do aquário, para ele não sofrer com a mudança de temperatura e de pH.' },
+  // TODO: validar com a loja — termos novos do "Monte seu Aquário"
+  filtro: { termo: 'Filtro', texto: 'Aparelho que puxa a água, segura a sujeira e abriga as bactérias boas. Fica ligado o tempo todo.' },
+  cardume: { termo: 'Cardume', texto: 'Grupo de peixes da mesma espécie que nadam juntos. Peixes de cardume ficam estressados quando estão sozinhos.' },
+  co2: { termo: 'CO₂', texto: 'Gás carbônico. Algumas plantas exigentes só crescem bem quando ele é adicionado à água com um equipamento próprio.' },
 }
 
 // Ordem do glossário na página "Meu Primeiro Aquário"

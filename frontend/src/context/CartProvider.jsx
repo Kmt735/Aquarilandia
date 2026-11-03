@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useToast from '../hooks/useToast'
 import useUI from '../hooks/useUI'
 import { obterProduto } from '../services/catalogo'
-import { aplicarConferencia, CHAVE_CARRINHO, conferirCarrinho, formatoParaSalvar, lerCarrinhoSalvo, LIMITE_QUANTIDADE } from '../services/carrinho'
+import { aplicarConferencia, CHAVE_CARRINHO, conferirCarrinho, formatoParaSalvar, lerCarrinhoSalvo, LIMITE_QUANTIDADE, planejarAdicao } from '../services/carrinho'
 import { precoEmCentavos } from '../utils/dinheiro'
 import { CartContext } from './contexts'
 
@@ -86,6 +86,19 @@ export default function CartProvider({ children }) {
     toast('Conferindo o produto no catálogo para atualizar seu carrinho.', { tipo: 'info', acao: 'Ver carrinho', onAcao: () => abrirPainel('carrinho') })
   }, [estado.bloqueado, toast, abrirPainel])
 
+  // Vários itens numa ação só (ex.: "Monte seu Aquário"). Não mostra toast: quem chama decide a mensagem
+  // com o resultado ({ adicionados, limitados, ignorados } ou { bloqueado: true }).
+  const adicionarVarios = useCallback((pedidos) => {
+    if (estado.bloqueado) return { bloqueado: true, adicionados: [], limitados: [], ignorados: [] }
+    const plano = planejarAdicao(lista(estado.registros), lista(pedidos))
+    if (plano.adicionados.length) {
+      setEstado((e) => ({ ...e, registros: planejarAdicao(lista(e.registros), plano.adicionados).registros, revisao: e.revisao + 1 }))
+      setBump((b) => b + 1)
+    }
+    const { adicionados, limitados, ignorados } = plano
+    return { bloqueado: false, adicionados, limitados, ignorados }
+  }, [estado.bloqueado, estado.registros])
+
   const definirQtd = useCallback((id, qtd) => {
     if (!Number.isSafeInteger(qtd) || qtd < 1) return
     setEstado((e) => ({ ...e, registros: e.registros.map((r) => r.id === id ? { ...r, qtd: Math.min(qtd, LIMITE_QUANTIDADE) } : r) }))
@@ -115,8 +128,8 @@ export default function CartProvider({ children }) {
       total: linhas.reduce((s, l) => s + (precoEmCentavos(l.item) || 0) * l.qtd, 0) / 100,
       temPeixe: linhas.some((l) => l.item.tipo === 'peixe'),
       qtdNoCarrinho: (id) => registros.find((r) => r?.id === id)?.qtd ?? 0,
-      adicionar, definirQtd, remover, limpar, revalidar,
+      adicionar, adicionarVarios, definirQtd, remover, limpar, revalidar,
     }
-  }, [estado, bump, conferindo, adicionar, definirQtd, remover, limpar, revalidar])
+  }, [estado, bump, conferindo, adicionar, adicionarVarios, definirQtd, remover, limpar, revalidar])
   return <CartContext value={value}>{children}</CartContext>
 }

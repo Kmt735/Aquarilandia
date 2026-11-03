@@ -1,5 +1,6 @@
 import { Suspense, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router'
+import SeloDemonstracao from '../atoms/SeloDemonstracao'
 import WhatsAppFloat from '../atoms/WhatsAppFloat'
 import Carregando from '../molecules/Carregando'
 import AviseMeModal from '../organisms/AviseMeModal'
@@ -11,12 +12,16 @@ import SiteNav from '../organisms/SiteNav'
 import ToastStack from '../organisms/ToastStack'
 import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
+import { CATALOGO_MOCK } from '../../config/ambiente'
+import { ROTAS } from '../../utils/rotas'
 
 export default function MainLayout() {
   const { pathname } = useLocation()
   const { painel, abrirPainel, fecharPaineis } = useUI()
   const abrirWhatsApp = useWhatsApp()
   const noCheckout = pathname.startsWith('/checkout') || pathname.startsWith('/pagamento')
+  // O montador tem barra fixa embaixo e o próprio botão de WhatsApp ("Pedir orientação da loja")
+  const noMontador = pathname === ROTAS.monteSeuAquario
 
   // Com âncora na URL (ex.: #ciclagem) quem posiciona a rolagem é a própria página
   useEffect(() => {
@@ -54,7 +59,8 @@ export default function MainLayout() {
       {painel === 'avise-me' && <AviseMeModal />}
       <ToastStack />
       {/* No checkout o WhatsApp sai do caminho: a atenção fica na compra (item 29) */}
-      {!noCheckout && <WhatsAppFloat onClick={() => abrirWhatsApp()} />}
+      {!noCheckout && !noMontador && <WhatsAppFloat onClick={() => abrirWhatsApp()} />}
+      {CATALOGO_MOCK && <SeloDemonstracao elevado={noMontador} />}
     </>
   )
 }

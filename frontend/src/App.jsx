@@ -17,6 +17,7 @@ import { ROTAS } from './utils/rotas'
 
 // Telas de conta, checkout e ajuda carregam sob demanda (bundle inicial menor)
 const CompararPeixesPage = lazy(() => import('./pages/CompararPeixesPage'))
+const MonteSeuAquarioPage = lazy(() => import('./pages/MonteSeuAquarioPage'))
 const NaoEncontradaPage = lazy(() => import('./pages/NaoEncontradaPage'))
 const PerguntasFrequentesPage = lazy(() => import('./pages/PerguntasFrequentesPage'))
 const PoliticaPage = lazy(() => import('./pages/PoliticaPage'))
@@ -60,6 +61,7 @@ export default function App() {
                     <Route path={`${ROTAS.peixes}/:id`} element={<PeixeDetalhePage />} />
                     <Route path={ROTAS.primeiroAquario} element={<PrimeiroAquarioPage />} />
                     <Route path={ROTAS.primeiroAquarioAntigo} element={<RedirecionarPrimeiroAquario />} />
+                    <Route path={ROTAS.monteSeuAquario} element={<MonteSeuAquarioPage />} />
                     <Route path={ROTAS.servicos} element={<ServicosPage />} />
                     <Route path={ROTAS.perguntas} element={<PerguntasFrequentesPage />} />
                     <Route path={`${ROTAS.politicas}/:tipo`} element={<PoliticaPage />} />

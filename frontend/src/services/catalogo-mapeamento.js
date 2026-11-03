@@ -46,7 +46,9 @@ export function normalizarProduto(p, categorias) {
     tipo: p.categoria === 'peixes' ? 'peixe' : 'produto', nome: p.nome,
     descricao: p.descricao, marca: p.marca, preco: p.preco, centavos: true,
     cientifico: peixe?.nomeCientifico ?? null, emEstoque: p.emEstoque,
-    disponibilidade: p.emEstoque ? 'disponivel' : 'esgotado', estoque: p.emEstoque ? null : 0,
+    disponibilidade: p.emEstoque ? 'disponivel' : 'esgotado',
+    // TODO(API): a API ainda não expõe a quantidade; só os dados de demonstração trazem `estoque`.
+    estoque: p.emEstoque ? (Number.isSafeInteger(p.estoque) && p.estoque > 0 ? p.estoque : null) : 0,
     entregaLocal: p.categoria === 'peixes', imagens: foto ? [{ src: foto, alt: p.nome }] : [],
     fichaTecnica, ficha, combinaCom: [], evitarCom: [],
     volumeLitros: fichaTecnica?.tipo === 'aquarios' ? dados.volumeLitros : null,

@@ -73,3 +73,33 @@ export function aplicarConferencia(registrosAtuais, resultados) {
     return [{ ...registro, item: resultado.item, erro: resultado.estado === 'erro' }]
   })
 }
+
+/**
+ * Plano para adicionar vários itens de uma vez (ex.: "Monte seu Aquário"). Função pura.
+ * Respeita o estoque informado (`item.estoque`, quando conhecido) e o teto de 99 por produto, já
+ * descontando o que está no carrinho. Devolve os registros novos e o que foi limitado ou ignorado.
+ *
+ * @param {Array<{ id: number, qtd: number }>} registros  carrinho atual
+ * @param {Array<{ item: object, qtd: number }>} pedidos
+ */
+export function planejarAdicao(registros, pedidos) {
+  const novos = registros.map((r) => ({ ...r }))
+  const adicionados = []
+  const limitados = []
+  const ignorados = []
+  for (const { item, qtd } of pedidos) {
+    if (!idValido(item?.id) || !Number.isSafeInteger(qtd) || qtd < 1) { ignorados.push({ item, motivo: 'invalido' }); continue }
+    if (!item.emEstoque) { ignorados.push({ item, motivo: 'esgotado' }); continue }
+    const estoqueConhecido = Number.isSafeInteger(item.estoque) && item.estoque < LIMITE_QUANTIDADE
+    const teto = estoqueConhecido ? item.estoque : LIMITE_QUANTIDADE
+    const registro = novos.find((r) => r.id === item.id)
+    const livre = teto - (registro?.qtd ?? 0)
+    if (livre <= 0) { ignorados.push({ item, motivo: estoqueConhecido ? 'estoque' : 'limite' }); continue }
+    const quantidade = Math.min(qtd, livre)
+    if (registro) registro.qtd += quantidade
+    else novos.push({ id: item.id, qtd: quantidade, item: null, erro: false })
+    adicionados.push({ item, qtd: quantidade })
+    if (quantidade < qtd) limitados.push({ item, pedido: qtd, adicionado: quantidade, motivo: estoqueConhecido ? 'estoque' : 'limite' })
+  }
+  return { registros: novos, adicionados, limitados, ignorados }
+}
