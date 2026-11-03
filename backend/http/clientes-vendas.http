@@ -462,21 +462,69 @@ Origin: {{origem}}
   "telefone": "123"
 }
 
-# 409 - e-mail de outra conta (detalhes.email)
+# 409 - e-mail de outra conta (detalhes.email). Desde a D-47 a senha atual vem antes: sem ela seria 422
 ###
 PATCH {{api}}/clientes/me
 Content-Type: application/json
 Origin: {{origem}}
 
-{ "email": "teste.conta.bruno@example.com" }
+{
+  "email": "teste.conta.bruno@example.com",
+  "senhaAtual": "senhaAna1234"
+}
 
-# 200 - o próprio e-mail em maiúsculas não é conflito (fica salvo em minúsculas)
+# 200 - o próprio e-mail em maiúsculas não é conflito nem troca: não pede senhaAtual (fica salvo em minúsculas)
 ###
 PATCH {{api}}/clientes/me
 Content-Type: application/json
 Origin: {{origem}}
 
-{ "email": "TESTE.CONTA.ANA@EXEMPLO.COM" }
+{ "email": "TESTE.CONTA.ANA@EXAMPLE.COM" }
+
+# ----- D-47: trocar o e-mail exige a senha atual -----
+# As tentativas com email no body contam no mesmo limite da troca de senha (5 erros em 15 min).
+
+# 422 - e-mail novo sem senhaAtual (detalhes.senhaAtual: 'Digite sua senha atual para trocar o e-mail.')
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "teste.conta.ana2@example.com" }
+
+# 422 - senha atual errada (detalhes.senhaAtual: 'Senha atual incorreta.')
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana2@example.com",
+  "senhaAtual": "senhaErrada999"
+}
+
+# 200 - com a senha certa: o e-mail muda, os links de recuperação pendentes morrem e o aviso
+# "Aquarilândia: seu e-mail foi alterado" vai para o e-mail ANTIGO (em dev sem chave: "[email:dev]" no terminal)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana2@example.com",
+  "senhaAtual": "senhaAna1234"
+}
+
+# 200 - volta para o e-mail original (para os blocos seguintes continuarem valendo)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana@example.com",
+  "senhaAtual": "senhaAna1234"
+}
 
 # 400 - body null: o express.json (modo strict, no app.ts) recusa raiz que não é objeto nem array
 # antes de chegar ao service. Com [] ou sem body, quem responde é o service: 422 detalhes.body.
@@ -586,6 +634,71 @@ Origin: {{origem}}
 {
   "senhaAtual": "senhaErrada999",
   "novaSenha": "outraSenha1234"
+}
+
+# ===== RECUPERAÇÃO DE SENHA (esqueci-senha e redefinir-senha) =====
+# O servidor precisa de FRONTEND_URL (ex.: http://localhost:5173); sem ela, nenhum link é criado.
+# Em desenvolvimento sem EMAIL_API_KEY, o e-mail aparece no terminal do servidor como "[email:dev]",
+# com o link .../redefinir-senha?token=<token>. Copie o token de lá para @tokenRecuperacao (não commite).
+# RATE LIMIT: esqueci-senha aceita 3 pedidos por hora por IP e 3 por hora por e-mail, CONTANDO os que deram
+# certo; redefinir-senha, 10 por hora por IP. Reinicie o servidor para zerar os contadores.
+@tokenRecuperacao=COLE_AQUI_O_TOKEN_DO_TERMINAL
+
+# 202 - conta existente: a resposta é sempre a mesma
+###
+POST {{api}}/auth/esqueci-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "teste.conta.ana@example.com" }
+
+# 202 - conta que não existe: o MESMO corpo, sem e-mail no terminal
+###
+POST {{api}}/auth/esqueci-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "ninguem.teste@example.com" }
+
+# 422 - e-mail mal formado (detalhes.email)
+###
+POST {{api}}/auth/esqueci-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "nada" }
+
+# 400 - token inventado: 'Link inválido ou expirado.' (a mesma mensagem para vencido, já usado ou conta desativada)
+###
+POST {{api}}/auth/redefinir-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "token": "tokeninventado",
+  "novaSenha": "senhaRedefinida1234"
+}
+
+# 422 - nova senha curta (detalhes.novaSenha)
+###
+POST {{api}}/auth/redefinir-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "token": "{{tokenRecuperacao}}",
+  "novaSenha": "123"
+}
+
+# 204 - redefine com o token do terminal: todas as sessões da conta caem e o link não vale de novo (repita: 400)
+###
+POST {{api}}/auth/redefinir-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "token": "{{tokenRecuperacao}}",
+  "novaSenha": "senhaRedefinida1234"
 }
 
 # ===== ENDEREÇOS (/me/enderecos) =====
