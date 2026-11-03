@@ -261,6 +261,8 @@ export const authService = {
     await comTransacao(async (client) => {
       await clienteRepository.atualizarSenha(clienteId, novoHash, client)
       await sessaoRepository.excluirOutrasDoCliente(clienteId, hashToken(tokenAtual), client)
+      // Um link de recuperação pedido antes da troca deixa de valer
+      await tokenRepository.excluirDoCliente(clienteId, client)
     })
   },
   // #19b. Não devolve nada: o controller responde sempre o mesmo 202, exista a conta ou não
