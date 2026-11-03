@@ -329,7 +329,7 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** módulo `vendas`; regras de entrega provisórias na D-29.
 
 ### D-11 — Status da venda
-- **Data:** 15/10/2026 (atualizado em 19/10/2026)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10)
 - **Decisão:** a lista de status é a do `DOMAIN status_venda` em `db/init/20_vendas.sql`, usada em `vendas.status`
   e no `historico_status_venda`:
   `aguardando_pagamento`, `paga`, `em_separacao`, `enviada`, `pronta_retirada`, `entregue`,
@@ -337,10 +337,11 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   ```
   aguardando_pagamento → paga → em_separacao → enviada → entregue          (correios / propria)
   aguardando_pagamento → paga → em_separacao → pronta_retirada → entregue  (retirada)
-  aguardando_pagamento → cancelada
-  paga / em_separacao / pronta_retirada → cancelada                         (estorno aprovado na hora)
-  paga / em_separacao / pronta_retirada → cancelamento_solicitado → cancelada   (estorno pendente: o gateway falhou)
+  aguardando_pagamento → cancelada                                          (venda não paga)
+  paga / em_separacao / pronta_retirada → cancelamento_solicitado → cancelada   (estorno em andamento ou pendente)
   ```
+  Não existe caminho direto de `paga`, `em_separacao` ou `pronta_retirada` para `cancelada`: toda venda paga passa
+  por `cancelamento_solicitado`. Quem pode fazer cada transição está em `modulos/vendas/venda.transicoes.ts` (#29).
 - **Motivo:** um `DOMAIN` só garante que a lista nunca fique diferente entre as tabelas.
 - **Impacto:** vendas, pagamentos, frontend (telas de pedido e do admin).
 
@@ -391,10 +392,13 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
 
 ### D-17 — Cancelamento direto pelo cliente até antes do envio
-- **Data:** 15/10/2026 (atualizado em 19/10/2026)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10)
 - **Decisão:** o cliente cancela a própria venda em `POST /api/vendas/:id/cancelar` enquanto ela não foi enviada,
-  com estorno automático se já estiver paga (D-22). Não existe "solicitar cancelamento". O status
-  `cancelamento_solicitado` indica apenas estorno pendente após falha no gateway.
+  com estorno automático se já estiver paga (D-22). Não existe "solicitar cancelamento" para o admin aprovar.
+  O status `cancelamento_solicitado` significa "estorno em andamento ou pendente" (não só "o gateway falhou"):
+  toda venda paga cancelada passa por ele. Enquanto a venda está nele, nenhuma outra transição é permitida, só a
+  conclusão para `cancelada`, que é sempre registrada como `sistema` (ou `admin`, só depois de 5 tentativas de
+  estorno, D-22).
 - **Motivo:** depois de enviada, o produto já saiu da loja; com o estorno automático, não há pedido para o admin
   aprovar.
 - **Impacto:** rotas de vendas; tela de "minhas compras" no frontend; pagamentos.
@@ -467,14 +471,18 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** módulo `pagamentos`.
 
 ### D-22 — Estorno automático no cancelamento de venda paga
-- **Data:** 15/10/2026 (atualizado em 19/10/2026)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10)
 - **Decisão:**
   - Cancelar venda paga dispara estorno automático pela API do gateway, sempre do valor total, com chave de
     idempotência derivada do id da venda (`estorno-venda-<id>`).
-  - Se o gateway falhar, a venda fica em `cancelamento_solicitado` (= estorno pendente) e a tarefa agendada tenta
+  - O estorno é controlado por pagamento, pela coluna `pagamentos.estorno_solicitado_em` (entra na #35), em três
+    etapas: **travar** (numa transação, a venda vai para `cancelamento_solicitado` e o pagamento é marcado com
+    `estorno_solicitado_em`), **estornar** (chamada ao gateway, fora da transação) e **concluir** (numa nova
+    transação, a venda vai para `cancelada`, registrada como `sistema`).
+  - Se o gateway falhar, a venda continua em `cancelamento_solicitado` (= estorno pendente) e a tarefa agendada tenta
     de novo, até 5 vezes. Contador em `pagamentos.estorno_tentativas` e último erro em
     `pagamentos.estorno_ultimo_erro`. Esgotadas as tentativas, a venda continua em `cancelamento_solicitado` e o
-    admin resolve manualmente.
+    admin resolve manualmente (só então o admin pode concluir para `cancelada`).
 - **Motivo:** o cliente não depende de ação manual para receber de volta; a chave de idempotência evita estorno em dobro
   na nova tentativa; o limite de tentativas evita insistir num erro que não se resolve sozinho.
 - **Impacto:** pagamentos, vendas.
