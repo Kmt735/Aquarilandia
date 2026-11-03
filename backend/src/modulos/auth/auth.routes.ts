@@ -6,6 +6,7 @@ import {
   limiteEsqueciSenhaEmail,
   limiteEsqueciSenhaIp,
   limiteLogin,
+  limiteRedefinirSenha,
 } from '../../middlewares/rateLimit.js'
 import { authController } from './auth.controller.js'
 
@@ -24,3 +25,4 @@ authRoutes.post(
   limiteEsqueciSenhaEmail,
   authController.esqueciSenha,
 )
+authRoutes.post('/redefinir-senha', exigirOrigem, limiteRedefinirSenha, authController.redefinirSenha)

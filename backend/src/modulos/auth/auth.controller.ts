@@ -32,4 +32,8 @@ export const authController = {
     await authService.esqueciSenha(req.body)
     res.status(202).json({ mensagem: msgEsqueciSenha })
   },
+  async redefinirSenha(req: Request, res: Response): Promise<void> {
+    await authService.redefinirSenha(req.body)
+    res.status(204).end()
+  },
 }
