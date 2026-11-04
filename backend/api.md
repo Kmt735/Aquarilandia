@@ -211,13 +211,67 @@ GET    /api/peixes                   ?temperatura=&ph=&tamanho_max=&aquario_litr
 GET    /api/peixes/:id                                                        (público)
 GET    /api/servicos                                                          (público)
 
-GET    /api/estoque                  ?abaixoDe=   (saldo por produto)        (admin)
-GET    /api/estoque/:produtoId                                                (admin)
-GET    /api/estoque/movimentacoes    ?produtoId=&tipo=&de=&ate=               (admin)
-POST   /api/estoque/movimentacoes    (entrada / ajuste manual)               (admin)
+GET    /api/estoque                  ?abaixoDe=   (previsto, sem handler)    (admin)
+GET    /api/estoque/:produtoId       (saldo atual; implementado em 03/11/2026) (admin)
+GET    /api/estoque/movimentacoes    ?produtoId=&pagina=&limite= (implementado em 03/11/2026) (admin)
+POST   /api/estoque/movimentacoes    (entrada / ajuste positivo/negativo / saída; implementado em 03/11/2026) (admin)
 ```
 
 ---
+
+O POST administrativo tem contrato em [estoque administrativo](docs/estoque-admin-2026-11-03.md).
+As duas leituras por produto estão implementadas conforme a seção abaixo. A listagem geral `GET /api/estoque`
+e os filtros históricos `tipo`, `de` e `ate` continuam previstos, sem implementação. Reserva/venda dependem de acordo.
+
+### Estoque — consultas administrativas de saldo e histórico (03/11/2026)
+
+Ambas exigem cookie `sid` válido e papel **atual** de admin. Sem sessão/revogada/expirada/conta inativa: `401`;
+cliente: `403`. Como nas leituras administrativas de produtos, não exigem `Origin`; CORS não substitui autorização.
+GET/HEAD, inclusive erros, enviam `Cache-Control: no-store` e `Vary: Cookie`. Escritas continuam exigindo `Origin`.
+
+`GET /api/estoque/42` retorna, inclusive para inativo:
+
+```json
+{"produtoId":42,"nome":"Peixe de exemplo","ativo":false,"saldoAtual":7}
+```
+
+Preserva o caminho `/:produtoId` já previsto no mapa; não cria alias `/produtos/:id`. `saldoAtual` lê
+`produtos.estoque` no instante da consulta. Não aceita query. IDs são strings decimais canônicas de 1 a
+2147483647 na URL, sem sinal, espaços, zeros à esquerda, frações ou expoentes.
+
+`GET /api/estoque/movimentacoes?produtoId=42&pagina=1&limite=20` retorna:
+
+```json
+{"itens":[{"operacaoId":"6229c4e2-a4c4-4bb7-a07d-43b9048bde90","produtoId":42,"tipo":"entrada","quantidade":2,"delta":2,"saldoAnterior":5,"saldoPosterior":7,"criadoEm":"2026-11-03T15:00:00.000Z","motivo":"Reposição conferida","origem":"admin","autorId":9}],"total":1}
+```
+
+- `produtoId` obrigatório, mesmo domínio do ID. Somente `produtoId`, `pagina` e `limite` são aceitos;
+  desconhecidos (inclusive os futuros `tipo`, `de`, `ate`), repetidos e arrays retornam `400`.
+- `pagina`: inteiro positivo seguro, padrão 1; `limite`: inteiro 1–100, padrão 20. Notação canônica e deslocamento
+  inteiro seguro, conforme as demais listas. Total precede paginação; página além do fim mantém total e `itens: []`.
+- Ordem `criado_em DESC, id DESC`; BIGSERIAL de desempate é interno, não é exposto nem convertido para Number.
+  Existência, contagem e página compartilham uma consulta/snapshot PostgreSQL, com valores parametrizados.
+  Inserções entre requisições podem deslocar páginas; não há cursor/snapshot entre requests.
+- Inclui abertura legada: tipo/origem `abertura`, autorId null, quantidade/delta iguais ao saldo registrado
+  (inclusive zero), saldoAnterior 0. Produto novo sem movimentos retorna `{ "itens": [], "total": 0 }`.
+- `saldoPosterior` é **histórico**. O POST mantém seu `saldoAtual` histórico por compatibilidade/idempotência.
+  Datas são ISO UTC com milissegundos. `autorId` é a FK técnica para rastrear autoria; não há nome/e-mail,
+  chave idempotente, hash, cookie, credenciais ou ID interno do movimento no DTO.
+- Desde 04/11/2026, movimentos internos `baixa_venda`/`estorno_venda` usam `origem: "venda"`, `autorId: null`
+  e acrescentam `vendaId` e `operacaoOriginalId` (null na baixa, UUID da baixa no estorno). As respostas de
+  admin/abertura preservam os mesmos campos anteriores, sem essas duas chaves. Não expõe ID interno de movimento.
+  O POST administrativo continua aceitando somente seus quatro tipos; enviar tipos de venda retorna `400`.
+- Inexistente: `404 { "erro": "Produto não encontrado" }`; inativo continua acessível. Parâmetros: `400 { erro, detalhes }`;
+  banco: `500 { "erro": "Erro interno do servidor" }`. Autorização precede validação/consulta. O formato de erro
+  local permanece diferente de `{ erro: codigo, mensagem }` do PDF, sem exposição de SQL/stack.
+
+As leituras usam o índice existente. Desde a evolução de vendas, requerem `30_estoque.sql` e `31_estoque_vendas.sql`.
+Em base existente, seguir o procedimento
+incremental do relatório administrativo antes de habilitar o módulo, sem reset. Leituras não escrevem nem
+reconciliam automaticamente; não inventam saldo/histórico. Cadastro zero, PATCH protegido e API pública
+(`emEstoque`, sem quantidade/histórico) permanecem iguais. Helpers internos de venda estão descritos na seção 8;
+as leituras não reservam nem debitam unidades.
+Homologação: [consultas e integração isolada](docs/estoque-leituras-integracao-2026-11-03.md).
 
 ## 4. Formato do JSON
 
@@ -619,9 +673,9 @@ e o produto intermediário é desfeito. Não se inventa unicidade de nome para p
 mantêm `500` genérico. O formato de erro local continua diferente de `{ erro: codigo, mensagem }` do PDF;
 `400` de validação é uma exceção ao `422` genérico local, como nos incrementos anteriores do catálogo.
 
-**Estoque futuro, ainda não implementado:** entradas devem passar por `POST /api/estoque/movimentacoes`,
+**Estoque administrativo implementado em 03/11/2026:** entradas passam por `POST /api/estoque/movimentacoes`,
 com quantidade, motivo e responsável da sessão, gravando movimento e saldo na mesma transação. Este cadastro
-apenas inicia o saldo em zero; não oferece entrada positiva nem cria o módulo de estoque. A divergência entre
+apenas inicia o saldo em zero; não oferece entrada positiva. A divergência entre
 PDF (baixa no pagamento) e decisões locais (baixa na criação da venda) permanece para decisão conjunta,
 sem afetar este cadastro. Revisão do último pull: [`docs/revisao-pull-cadastro-produtos.md`](docs/revisao-pull-cadastro-produtos.md).
 
@@ -1201,6 +1255,7 @@ O Postgres executa `db/init/*.sql` em ordem alfabética, então a numeração de
 | `10_clientes.sql` | Celio | clientes, enderecos_cliente, sessoes, tokens_recuperacao_senha |
 | `20_vendas.sql` | Celio | domain status_venda, vendas, itens_venda, historico_status_venda, pagamentos, eventos_webhook |
 | `30_estoque.sql` | Dev 2 | movimentacoes_estoque (pode ter FK para vendas) |
+| `31_estoque_vendas.sql` | Backend 1 | evolução002 de operações/movimentos vinculados a vendas; sem alterar schema comercial |
 | `90_seed.sql` | ambos (só `INSERT`) | dados de exemplo |
 
 Os scripts de init só rodam com o volume vazio: depois de mudar um `.sql`, rode `npm run db:reset`.
@@ -1261,13 +1316,67 @@ produtoService.buscarParaVenda(ids: number[]): Promise<ProdutoVenda[]>
 estoqueService.baixarParaVenda(vendaId: number, itens: ItemMovimento[], client: PoolClient): Promise<void>
 estoqueService.estornarVenda(vendaId: number, client: PoolClient): Promise<void>
 // ItemMovimento = { produtoId: number; quantidade: number }
-// baixarParaVenda lança AppError 409 'Estoque insuficiente'
-//   com detalhes { "itens.<indice>.quantidade": "Só restam N unidades." }
+// Implementados em 04/11/2026. PoolClient obrigatório, já dentro de comTransacao.
+// baixarParaVenda lança ItensIndisponiveisError extends AppError (409 'Estoque insuficiente'):
+//   itensIndisponiveis: [{produtoId, quantidade}] (quantidades solicitadas)
+//   detalhes { "itens.<produtoId>.quantidade": "Produto ID indisponível para a quantidade solicitada: Q." }
+// Não devolve contagem exata de saldo nem nome de produto inativo.
 ```
 
 `baixarParaVenda` faz `UPDATE produtos SET estoque = estoque - $1 WHERE id = $2 AND estoque >= $1`;
 se nenhuma linha for afetada, lança o 409 acima. O `CHECK (estoque >= 0)` do banco é só rede de segurança.
-(decidido em 19/10/2026 — implementação: Dev 2)
+(decidido em 19/10/2026 — implementado no Backend 1 em 04/11/2026)
+
+### Estoque de venda — contrato interno implementado em 04/11/2026
+
+`ItemMovimento` agora existe em `types/index.ts`. Os dois helpers retornam `Promise<void>`, usam somente o
+PoolClient do chamador e **não** abrem transação, fazem COMMIT/ROLLBACK, chamam gateway ou alteram estado de venda.
+Não há rota pública nova. Uma sondagem SAVEPOINT/RELEASE exige transação ativa; sem BEGIN o PostgreSQL
+recusa `25P01` antes das escritas. B2 deve propagar qualquer falha até `comTransacao`, sem confirmar uma venda com erro.
+
+- **Baixa:** primeira execução exige venda persistida em `aguardando_pagamento` e todos os itens já persistidos.
+  IDs/quantidades numéricos positivos até INT32MAX; sem campos adicionais, soma repetidos, recusa overflow e
+  ordena por ID. Confere igualdade com itens_venda, existência, ativo e saldo. Bloqueia venda, itens e produtos
+  ordenados com FOR NO KEY UPDATE; mantém UPDATE condicional `ativo AND estoque >= quantidade`.
+  Qualquer indisponível gera 409 com todos os IDs/quantidades solicitadas, sem baixa parcial após rollback.
+  Retry da mesma venda e mesmas quantidades é no-op; intenção diferente409. Pagamento não chama baixa novamente.
+- **Devolução:** B2 primeiro muda a venda para `cancelada` **na mesma transação**, após validar o evento.
+  `estornarVenda` rejeita todos os demais estados, inclusive cancelamento_solicitado/enviada/entregue, e passagem
+  histórica por envio/entrega. Lê somente as baixas originais imutáveis, nunca itens_venda; pode devolver para
+  produto inativo, sem reativar. Ausência de baixa409; overflow409 sem créditos parciais. Repetição/concorrência é no-op.
+- **Operações:** `origem=venda`, sem autoria admin/chave UUID de HTTP/hash; uma operação por `(venda_id,tipo_venda)`,
+  com vários movimentos (um/produto). Estorno referencia operação/movimentos originais. Constraints verificam
+  quantidades, unicidade e integralidade no COMMIT; operação confirmada não aceita movimentos posteriores.
+  Histórico existente e API administrativa permanecem imutáveis. Nenhuma reserva/alocação separada foi criada.
+- **B2 continua responsável:** autenticar/Origin/dono; preço e frete calculados no servidor, snapshots/totais,
+  transições/histórico, idempotência da criação HTTP e do pagamento, relógio/expira_em de30min e job a cada5min.
+  Cliente não paga cancela ou expira: cancelar+estornarVenda juntos. Paga: manter cancelamento_solicitado até
+  estorno financeiro aprovado; depois cancelar+estornarVenda juntos. B1 não deduz aprovação por ler status financeiro
+  ambíguo: a transição para cancelada é a pré-condição confiada ao orquestrador B2. Enviada/entregue não devolvem automaticamente.
+- **Migração:** novo `31_estoque_vendas.sql`/versão002, aplicado após30/versão001 pelo mesmo comando
+  `npm run db:migrar-estoque`, em transação única, sem reset/saldos retroativos. Não aplicar em banco compartilhado
+  sem janela autorizada/backup/pausa de escritas. Código das consultas exige002 antes de habilitar a nova versão.
+
+Exemplo para o **futuro service de B2**, ainda não conectado a rotas:
+
+```ts
+await comTransacao(async (client) => {
+  const vendaId = await criarVendaEItensValidados(client) // implementação/dados de B2
+  await estoqueService.baixarParaVenda(vendaId, itensValidados, client)
+})
+// Cancelamento/expiração autorizados, ou após confirmar o estorno financeiro fora dos locks:
+await comTransacao(async (client) => {
+  // B2 bloqueia/revalida venda, pagamento e transição; grava cancelada + histórico.
+  await concluirCancelamentoValidado(vendaId, client)
+  await estoqueService.estornarVenda(vendaId, client)
+})
+```
+
+Esses nomes de orquestração são ilustrativos, não novas funções implementadas. A criação/vendas real ainda
+não existe nesta base nem nos sete commits remotos examinados. Contrato, riscos e testes:
+[estoque por venda](docs/estoque-vendas-2026-11-04.md). A proposta anterior de alocação do Ciclo3 é histórica;
+esta tarefa adota D-16/D-21/D-26 sem reserva separada. O PDF (baixa no pagamento) continua divergente;
+as decisões explícitas desta tarefa determinam baixa na criação.
 
 ```ts
 // modulos/catalogo/servico.service.ts
@@ -1279,7 +1388,12 @@ servicoService.listarOpcoes(): Promise<string[]>   // valores aceitos no campo s
 
 `ProdutoVenda` e `ItemMovimento` ficam em `types/index.ts` (compartilhado), porque os dois módulos usam.
 
-### Fluxo de `POST /api/vendas`
+### Fluxo de `POST /api/vendas` — orquestração ainda a implementar pelo Backend 2
+O fluxo abaixo é uma interface planejada, não uma rota funcional. `buscarParaVenda`/`ProdutoVenda` ainda não
+foram implementados nesta base; o incremento atual entrega somente os helpers de estoque e `ItemMovimento`.
+Antes de habilitar vendas, combinar leitura/validação de preço e ativo sob locks na mesma transação dos snapshots;
+os helpers de estoque não reprecificam itens nem confirmam frete. Não confiar no preço salvo no navegador.
+
 1. `vendaService.criar` valida o body.
 2. Chama `produtoService.buscarParaVenda` → confere se todos existem e estão ativos.
 3. Calcula o frete (fora da transação).

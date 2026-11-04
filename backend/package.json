@@ -14,6 +14,7 @@
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d --wait",
     "db:psql": "docker compose exec db psql -U aquarilandia -d aquarilandia",
+    "db:migrar-estoque": "tsx --env-file-if-exists=.env scripts/migrar-estoque.ts",
     "criar-admin": "tsx --env-file-if-exists=.env scripts/criar-admin.ts"
   },
   "dependencies": {
