@@ -8,6 +8,54 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-50 — Baixa e devolução de venda no mesmo PoolClient do Backend 2
+- **Data:** 04/11/2026
+- **Decisão desta tarefa:** aplicar D-16/D-21/D-26: baixa na criação, sem reserva separada; pagamento não
+  debita novamente. B1 entrega baixarParaVenda(vendaId,itens,client) e estornarVenda(vendaId,client), Promise<void>.
+  Só usa transação do chamador; B2 grava venda/itens/status/histórico e propaga erros até comTransacao.
+- **Concorrência:** consolidar repetidos, validar contra itens persistidos, locks de produto por ID crescente,
+  UPDATE condicional.409 identifica todos os IDs/quantidades solicitadas, sem saldo exato. Uma operação por
+  venda/tipo, vários movimentos; retry igual no-op, diferente409. Compensação única vinculada à baixa original.
+- **Devolução:** somente em cancelada, sem passagem por enviada/entregue. B2 muda estado e chama na mesma
+  transação, após validar cancelamento não pago/expiração, ou aprovação do estorno financeiro para venda paga.
+  cancelamento_solicitado não devolve; job de5min/TTL30min e corrida com webhook pertencem a B2.
+  Quantidade vem da baixa imutável, nunca dos itens atuais. Produto inativo pode receber devolução sem reativar.
+- **Schema:** nova migração002/SQL31, sem editar SQL30 aplicado. Unicidade no nível da operação e compensação,
+  FKs e checks, integralidade diferida no COMMIT e proibição de anexar movimentos comerciais após confirmar.
+  Cadastro zero, admin/abertura imutáveis e saldo reconciliável permanecem preservados.
+- **Limite:** não implementa venda/checkout/pagamento/job nem aprova proposta de alocação separada do Ciclo3.
+  Schema de B2 permanece intacto; apenas FKs/leitura de suas tabelas. Contrato e testes: [estoque por venda](estoque-vendas-2026-11-04.md).
+
+### D-49 — Consultas administrativas distinguem saldo atual e histórico
+- **Data:** 03/11/2026
+- **Decisão:** implementar o caminho previsto `GET /api/estoque/:produtoId` e histórico em
+  `GET /api/estoque/movimentacoes?produtoId=...&pagina=1&limite=20`, incluindo inativos e abertura legada.
+  Sessão/admin atual, no-store e Vary Cookie também nos erros; GET segue política existente sem exigir Origin.
+- **DTO:** saldo usa `saldoAtual`; movimento usa `saldoAnterior`/`saldoPosterior` históricos, operação, tipo,
+  quantidade/delta, data, motivo e autorId técnico (null na abertura). Sem nome/e-mail, chave, hash ou sessão.
+  Preserva o DTO histórico do POST, sem renomear seu saldoAtual.
+- **Consulta:** produtoId obrigatório; paginação 1/20, teto 100, validação canônica e parâmetros fechados.
+  Total e página compartilham snapshot SQL; ordem data/ID internos decrescentes. Inserções entre requisições
+  podem deslocar páginas. Filtros tipo/de/ate e lista geral de saldos seguem pendentes.
+- **Limite:** nenhuma regra comercial do Ciclo 3 aprovada; não cria reserva, worker ou baixa por venda.
+  Backend 2 combinado/testado somente em cópia isolada; sem merge definitivo.
+- **Evidências:** [consultas e integração](estoque-leituras-integracao-2026-11-03.md).
+
+### D-48 — Estoque administrativo com histórico e idempotência
+- **Data:** 03/11/2026
+- **Decisão:** `POST /api/estoque/movimentacoes` reutiliza sessão, admin atual e Origin; aceita somente entrada,
+  ajuste_positivo, ajuste_negativo e saida, com quantidade positiva e motivo. Produto inativo pode receber
+  movimento sem reativação. Cadastro zero, PATCH protegido e disponibilidade pública permanecem iguais.
+- **Atomicidade:** comTransacao e executor obrigatório unem chave, saldo e movimento. UNIQUE por admin/UUID
+  coordena replay; hash da intenção normalizada diferente resulta em 409. Lock de produto NO KEY UPDATE
+  serializa com catálogo. Insuficiência/overflow não persistem efeitos. Replay retorna snapshot histórico, não saldo presente.
+- **Migração:** SQL 30 é atômico e compartilhado por bootstrap/comando incremental; registra abertura sem
+  alterar saldo preexistente. Reaplicação verifica reconciliação, sem duplicar abertura. Triggers impedem edição,
+  exclusão e truncate do histórico/operações. Não usar reset em base com dados.
+- **Limite:** não aprova nem implementa política de reserva/baixa de vendas do Ciclo 3. Sem alocações, worker,
+  checkout ou pagamento. D-47 já pertence à troca de e-mail no remoto do Backend 2; não foi reutilizada.
+- **Contrato e procedimento:** [estoque administrativo](estoque-admin-2026-11-03.md).
+
 ### D-46 — Vitrine de peixes independente do menu e paginada no servidor
 - **Data:** 02/11/2026
 - **Decisão:** lista/detalhe de peixes usam o próprio DTO, sem depender da consulta de metadados de categorias.
@@ -373,7 +421,7 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   - `produtoService.buscarParaVenda(ids)` → `ProdutoVenda[]` (`id`, `nome`, `preco`, `ativo`, `categoria`); retorna
     só os encontrados, quem chama decide o erro do id faltando (D-25).
   - `estoqueService.baixarParaVenda(vendaId, itens, client)` → baixa atômica (D-26); lança
-    `409 'Estoque insuficiente'` com detalhes por item (`itens.<indice>.quantidade`).
+    `409 'Estoque insuficiente'` com IDs/quantidades solicitadas em `itens.<produtoId>.quantidade` (D-50), sem saldo exato.
   - `estoqueService.estornarVenda(vendaId, client)`.
   - `servicoService.listarOpcoes()` para os orçamentos (D-27).
   - `ItemMovimento` = `produtoId` + `quantidade`. `ProdutoVenda` e `ItemMovimento` ficam em `types/index.ts`.
@@ -384,10 +432,12 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** vendas (Celio), catálogo e estoque (Dev 2).
 
 ### D-16 — Estoque baixado na criação; venda não paga expira em 30 minutos
-- **Data:** 15/10/2026
+- **Data:** 15/10/2026 (aplicação do contrato interno em 04/11/2026, D-50)
 - **Decisão:** o estoque é baixado quando a venda é criada. Venda em `aguardando_pagamento` vence em 30 minutos
   (`vendas.expira_em`, default `now() + interval '30 minutes'`): uma tarefa agendada do módulo `vendas` cancela a
   venda e chama `estoqueService.estornarVenda`.
+- **Integração:** job do Backend 2 a cada cinco minutos; cancelar e devolver na mesma transação. Sem reserva
+  separada. Helpers B1 implementados, job/criação/cancelamento ainda não conectados.
 - **Motivo:** o cliente não paga por um produto que acabou enquanto estava no checkout; o estoque preso volta sozinho.
 - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
 
@@ -410,11 +460,13 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** catálogo (Dev 2).
 
 ### D-26 — Baixa de estoque atômica
-- **Data:** 19/10/2026
+- **Data:** 19/10/2026 (implementado em 04/11/2026, D-50)
 - **Decisão:** `baixarParaVenda` faz `UPDATE produtos SET estoque = estoque - $1 WHERE id = $2 AND estoque >= $1`;
   se nenhuma linha for afetada, lança `409 'Estoque insuficiente'`.
 - **Motivo:** evita vender o último item duas vezes em compras simultâneas e devolve 409 em vez de erro do banco
   (o `CHECK (estoque >= 0)` fica só como rede de segurança).
+- **Implementação:** itens repetidos consolidados, locks por ID crescente, operação+movimentos ligados à venda,
+  constraints de integralidade; erro propagado desfaz também venda/itens. Mais de um produto por operação permitido.
 - **Impacto:** estoque (Dev 2).
 
 ### D-28 — "Avise-me quando chegar"

@@ -1,6 +1,46 @@
 # Testes do catálogo
 
+Estoque por venda (04/11/2026): `estoque-venda.test.mjs` valida o contrato interno; integração homônima usa
+comTransacao/PoolClient e registros reais de vendas/itens, porque B2 ainda não tem criação comercial por HTTP.
+Cobre múltiplos produtos/repetidos, falta de vários, último saldo, locks ordenados, rollback externo/de movimento,
+replay/concorrência da baixa e devolução, fonte imutável apesar de itens alterados, estado/ausência de baixa,
+overflow, constraints diferidas, webhook repetido e emEstoque sem dados privados. A integração de migrações
+cobre evolução002 sobre legado/admin, bootstrap/reaplicação/script e rollback DDL, sem alterar a versão001.
+Somente PostgreSQL descartável; `npm run db:migrar-estoque` aplica30+31. Contrato: [estoque por venda](../docs/estoque-vendas-2026-11-04.md).
+
 As suítes incluem também a proteção administrativa de orçamentos.
+
+Estoque administrativo: `estoque.test.mjs` e as integrações `estoque.test.mjs`/`estoque-migracao.test.mjs`
+cobrem saldo, idempotência/revogação, concorrência, rollback, abertura de legado sem novo crédito e
+imutabilidade. O PostgreSQL de integração é descartável; não executar em uma base da loja.
+Contrato e migração incremental: [estoque administrativo](../docs/estoque-admin-2026-11-03.md).
+
+Leituras: `estoque-leituras.test.mjs` cobre guardas GET/HEAD, cache, DTO, SQL parametrizado, IDs/query inválidos
+e erros. `integracao/estoque-leituras.test.mjs` usa sessões e PostgreSQL reais: abertura positiva/zero, inativo,
+saldo após entrada/replay/saída, total/página vazia, empate de datas, revogação/papel atual, falha SQL sem exposição,
+migração repetida/reconciliação e leitura durante escrita bloqueada antes do COMMIT (sem saldo/movimento parcial).
+Confere emEstoque público sem dados administrativos. As suítes de migração também exercitam script incremental
+em banco existente e bootstrap vazio. Use somente PostgreSQL descartável; cada suíte cria/remove seu schema.
+
+```bash
+node --import tsx --test testes/estoque-leituras.test.mjs
+TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste npm run test:integration
+```
+
+A homologação com Backend 2 copia fontes **incluindo alterações não commitadas**, aplica o diff remoto somente
+nessa cópia, confere D-47/D-48/D-49 e executa typecheck, HTTP, integração PostgreSQL e build combinados.
+`git apply --check` isoladamente não basta. Evidências e teste cruzado de login/troca de e-mail/redefinição de
+senha com estoque: [relatório de integração](../docs/estoque-leituras-integracao-2026-11-03.md).
+
+Somente **após combinar o Backend 2 na cópia isolada**, executar também:
+
+```bash
+TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste node --import tsx --test testes/homologacao/estoque-backend2.test.mjs
+```
+
+Esse harness exige as rotas remotas de recuperação de senha; fica fora dos globs de `npm test` e
+`test:integration` da base local ainda sem esses commits. Falha explicitamente se o banco não for informado.
+Não deve ser usado como motivo para integrar silenciosamente auth ou dispensar os testes padrão combinados.
 
 Execute em `backend/`, com Node.js 22 e as dependências do lockfile:
 
