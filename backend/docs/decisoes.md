@@ -8,6 +8,33 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-51 — `buscarParaVenda` trava só com executor, em ordem de id; 409 por `produtoId` vira contrato oficial
+- **Data:** 05/11/2026
+- **Decisão:**
+  - `produtoService.buscarParaVenda(ids, executor?)` faz uma consulta só, com `ANY($1::integer[])`, sem filtrar
+    `ativo` e em ordem de `id`.
+  - **Sem executor** (cotação de frete, checagem antes da transação): consulta simples no pool, **sem trava**.
+  - **Com executor** (client de `comTransacao`): acrescenta `FOR NO KEY UPDATE OF p`, na mesma ordem de `id` da
+    `baixarParaVenda`; os produtos ficam travados até o COMMIT ou ROLLBACK. Só a tabela `produtos` é travada, não `categorias`.
+  - A venda chama duas vezes: sem executor, antes da transação (recusar cedo e calcular o frete), e com o client,
+    dentro dela. O `preco_unitario` de `itens_venda` vem da segunda chamada.
+  - Repetidos são removidos antes da consulta. Lista vazia → `[]` sem ir ao banco. ID que não seja inteiro de 1 a
+    2147483647, ou mais de 100 IDs depois de tirar os repetidos → `Error` comum (500), não `AppError`: o body é
+    validado pela venda, que responde 422 antes de chamar.
+  - A venda insere `vendas` e `itens_venda` (uma linha por produto, já somados) antes de chamar `baixarParaVenda`
+    com os mesmos produtos e quantidades; a baixa confere isso e o status `aguardando_pagamento`.
+  - O `409 'Estoque insuficiente'` da `baixarParaVenda` com `itens.<produtoId>.quantidade` e `itensIndisponiveis`
+    (D-50) foi aceito pelo grupo como contrato oficial; a venda traduz para o índice do body quando precisar.
+- **Motivo:**
+  - Sem o lock, o admin pode mudar o preço ou desativar o produto entre a leitura e o COMMIT, e a venda gravaria um
+    preço que já não vale ou venderia um inativo.
+  - A mesma ordem e o mesmo modo de lock da `baixarParaVenda` evitam deadlock: com `FOR SHARE`, duas vendas do
+    mesmo produto teriam o lock compartilhado e as duas esperariam uma pela outra ao subir para `NO KEY UPDATE` na baixa.
+  - `NO KEY UPDATE` (e não `UPDATE`) não bloqueia as FKs que apontam para o produto, como `itens_venda`.
+  - Sem transação a trava seria solta no fim do próprio SELECT, sem proteger nada; por isso a leitura sem executor
+    não trava e não disputa lock com vendas e com o admin.
+- **Impacto:** catálogo (implementado pelo Celio com o aval do Dev 2), vendas (#30), estoque (sem mudança).
+
 ### D-50 — Baixa e devolução de venda no mesmo PoolClient do Backend 2
 - **Data:** 04/11/2026
 - **Decisão desta tarefa:** aplicar D-16/D-21/D-26: baixa na criação, sem reserva separada; pagamento não
@@ -418,16 +445,18 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Decisão:** resumo do contrato definido no `api.md`, **seção 8** (a fonte é ele; mudou lá, muda aqui):
   - Vendas nunca importa repository nem faz SQL em tabela do catálogo/estoque; usa só os services.
   - Só o módulo `estoque` escreve em `produtos.estoque`, e toda mudança gera uma linha em `movimentacoes_estoque`.
-  - `produtoService.buscarParaVenda(ids)` → `ProdutoVenda[]` (`id`, `nome`, `preco`, `ativo`, `categoria`); retorna
-    só os encontrados, quem chama decide o erro do id faltando (D-25).
+  - `produtoService.buscarParaVenda(ids, executor?)` → `ProdutoVenda[]` (`id`, `nome`, `preco`, `ativo`, `categoria`);
+    retorna só os encontrados, inclusive inativos; quem chama decide o erro do id faltando (D-25). Com o client da
+    transação, trava os produtos até o COMMIT (D-51).
   - `estoqueService.baixarParaVenda(vendaId, itens, client)` → baixa atômica (D-26); lança
     `409 'Estoque insuficiente'` com IDs/quantidades solicitadas em `itens.<produtoId>.quantidade` (D-50), sem saldo exato.
+    Aceito pelo grupo como contrato oficial em 05/11/2026 (D-51).
   - `estoqueService.estornarVenda(vendaId, client)`.
   - `servicoService.listarOpcoes()` para os orçamentos (D-27).
   - `ItemMovimento` = `produtoId` + `quantidade`. `ProdutoVenda` e `ItemMovimento` ficam em `types/index.ts`.
-  - Fluxo do `POST /api/vendas`: valida o body → `buscarParaVenda` confere se todos existem e estão ativos →
-    calcula o frete → `comTransacao` insere `vendas` e `itens_venda` e chama `baixarParaVenda` → qualquer erro
-    desfaz tudo.
+  - Fluxo do `POST /api/vendas`: valida o body → `buscarParaVenda` (sem executor) confere se todos existem e estão
+    ativos → calcula o frete → `comTransacao` chama `buscarParaVenda` de novo com o client (preço do snapshot vem
+    daqui), insere `vendas` e `itens_venda` e chama `baixarParaVenda` → qualquer erro desfaz tudo (D-51).
 - **Motivo:** cada dev mexe só nas próprias tabelas; a baixa de estoque fica na mesma transação da venda.
 - **Impacto:** vendas (Celio), catálogo e estoque (Dev 2).
 
