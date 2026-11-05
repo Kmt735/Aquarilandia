@@ -83,3 +83,13 @@ export const limiteRedefinirSenha = rateLimit({
   legacyHeaders: false,
   handler: responderLimite,
 })
+
+// Cotação de frete (pública, sem login): conta todos os pedidos, por IP. Cada cotação consulta o catálogo,
+// então o limite segura quem tenta varrer CEPs ou produtos em massa
+export const limiteFrete = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: responderLimite,
+})
