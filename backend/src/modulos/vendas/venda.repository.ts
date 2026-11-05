@@ -1,9 +1,67 @@
 import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
-import type { StatusVenda } from './venda.types.js'
+import type { NovaVenda, NovoItemVenda, StatusVenda, VendaInserida } from './venda.types.js'
 
 export const vendaRepository = {
+  // status e expira_em ficam com o DEFAULT do banco ('aguardando_pagamento' e now() + 30 minutos).
+  // Na retirada, todos os entrega_* de endereço vão NULL (CHECK ck_vendas_endereco_entrega)
+  async inserir(dados: NovaVenda, executor: Queryable): Promise<VendaInserida> {
+    const endereco = dados.endereco
+    const { rows } = await executor.query<VendaInserida>(
+      `INSERT INTO vendas
+         (cliente_id, subtotal, frete, total, tipo_entrega, prazo_entrega_dias, entrega_destinatario, entrega_telefone,
+          entrega_cep, entrega_logradouro, entrega_numero, entrega_complemento, entrega_bairro, entrega_cidade, entrega_uf)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       RETURNING id, status, expira_em AS "expiraEm", criado_em AS "criadoEm"`,
+      [
+        dados.clienteId,
+        dados.subtotal,
+        dados.frete,
+        dados.total,
+        dados.tipoEntrega,
+        dados.prazoEntregaDias,
+        dados.destinatario,
+        dados.telefone,
+        endereco?.cep ?? null,
+        endereco?.logradouro ?? null,
+        endereco?.numero ?? null,
+        endereco?.complemento ?? null,
+        endereco?.bairro ?? null,
+        endereco?.cidade ?? null,
+        endereco?.uf ?? null,
+      ],
+    )
+    return rows[0]
+  },
+
+  // Um INSERT só para todos os itens: cada array é uma coluna, e o unnest junta as posições em linhas
+  async inserirItens(vendaId: number, itens: readonly NovoItemVenda[], executor: Queryable): Promise<void> {
+    await executor.query(
+      `INSERT INTO itens_venda (venda_id, produto_id, nome_produto, preco_unitario, quantidade, subtotal)
+       SELECT $1, i.produto_id, i.nome_produto, i.preco_unitario, i.quantidade, i.subtotal
+         FROM unnest($2::integer[], $3::text[], $4::integer[], $5::integer[], $6::integer[])
+           AS i (produto_id, nome_produto, preco_unitario, quantidade, subtotal)`,
+      [
+        vendaId,
+        itens.map((item) => item.produtoId),
+        itens.map((item) => item.nomeProduto),
+        itens.map((item) => item.precoUnitario),
+        itens.map((item) => item.quantidade),
+        itens.map((item) => item.subtotal),
+      ],
+    )
+  },
+
+  // Primeiro registro do histórico: sem status anterior, feito pelo próprio cliente
+  async registrarCriacao(vendaId: number, clienteId: number, executor: Queryable): Promise<void> {
+    await executor.query(
+      `INSERT INTO historico_status_venda (venda_id, status_anterior, status_novo, origem, alterado_por_id)
+       VALUES ($1, NULL, 'aguardando_pagamento', 'cliente', $2)`,
+      [vendaId, clienteId],
+    )
+  },
+
   async contarEmAndamentoDoCliente(
     clienteId: number,
     status: readonly StatusVenda[],
