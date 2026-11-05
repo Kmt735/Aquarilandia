@@ -17,3 +17,12 @@ export interface ItemMovimento {
   produtoId: number
   quantidade: number
 }
+
+// Contrato interno catálogo → vendas (D-15/D-25/D-51): preco em centavos e categoria = categorias.slug.
+export interface ProdutoVenda {
+  id: number
+  nome: string
+  preco: number
+  ativo: boolean
+  categoria: string
+}

@@ -1,5 +1,14 @@
 # Testes do catálogo
 
+Leitura para venda (05/11/2026, D-51): `produto-venda.test.mjs` cobre IDs inválidos (Error comum, sem banco),
+lista vazia sem consulta, 101 IDs recusados (limite contado depois de tirar repetidos), repetidos removidos,
+parâmetro único de array, SQL com `FOR NO KEY UPDATE OF p` só com executor e pool sem trava sem executor.
+A integração homônima, em PostgreSQL descartável, cobre os 5 campos, inexistente omitido, inativo com
+`ativo: false`, repetido uma vez, ordem por ID; sem executor, leitura que não espera um UPDATE em aberto nem deixa
+trava; com executor, lock até COMMIT/ROLLBACK verificado com `NOWAIT` (categoria livre), UPDATE de preço de outra
+conexão esperando o COMMIT (`pg_stat_activity`) e outra leitura esperando; leitura com lock + baixa em ordens
+opostas sem deadlock (5 rodadas) e o fluxo completo busca → venda/itens com os preços lidos → baixa → COMMIT.
+
 Estoque por venda (04/11/2026): `estoque-venda.test.mjs` valida o contrato interno; integração homônima usa
 comTransacao/PoolClient e registros reais de vendas/itens, porque B2 ainda não tem criação comercial por HTTP.
 Cobre múltiplos produtos/repetidos, falta de vários, último saldo, locks ordenados, rollback externo/de movimento,

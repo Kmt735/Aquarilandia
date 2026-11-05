@@ -1306,11 +1306,17 @@ Um módulo **nunca** importa o repository do outro nem faz SQL em tabela do outr
 
 ```ts
 // modulos/catalogo/produto.service.ts
-produtoService.buscarParaVenda(ids: number[]): Promise<ProdutoVenda[]>
+produtoService.buscarParaVenda(ids: number[], executor?: Queryable): Promise<ProdutoVenda[]>
 // ProdutoVenda = { id: number; nome: string; preco: number; ativo: boolean; categoria: string }
-// categoria = categorias.slug (vendas precisa saber quais itens são 'peixes' para a regra de entrega)
-//   (decidido em 19/10/2026 — implementação: Dev 2)
-// Retorna só os encontrados; quem chama decide o erro para id faltando.
+// preco = mesmo inteiro em centavos de ProdutoPublico.preco; categoria = categorias.slug
+//   (vendas precisa saber quais itens são 'peixes' para a regra de entrega)
+//   (decidido em 19/10/2026 — implementado em 05/11/2026, D-51)
+// Com executor (client de comTransacao): FOR NO KEY UPDATE OF p em ordem de id, a mesma da baixarParaVenda,
+//   até o COMMIT; sem executor (cotação de frete): consulta simples no pool, sem trava.
+// Retorna só os encontrados, inclusive inativos (ativo: false), sem repetidos e ordenados por id;
+// quem chama decide o erro para id faltando ou inativo. Lista vazia → [] sem ir ao banco.
+// ID que não seja inteiro de 1 a 2147483647, ou mais de 100 IDs depois de tirar os repetidos → Error comum (500):
+//   vendas valida o body e responde 422 antes.
 
 // modulos/estoque/estoque.service.ts
 estoqueService.baixarParaVenda(vendaId: number, itens: ItemMovimento[], client: PoolClient): Promise<void>
@@ -1321,6 +1327,9 @@ estoqueService.estornarVenda(vendaId: number, client: PoolClient): Promise<void>
 //   itensIndisponiveis: [{produtoId, quantidade}] (quantidades solicitadas)
 //   detalhes { "itens.<produtoId>.quantidade": "Produto ID indisponível para a quantidade solicitada: Q." }
 // Não devolve contagem exata de saldo nem nome de produto inativo.
+// Esse 409 por itens.<produtoId>.quantidade + itensIndisponiveis foi aceito pelo grupo como contrato oficial
+// em 05/11/2026 (D-51). Para responder pelo índice do body ("itens.0.quantidade", seção 5), vendas traduz
+// cada produtoId de itensIndisponiveis para o(s) índice(s) do item no body.
 ```
 
 `baixarParaVenda` faz `UPDATE produtos SET estoque = estoque - $1 WHERE id = $2 AND estoque >= $1`;
@@ -1389,15 +1398,23 @@ servicoService.listarOpcoes(): Promise<string[]>   // valores aceitos no campo s
 `ProdutoVenda` e `ItemMovimento` ficam em `types/index.ts` (compartilhado), porque os dois módulos usam.
 
 ### Fluxo de `POST /api/vendas` — orquestração ainda a implementar pelo Backend 2
-O fluxo abaixo é uma interface planejada, não uma rota funcional. `buscarParaVenda`/`ProdutoVenda` ainda não
-foram implementados nesta base; o incremento atual entrega somente os helpers de estoque e `ItemMovimento`.
-Antes de habilitar vendas, combinar leitura/validação de preço e ativo sob locks na mesma transação dos snapshots;
-os helpers de estoque não reprecificam itens nem confirmam frete. Não confiar no preço salvo no navegador.
+O fluxo abaixo é uma interface planejada, não uma rota funcional. Os contratos que ele usa (`buscarParaVenda`,
+`ProdutoVenda`, `baixarParaVenda` e `ItemMovimento`) já existem. Os helpers de estoque não reprecificam itens nem
+confirmam frete. Não confiar no preço salvo no navegador.
 
-1. `vendaService.criar` valida o body.
-2. Chama `produtoService.buscarParaVenda` → confere se todos existem e estão ativos.
+A venda chama `buscarParaVenda` **duas vezes** (D-51):
+
+1. `vendaService.criar` valida o body (422) e soma os itens repetidos do mesmo produto.
+2. Chama `produtoService.buscarParaVenda(ids)` **sem executor** → confere se todos existem e estão ativos e usa
+   preço e categoria para calcular o frete. É uma checagem rápida, fora da transação, só para recusar cedo.
 3. Calcula o frete (fora da transação).
-4. Abre `comTransacao`: insere `vendas` e `itens_venda` (guardando `preco_unitario` do momento da venda) → chama `estoqueService.baixarParaVenda(vendaId, itens, client)`. A venda nasce como `'aguardando_pagamento'`, com `expira_em` = criação + 30 minutos.
+4. Abre `comTransacao` e chama `produtoService.buscarParaVenda(ids, client)` **de novo, com o client**: trava os
+   produtos até o COMMIT e revalida existência e ativo. O `preco_unitario` gravado em `itens_venda` vem **desta
+   segunda leitura**, não da primeira. Insere `vendas` e `itens_venda` (já somados, uma linha por produto) **antes**
+   da baixa → chama `estoqueService.baixarParaVenda(vendaId, itens, client)` com os mesmos produtos e quantidades
+   de `itens_venda` (diferente → 409 'Itens incompatíveis com a venda persistida'). A venda nasce como
+   `'aguardando_pagamento'` (a baixa recusa outro status), com `expira_em` = criação + 30 minutos. Falta de estoque
+   ou produto inativo → 409 'Estoque insuficiente' por `produtoId`; vendas traduz para o índice do item no body.
 5. Se qualquer passo lançar erro, tudo é desfeito.
 
 ### Gateway de pagamento — AbacatePay, Pix transparente (02/11/2026)
