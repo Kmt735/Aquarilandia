@@ -1306,7 +1306,9 @@ Um módulo **nunca** importa o repository do outro nem faz SQL em tabela do outr
 
 ```ts
 // modulos/catalogo/produto.service.ts
-produtoService.buscarParaVenda(ids: number[]): Promise<ProdutoVenda[]>
+produtoService.buscarParaVenda(ids: number[], executor?: Queryable): Promise<ProdutoVenda[]>
+// Com executor (client de comTransacao): FOR NO KEY UPDATE OF p em ordem de id, a mesma da baixarParaVenda,
+//   até o COMMIT; sem executor (cotação de frete): consulta simples no pool, sem trava.
 // ProdutoVenda = { id: number; nome: string; preco: number; ativo: boolean; categoria: string }
 // categoria = categorias.slug (vendas precisa saber quais itens são 'peixes' para a regra de entrega)
 //   (decidido em 19/10/2026 — implementação: Dev 2)
