@@ -135,15 +135,16 @@ describe('validarPedido', () => {
   })
 
   it('erros de itens e de entrega saem juntos', () => {
-    assert.throws(() => validarPedido({ itens: [item(0, 1)] }, 'endereco'), erro422({
+    assert.throws(() => validarPedido({ itens: [item(0, 1)], totalEsperado: 0 }, 'endereco'), erro422({
       'itens.0.produtoId': 'Produto inválido.',
       entrega: 'Escolha um endereço de entrega ou retirar na loja.',
     }))
   })
 
   it('soma os repetidos e ignora total, status, clienteId e preços do body', () => {
-    const body = { itens: [item(2, 1, { precoUnitario: 1 }), item(2, 2)], retirada: true, total: 1, status: 'paga', clienteId: 99 }
-    assert.deepEqual(validarPedido(body, 'endereco'), { itens: [{ produtoId: 2, quantidade: 3, indice: 0 }], entrega: { retirada: true } })
+    const body = { itens: [item(2, 1, { precoUnitario: 1 }), item(2, 2)], retirada: true, total: 1, status: 'paga', clienteId: 99, totalEsperado: 1500 }
+    assert.deepEqual(validarPedido(body, 'endereco'),
+      { itens: [{ produtoId: 2, quantidade: 3, indice: 0 }], entrega: { retirada: true }, totalEsperado: 1500 })
   })
 })
 

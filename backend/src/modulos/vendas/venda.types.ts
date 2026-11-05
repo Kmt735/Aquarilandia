@@ -21,6 +21,13 @@ export interface ItemPedido {
 export type EntregaCotacao = { retirada: true } | { retirada: false; cep: string }
 export type EntregaVenda = { retirada: true } | { retirada: false; enderecoId: number }
 
+// O body da venda já validado: itens somados, entrega e o total que a cotação mostrou (só para conferir)
+export interface PedidoVenda {
+  itens: ItemPedido[]
+  entrega: EntregaVenda
+  totalEsperado: number
+}
+
 export interface CotacaoFrete {
   frete: number
   prazoDias: number

@@ -12,6 +12,7 @@ import { vendaRepository } from './venda.repository.js'
 import type { ItemPedido, NovoItemVenda, ResultadoCriacaoVenda, StatusVenda, VendaCriada } from './venda.types.js'
 import {
   exigirDisponiveis,
+  formatarReais,
   hashDoPedido,
   precificar,
   somarTotal,
@@ -117,8 +118,9 @@ export const vendaService = {
   // Qualquer erro dentro da transação desfaz tudo (venda, itens, histórico e baixa).
   async criar(clienteId: number, body: unknown, chave: string): Promise<ResultadoCriacaoVenda> {
     // Fora da transação: validação e leituras baratas, sem segurar conexão do pool nem trava
-    const { itens, entrega } = validarPedido(body, 'endereco')
-    const hash = hashDoPedido({ itens, entrega })
+    const pedido = validarPedido(body, 'endereco')
+    const { itens, entrega, totalEsperado } = pedido
+    const hash = hashDoPedido(pedido)
     const cliente = await clienteRepository.buscarPorId(clienteId)
     if (!cliente) throw new AppError('Faça login para continuar.', 401)
     const { nome, telefone } = cliente
@@ -154,6 +156,14 @@ export const vendaService = {
         const { linhas, subtotal } = precificar(itens, exigirDisponiveis(itens, produtos))
         const frete = freteDaVenda(endereco, itens, linhas, subtotal)
         const total = somarTotal(subtotal, frete.frete)
+
+        // O totalEsperado só CONFERE: o preço continua vindo só do catálogo (travado acima). Diferente = o preço ou o
+        // frete mudou desde a cotação; nada é gravado e o cliente vê o total novo antes de decidir
+        if (total !== totalEsperado) {
+          throw new AppError('O valor da compra mudou desde a cotação. Confira o carrinho antes de finalizar.', 409, {
+            totalEsperado: `O total agora é ${formatarReais(total)}.`,
+          })
+        }
 
         // Cópia do endereço (D-12): a venda mostra para onde foi enviada mesmo se o endereço mudar ou for apagado
         const copia = endereco && {

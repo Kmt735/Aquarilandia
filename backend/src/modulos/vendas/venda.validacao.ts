@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto'
 import type { ProdutoVenda } from '../../types/index.js'
 import { AppError } from '../../utils/AppError.js'
-import type { EntregaCotacao, EntregaVenda, ItemPedido, NovoItemVenda } from './venda.types.js'
+import type { EntregaCotacao, EntregaVenda, ItemPedido, NovoItemVenda, PedidoVenda } from './venda.types.js'
 
 export const maxItensPorPedido = 30
 export const maxQuantidadePorProduto = 50
@@ -21,6 +21,7 @@ const msgEntrega = 'Escolha um endereço de entrega ou retirar na loja.'
 const msgCep = 'Informe um CEP válido com 8 números ou escolha retirar na loja.'
 const msgProdutoIndisponivel = 'Produto indisponível.'
 const msgSemEstoque = 'Não temos essa quantidade em estoque.'
+const msgTotalEsperado = 'Atualize o carrinho antes de finalizar a compra.'
 
 type Erros = Record<string, string>
 
@@ -118,14 +119,24 @@ export function lerEntrega(dados: Record<string, unknown>, modo: 'cep' | 'endere
   return { retirada: false, enderecoId: destino }
 }
 
-// O body inteiro: os erros de itens e de entrega saem juntos num 422 só (api.md, seção 6).
+// totalEsperado (só na venda): o total, em centavos, que a cotação mostrou ao cliente. Só serve para CONFERIR o
+// total recalculado; nunca define preço
+export function lerTotalEsperado(valor: unknown): number {
+  if (typeof valor !== 'number' || !Number.isSafeInteger(valor) || valor < 0 || valor > maxCentavos) {
+    throw new AppError(msgDadosInvalidos, 422, { totalEsperado: msgTotalEsperado })
+  }
+  return valor
+}
+
+// O body inteiro: os erros de itens, de entrega e do totalEsperado saem juntos num 422 só (api.md, seção 6).
 // A soma dos repetidos vem depois, porque só faz sentido com todos os itens válidos.
+// A cotação (#28) não lê totalEsperado: só a venda confere o total.
 export function validarPedido(body: unknown, modo: 'cep'): { itens: ItemPedido[]; entrega: EntregaCotacao }
-export function validarPedido(body: unknown, modo: 'endereco'): { itens: ItemPedido[]; entrega: EntregaVenda }
+export function validarPedido(body: unknown, modo: 'endereco'): PedidoVenda
 export function validarPedido(
   body: unknown,
   modo: 'cep' | 'endereco',
-): { itens: ItemPedido[]; entrega: EntregaCotacao | EntregaVenda } {
+): { itens: ItemPedido[]; entrega: EntregaCotacao } | PedidoVenda {
   const dados = exigirObjeto(body)
   const erros: Erros = {}
   const coletar = <T>(ler: () => T): T | null => {
@@ -139,9 +150,15 @@ export function validarPedido(
   }
 
   const lidos = coletar(() => validarItens(dados.itens))
-  const entrega = coletar(() => (modo === 'cep' ? lerEntrega(dados, 'cep') : lerEntrega(dados, 'endereco')))
-  if (!lidos || !entrega) throw new AppError(msgDadosInvalidos, 422, erros)
-  return { itens: somarPorProduto(lidos.itens), entrega }
+  if (modo === 'cep') {
+    const entrega = coletar(() => lerEntrega(dados, 'cep'))
+    if (!lidos || !entrega) throw new AppError(msgDadosInvalidos, 422, erros)
+    return { itens: somarPorProduto(lidos.itens), entrega }
+  }
+  const entrega = coletar(() => lerEntrega(dados, 'endereco'))
+  const totalEsperado = coletar(() => lerTotalEsperado(dados.totalEsperado))
+  if (!lidos || !entrega || totalEsperado === null) throw new AppError(msgDadosInvalidos, 422, erros)
+  return { itens: somarPorProduto(lidos.itens), entrega, totalEsperado }
 }
 
 // Produto que não voltou do catálogo ou está inativo: 422 no índice original (nunca o 409 do estoque, que é só
@@ -234,12 +251,20 @@ export function validarChaveIdempotencia(valor: unknown): string {
 }
 
 // SHA-256 da forma CANÔNICA do pedido já validado: um array de posições fixas, com os itens somados e ordenados por
-// produtoId. A mesma compra em outra ordem (ou com o mesmo produto dividido em dois itens) dá o mesmo hash; os
-// índices do body e chaves extras não entram. É ele que diz se a mesma chave voltou com "outra compra".
-export function hashDoPedido(pedido: { itens: readonly ItemPedido[]; entrega: EntregaVenda }): string {
+// produtoId, a entrega e o totalEsperado. A mesma compra em outra ordem (ou com o mesmo produto dividido em dois
+// itens) dá o mesmo hash; os índices do body e chaves extras não entram. É ele que diz se a mesma chave voltou com
+// "outra compra".
+export function hashDoPedido(pedido: PedidoVenda): string {
   const itens = [...pedido.itens]
     .sort((a, b) => a.produtoId - b.produtoId)
     .map((item) => [item.produtoId, item.quantidade])
   const entrega = pedido.entrega.retirada ? ['retirada'] : ['endereco', pedido.entrega.enderecoId]
-  return createHash('sha256').update(JSON.stringify([itens, entrega])).digest('hex')
+  return createHash('sha256').update(JSON.stringify([itens, entrega, pedido.totalEsperado])).digest('hex')
+}
+
+// Centavos → 'R$ 1.234,56' (ponto de milhar e vírgula decimal), sem biblioteca. Só para valores >= 0 (totais)
+export function formatarReais(centavos: number): string {
+  const reais = Math.floor(centavos / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  const resto = String(centavos % 100).padStart(2, '0')
+  return `R$ ${reais},${resto}`
 }
