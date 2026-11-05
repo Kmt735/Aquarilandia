@@ -4,6 +4,17 @@ import type { AutoriaVenda } from './venda.transicoes.js'
 import type { NovaVenda, NovoItemVenda, StatusVenda, VendaInserida } from './venda.types.js'
 
 export const vendaRepository = {
+  // #31: só as vencidas ficam de fora (expira_em no passado), porque a tarefa da #32 ainda vai cancelá-las.
+  // now() é o início da transação de quem chama: a mesma hora para todas as linhas
+  async contarAguardandoPagamento(clienteId: number, executor: Queryable): Promise<number> {
+    const { rows } = await executor.query<{ total: number }>(
+      `SELECT count(*)::int AS total FROM vendas
+        WHERE cliente_id = $1 AND status = 'aguardando_pagamento' AND expira_em > now()`,
+      [clienteId],
+    )
+    return rows[0].total
+  },
+
   // status e expira_em ficam com o DEFAULT do banco ('aguardando_pagamento' e now() + 30 minutos).
   // Na retirada, todos os entrega_* de endereço vão NULL (CHECK ck_vendas_endereco_entrega)
   async inserir(dados: NovaVenda, executor: Queryable): Promise<VendaInserida> {

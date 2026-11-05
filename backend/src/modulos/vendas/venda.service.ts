@@ -39,6 +39,9 @@ const statusPagos: readonly StatusVenda[] = [
   'entregue',
 ]
 
+// #31: cada venda aberta segura estoque por 30 minutos; o limite impede uma conta de esvaziar a loja sem pagar
+const maxVendasAguardando = 5
+
 // calcularFrete com o endereço salvo. O erro de CEP fala em 'cep', mas o body da venda manda enderecoId:
 // a chave vira enderecoId. O erro do peixe tem o índice traduzido para o do body.
 function freteDaVenda(
@@ -78,9 +81,9 @@ export const vendaService = {
     return vendaRepository.resumirDoCliente(clienteId, statusPagos)
   },
 
-  // POST /api/vendas (#30). Ordem das travas, a mesma em toda venda:
-  //   1. o cliente (FOR UPDATE): duas compras do mesmo cliente passam uma de cada vez e a compra não cruza com o
-  //      apagar conta, que trava a mesma linha;
+  // POST /api/vendas (#30, #31). Ordem das travas, a mesma em toda venda:
+  //   1. o cliente (FOR UPDATE): duas compras do mesmo cliente passam uma de cada vez (o limite de 5 abertas é
+  //      contado depois desta trava) e a compra não cruza com o apagar conta, que trava a mesma linha;
   //   2. os produtos (FOR NO KEY UPDATE, em ordem de id, no buscarParaVenda com o client): preço e ativo ficam fixos
   //      até o COMMIT, e duas vendas com os mesmos produtos travam na mesma ordem, sem deadlock;
   //   3. a baixa do estoque (Dev 2) trava a venda, os itens e os MESMOS produtos, na mesma ordem de id: a transação
@@ -101,6 +104,9 @@ export const vendaService = {
       // A trava do cliente vem PRIMEIRO; false = conta desativada ou anonimizada enquanto o pedido chegava
       if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) {
         throw new AppError('Faça login para continuar.', 401)
+      }
+      if ((await vendaRepository.contarAguardandoPagamento(clienteId, client)) >= maxVendasAguardando) {
+        throw new AppError('Você já tem 5 compras aguardando pagamento.', 409)
       }
 
       // Endereço de outro cliente não é encontrado (filtro por id E cliente_id): 404, sem confirmar que existe
