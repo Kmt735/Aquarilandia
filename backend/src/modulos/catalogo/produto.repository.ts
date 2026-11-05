@@ -1,4 +1,5 @@
 import { db } from '../../config/db.js'
+import type { ProdutoVenda } from '../../types/index.js'
 import type { Queryable } from '../../utils/transacao.js'
 import type { Categoria } from './categoria.types.js'
 import { camposPublicosProduto, fichaPeixePublica } from './produto.projecoes.js'
@@ -70,7 +71,26 @@ export const produtoRepository = {
   async reativar(id: number, executor: Queryable): Promise<void> {
     await executor.query('UPDATE produtos SET ativo = true, atualizado_em = now() WHERE id = $1 AND NOT ativo', [id])
   },
+
+  async buscarParaVenda(ids: number[], executor?: Queryable): Promise<ProdutoVenda[]> {
+    // Sem executor (cotação de frete): leitura simples no pool, sem trava; fora de transação ela não serviria.
+    if (!executor) {
+      const { rows } = await db.query<ProdutoVenda>(sqlBuscarParaVenda, [ids])
+      return rows
+    }
+    // Com o client da transação da venda: trava só as linhas de produtos (não categorias) até o COMMIT/ROLLBACK.
+    // A ordem por id é a MESMA do estoqueService.baixarParaVenda; travar em outra ordem permite deadlock
+    // entre duas vendas com os mesmos produtos. NO KEY UPDATE é o mesmo modo da baixa e não bloqueia as FKs.
+    const { rows } = await executor.query<ProdutoVenda>(`${sqlBuscarParaVenda}\n   FOR NO KEY UPDATE OF p`, [ids])
+    return rows
+  },
 }
+
+const sqlBuscarParaVenda = `SELECT p.id, p.nome, p.preco, p.ativo, c.slug AS categoria
+    FROM produtos AS p
+    JOIN categorias AS c ON c.id = p.categoria_id
+   WHERE p.id = ANY($1::integer[])
+   ORDER BY p.id`
 
 function listarProdutos(filtros: FiltrosProdutos, administrativo: false): Promise<ListaProdutos>
 function listarProdutos(filtros: FiltrosProdutos, administrativo: true): Promise<ListaProdutosAdministrativos>

@@ -1,5 +1,6 @@
+import type { ProdutoVenda } from '../../types/index.js'
 import { AppError } from '../../utils/AppError.js'
-import { comTransacao } from '../../utils/transacao.js'
+import { comTransacao, type Queryable } from '../../utils/transacao.js'
 import { ehTipoFicha } from './ficha.definicoes.js'
 import { fichaRepository } from './ficha.repository.js'
 import { produtoRepository } from './produto.repository.js'
@@ -103,5 +104,20 @@ export const produtoService = {
     const produto = await produtoRepository.buscarPorId(id)
     if (!produto) throw new AppError('Produto não encontrado', 404)
     return produto
+  },
+
+  // Contrato interno com vendas (D-51): devolve só os encontrados, inclusive inativos; quem chama decide o erro.
+  // Com executor (client de comTransacao), trava os produtos em ordem de id até o COMMIT; sem executor, não trava.
+  async buscarParaVenda(ids: number[], executor?: Queryable): Promise<ProdutoVenda[]> {
+    // Error comum (500), não AppError: vendas valida o body e responde 422 antes; ID inválido aqui é bug de quem chama.
+    // Teto 2147483647 = INTEGER do PostgreSQL; acima disso o cast do array falharia no banco.
+    if (!Array.isArray(ids) || !ids.every((id) => Number.isSafeInteger(id) && id > 0 && id <= 2147483647)) {
+      throw new Error('buscarParaVenda recebeu IDs inválidos.')
+    }
+    const unicos = [...new Set(ids)]
+    // O limite vale depois de remover repetidos: são os IDs que vão para o banco.
+    if (unicos.length > 100) throw new Error('buscarParaVenda aceita no máximo 100 IDs.')
+    if (!unicos.length) return []
+    return produtoRepository.buscarParaVenda(unicos, executor)
   },
 }
