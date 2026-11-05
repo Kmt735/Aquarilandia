@@ -7,6 +7,7 @@ import { clienteRoutes } from '../modulos/clientes/cliente.routes.js'
 import { freteRoutes } from '../modulos/vendas/frete.routes.js'
 import { vendaRoutes } from '../modulos/vendas/venda.routes.js'
 import { pagamentoRoutes } from '../modulos/pagamentos/pagamento.routes.js'
+import { estoqueRoutes } from '../modulos/estoque/estoque.routes.js'
 
 export const routes = Router()
 
@@ -25,3 +26,4 @@ routes.use('/clientes', clienteRoutes)
 routes.use('/frete', freteRoutes)
 routes.use('/vendas', vendaRoutes)
 routes.use('/pagamentos', pagamentoRoutes)
+routes.use('/estoque', estoqueRoutes)

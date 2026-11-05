@@ -55,6 +55,7 @@ cd backend
 npm ci
 cp .env.example .env
 npm run db:up    # sobe o PostgreSQL no Docker (porta 5432)
+npm run db:migrar-estoque # aplica/verifica o histórico também em banco existente, sem reset
 npm run dev      # http://localhost:3333/api
 ```
 
@@ -65,11 +66,18 @@ O `backend/docker-compose.yml` sobe um PostgreSQL 17. Na primeira subida (volume
 | Script | O que faz |
 | --- | --- |
 | `npm run db:up` | Sobe o banco e espera ficar saudável |
+| `npm run db:migrar-estoque` | Migração incremental de estoque, sem somar novamente os saldos legados; não reseta dados |
 | `npm run db:down` | Para o banco (os dados ficam no volume) |
 | `npm run db:reset` | Apaga o volume e recria o banco do zero (roda o schema de novo) |
 | `npm run db:psql` | Abre o `psql` dentro do container |
 
 A conexão vem de `DATABASE_URL` no `.env`; o pool fica em `src/config/db.ts`. O `/api/health` também confere o banco.
+
+O bootstrap de bancos novos inclui `30_estoque.sql` e `31_estoque_vendas.sql`. Em banco existente, aplicar a migração **antes** de
+habilitar a rota administrativa, com backup e pausa de escritas. Procedimento e verificações:
+[estoque administrativo](backend/docs/estoque-admin-2026-11-03.md). O comando aplica/verifica ambas em uma transação.
+Baixa e devolução internas estão disponíveis para o Backend 2, conforme o [contrato por venda](backend/docs/estoque-vendas-2026-11-04.md);
+criação/cancelamento/expiração/pagamento ainda dependem da integração comercial, sem reserva separada.
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
