@@ -9,15 +9,17 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 ## Arquitetura
 
 ### D-51 — `buscarParaVenda` trava só com executor, em ordem de id; 409 por `produtoId` vira contrato oficial
-- **Data:** 05/11/2026
+- **Data:** 05/11/2026 (ajustada em 05/11/2026 à criação de venda implementada no Lote 9, #30)
 - **Decisão:**
   - `produtoService.buscarParaVenda(ids, executor?)` faz uma consulta só, com `ANY($1::integer[])`, sem filtrar
     `ativo` e em ordem de `id`.
-  - **Sem executor** (cotação de frete, checagem antes da transação): consulta simples no pool, **sem trava**.
+  - **Sem executor** (cotação de frete, `POST /api/frete/calcular`, #28): consulta simples no pool, **sem trava**.
   - **Com executor** (client de `comTransacao`): acrescenta `FOR NO KEY UPDATE OF p`, na mesma ordem de `id` da
     `baixarParaVenda`; os produtos ficam travados até o COMMIT ou ROLLBACK. Só a tabela `produtos` é travada, não `categorias`.
-  - A venda chama duas vezes: sem executor, antes da transação (recusar cedo e calcular o frete), e com o client,
-    dentro dela. O `preco_unitario` de `itens_venda` vem da segunda chamada.
+  - A venda (`POST /api/vendas`, #30) lê o catálogo **uma vez só**: `buscarParaVenda(ids, client)`, dentro da
+    transação, depois da trava do cliente, travando os produtos em ordem de id. O `preco_unitario` de `itens_venda`
+    vem dessa leitura. A checagem rápida sem trava, antes da compra, é a cotação de frete (#28), que o carrinho chama
+    antes; a venda não faz uma segunda leitura sem executor.
   - Repetidos são removidos antes da consulta. Lista vazia → `[]` sem ir ao banco. ID que não seja inteiro de 1 a
     2147483647, ou mais de 100 IDs depois de tirar os repetidos → `Error` comum (500), não `AppError`: o body é
     validado pela venda, que responde 422 antes de chamar.
