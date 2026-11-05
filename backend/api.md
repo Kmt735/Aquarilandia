@@ -1310,9 +1310,10 @@ na loja.' }`. Lê o catálogo sem trava (`buscarParaVenda` sem executor). `200`:
 `subtotal` e `total` são uma **estimativa** para o carrinho mostrar o valor: a venda recalcula tudo com os preços
 do momento da compra.
 
-**`POST /api/vendas`** — cliente logado (`autenticar`), exige `Origin`. Body: `itens` e **`enderecoId`** (um endereço
-salvo do próprio cliente) **ou** `retirada: true`. Cria a venda em `aguardando_pagamento`, com `expira_em` = criação +
-30 minutos, e baixa o estoque na mesma transação (fluxo na seção 8). `201`:
+**`POST /api/vendas`** — cliente logado (`autenticar`), exige `Origin` e o header **`Idempotency-Key`** (desde o Lote 9b).
+Body: `itens`, **`enderecoId`** (um endereço salvo do próprio cliente) **ou** `retirada: true`, e **`totalEsperado`**
+(centavos). Cria a venda em `aguardando_pagamento`, com `expira_em` = criação + 30 minutos, e baixa o estoque na mesma
+transação (fluxo na seção 8). `201`:
 
 ```json
 {
@@ -1336,15 +1337,36 @@ a venda (D-12).
 
 | Status | Quando | `erro` / `detalhes` |
 |---|---|---|
+| `201` | Venda criada, ou **repetição** da mesma `Idempotency-Key` com o mesmo pedido (header `Idempotent-Replayed: true`) | a venda |
+| `400` | `Idempotency-Key` ausente ou fora do formato | `'Dados inválidos'`, `{ 'Idempotency-Key': 'Informe um UUID canônico em minúsculas (versão 1 a 8 e variante RFC).' }` |
 | `401` | Sem login, ou conta desativada/anonimizada antes do pedido terminar | `'Faça login para continuar.'` |
 | `403` | Sem `Origin` | `'Origem da requisição não permitida.'` |
 | `404` | `enderecoId` inexistente ou de outro cliente | `'Endereço não encontrado.'` |
+| `409` | A mesma `Idempotency-Key` já criou uma venda com **outro** pedido | `'Esta chave já foi usada em outra compra.'` |
+| `409` | O total recalculado (preços do catálogo + frete) é diferente do `totalEsperado` | `'O valor da compra mudou desde a cotação. Confira o carrinho antes de finalizar.'`, `{ totalEsperado: 'O total agora é R$ 1.234,56.' }` |
 | `409` | Já há 5 vendas em `aguardando_pagamento` ainda não vencidas (#31) | `'Você já tem 5 compras aguardando pagamento.'` |
 | `409` | Falta estoque | `'Estoque insuficiente'`, `{ 'itens.<índice>.quantidade': 'Não temos essa quantidade em estoque.' }` |
 | `422` | Os casos da tabela acima | — |
+| `422` | `totalEsperado` ausente ou que não é inteiro de 0 a 2147483647 | `{ totalEsperado: 'Atualize o carrinho antes de finalizar a compra.' }` |
 | `422` | Conta sem telefone | `{ telefone: 'Cadastre um celular na sua conta antes de finalizar a compra.' }` |
 | `422` | CEP do endereço salvo fora das faixas de entrega | `{ enderecoId: 'Não entregamos no CEP deste endereço. Escolha outro endereço ou retire na loja.' }` |
 
+- **`Idempotency-Key` (clique duplo e nova tentativa da rede):** UUID canônico em minúsculas, no mesmo formato do
+  `POST /api/estoque/movimentacoes`. O frontend gera **um UUID por tentativa de finalizar a compra** e **reusa o
+  mesmo** se repetir essa mesma compra (timeout, erro de rede, clique duplo). A chave é por cliente.
+  - Mesma chave + mesmo pedido → `201` com a venda **já criada** e `Idempotent-Replayed: true`: nada é criado, o estoque
+    não é baixado de novo e não há histórico novo. O corpo tem o mesmo formato da criação, com o estado **atual** da
+    venda (o `status` pode já ser outro, ex.: `paga` ou `cancelada`). Vale também com 5 vendas abertas: a chave é
+    conferida antes do limite.
+  - "Mesmo pedido" = mesmo SHA-256 da forma canônica: itens somados e ordenados por `produtoId`, a entrega
+    (`retirada` ou `enderecoId`) e o `totalEsperado`. A mesma compra com os itens em outra ordem é repetição.
+  - Mesma chave + outro pedido → `409 'Esta chave já foi usada em outra compra.'`.
+  - A mesma chave de **outro** cliente cria uma venda nova para ele (busca e `UNIQUE` por `cliente_id` + chave).
+  - Tentativa recusada (409, 422, 404…) não grava nada: a chave continua livre e pode ser usada de novo.
+- **`totalEsperado`:** o `total` da cotação (`POST /api/frete/calcular`) do mesmo carrinho e da mesma entrega. Ele
+  **só confere**: o preço continua vindo só do catálogo. Se o total recalculado com os preços travados e o frete for
+  diferente, `409` com o total novo em reais e **nada** é criado; o carrinho mostra o valor novo e o cliente confirma
+  numa nova tentativa (com o `totalEsperado` novo). A cotação não lê `totalEsperado`.
 - **Limite da #31:** no máximo 5 vendas `aguardando_pagamento` com `expira_em` no futuro por cliente. As vencidas
   (que a tarefa da #32 ainda vai cancelar) não contam. A contagem é feita depois da trava do cliente, então dois
   pedidos ao mesmo tempo não passam juntos do limite.
@@ -1380,6 +1402,7 @@ O Postgres executa `db/init/*.sql` em ordem alfabética, então a numeração de
 | `01_schema.sql` *(já existe — renomear para `01_catalogo.sql`)* | Dev 2 | categorias, produtos, tabelas de detalhe |
 | `10_clientes.sql` | Celio | clientes, enderecos_cliente, sessoes, tokens_recuperacao_senha |
 | `20_vendas.sql` | Celio | domain status_venda, vendas, itens_venda, historico_status_venda, pagamentos, eventos_webhook |
+| `21_vendas_idempotencia.sql` | Celio | `vendas.chave_idempotencia` e `vendas.hash_requisicao` (Idempotency-Key do `POST /api/vendas`); em banco existente, aplicar com o comando do topo do arquivo, sem `db:reset` |
 | `30_estoque.sql` | Dev 2 | movimentacoes_estoque (pode ter FK para vendas) |
 | `31_estoque_vendas.sql` | Backend 1 | evolução002 de operações/movimentos vinculados a vendas; sem alterar schema comercial |
 | `90_seed.sql` | ambos (só `INSERT`) | dados de exemplo |
@@ -1535,18 +1558,24 @@ Fora da transação (barato, sem trava):
 Dentro de `comTransacao`, com as travas sempre nesta ordem:
 
 3. `clienteRepository.travarParaAlteracao` (cliente `FOR UPDATE`, `AND ativo`); conta inativa/anonimizada → 401.
+   Idempotência (Lote 9b): busca a venda do cliente com a `Idempotency-Key`. Mesmo hash → devolve essa venda
+   (`vendaRepository.buscarCompleta`) sem criar nada; outro hash → 409. Um pedido repetido em paralelo espera nesta
+   trava e, quando passa, já acha a venda pronta; o `UNIQUE (cliente_id, chave_idempotencia)` é a rede de segurança
+   (um 23505 nele é tratado como repetição).
 4. #31: conta as vendas `aguardando_pagamento` com `expira_em > now()`; 5 ou mais → 409.
 5. Endereço buscado por id **e** `cliente_id` (outro cliente → 404); na retirada, nenhum.
 6. `produtoService.buscarParaVenda(ids, client)` **com o client**: trava os produtos em ordem de id até o COMMIT e
    confere existência e `ativo` (faltando/inativo → 422 no índice). O `preco_unitario` vem **desta** leitura.
 7. Subtotal com esses preços, `calcularFrete` (o índice do 422 do peixe é traduzido para o do body) e total.
-8. Insere `vendas` (cópia do endereço nos `entrega_*`, D-12), `itens_venda` (já somados, uma linha por produto) e o
+   Total diferente do `totalEsperado` → 409, antes de qualquer INSERT.
+8. Insere `vendas` (cópia do endereço nos `entrega_*`, D-12, e a chave + o hash do pedido), `itens_venda` (já somados, uma linha por produto) e o
    primeiro `historico_status_venda` (`origem 'cliente'`) **antes** da baixa → `estoqueService.baixarParaVenda`
    com os mesmos produtos e quantidades. O 409 'Estoque insuficiente' (por `produtoId`) é traduzido para o índice.
-9. Qualquer erro desfaz tudo: nenhuma venda, item, histórico ou baixa fica.
+9. Qualquer erro desfaz tudo: nenhuma venda, item, histórico ou baixa fica. A resposta é montada do banco pela
+   mesma `buscarCompleta` da repetição.
 
-A venda lê o catálogo **uma vez só**, com o client. A checagem rápida sem trava, que a D-51 previa como uma primeira
-chamada da venda, ficou com a cotação (`POST /api/frete/calcular`, #28), que o carrinho chama antes da compra.
+A venda lê o catálogo **uma vez só**, com o client (D-51). A checagem rápida sem trava é a cotação
+(`POST /api/frete/calcular`, #28), que o carrinho chama antes da compra e de onde vem o `totalEsperado`.
 
 ### Gateway de pagamento — AbacatePay, Pix transparente (02/11/2026)
 O gateway é a **AbacatePay, API v2** (D-19). Começa só com **Pix transparente** (D-18): o backend cria a cobrança

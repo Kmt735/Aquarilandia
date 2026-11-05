@@ -1244,12 +1244,20 @@ Content-Type: application/json
 
 { "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true }
 
+# POST /api/vendas exige o header Idempotency-Key (UUID canônico em minúsculas) e o totalEsperado no body.
+# totalEsperado = o "total" da cotação acima para o MESMO carrinho e a MESMA entrega. Para uma compra nova, troque a
+# chave (ex.: gere com {{$guid}} e passe para minúsculas); para testar a repetição, mande de novo com a MESMA chave.
+@chaveVenda=7f0c6a7e-2b1d-4c3a-9e8f-1a2b3c4d5e6f
+@totalEsperado=SUBSTITUA_PELO_TOTAL_DA_COTACAO
+
 # 201 - venda com entrega no endereço salvo. Preço, total, status e clienteId do body são ignorados
+# 201 de novo, com o MESMO id e o header Idempotent-Replayed: true - mandar este pedido uma segunda vez (mesma chave)
 ###
 POST {{api}}/vendas
 Cookie: sid={{sessaoCliente}}
 Content-Type: application/json
 Origin: {{origem}}
+Idempotency-Key: {{chaveVenda}}
 
 {
   "itens": [
@@ -1257,9 +1265,50 @@ Origin: {{origem}}
     { "produtoId": {{produtoA}}, "quantidade": 1 }
   ],
   "enderecoId": {{enderecoId}},
+  "totalEsperado": {{totalEsperado}},
   "total": 1,
   "status": "paga"
 }
+
+# 409 - a mesma chave com OUTRO carrinho: 'Esta chave já foi usada em outra compra.'
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: {{chaveVenda}}
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# 409 - total diferente do recalculado: 'O valor da compra mudou desde a cotação. Confira o carrinho antes de finalizar.'
+#       { totalEsperado: 'O total agora é R$ X,YY.' } (nada é criado; a chave continua livre)
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: 0b3e7a52-9c41-4f6d-8a2b-5d7e1c9f3a60
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true, "totalEsperado": 1 }
+
+# 400 - sem Idempotency-Key: { 'Idempotency-Key': 'Informe um UUID canônico em minúsculas (versão 1 a 8 e variante RFC).' }
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# 422 - sem totalEsperado: { totalEsperado: 'Atualize o carrinho antes de finalizar a compra.' }
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: 4c9d2e18-6a3f-4b7e-9d1c-8e2f5a7b3c04
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true }
 
 # 201 - retirada na loja: tipoEntrega 'retirada', frete 0, entrega null
 ###
@@ -1267,8 +1316,9 @@ POST {{api}}/vendas
 Cookie: sid={{sessaoCliente}}
 Content-Type: application/json
 Origin: {{origem}}
+Idempotency-Key: 9a1f4c7e-3d2b-4e8a-b6c5-1f0e9d8c7b6a
 
-{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true }
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
 
 # 409 - estoque insuficiente: { 'itens.0.quantidade': 'Não temos essa quantidade em estoque.' }
 # 409 - a 6ª compra aguardando pagamento: 'Você já tem 5 compras aguardando pagamento.'
@@ -1277,8 +1327,9 @@ POST {{api}}/vendas
 Cookie: sid={{sessaoCliente}}
 Content-Type: application/json
 Origin: {{origem}}
+Idempotency-Key: 2e6b8d40-7f1a-4c3e-a9d2-6b5c4f3e2d10
 
-{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 50 }], "retirada": true }
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 50 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
 
 # 422 - 31 itens, quantidade 51, ou o mesmo produto somando mais de 50 (aqui: 'itens.0.quantidade')
 ###
@@ -1286,8 +1337,9 @@ POST {{api}}/vendas
 Cookie: sid={{sessaoCliente}}
 Content-Type: application/json
 Origin: {{origem}}
+Idempotency-Key: 5d3c1b9a-8e7f-4a6b-8c2d-3e4f5a6b7c8d
 
-{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 30 }, { "produtoId": {{produtoA}}, "quantidade": 21 }], "retirada": true }
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 30 }, { "produtoId": {{produtoA}}, "quantidade": 21 }], "retirada": true, "totalEsperado": 0 }
 
 # 404 - endereço que não é do cliente logado: 'Endereço não encontrado.'
 ###
@@ -1295,8 +1347,9 @@ POST {{api}}/vendas
 Cookie: sid={{sessaoCliente}}
 Content-Type: application/json
 Origin: {{origem}}
+Idempotency-Key: 6f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a
 
-{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "enderecoId": 2147483000 }
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "enderecoId": 2147483000, "totalEsperado": {{totalEsperado}} }
 
 # 401 - sem login
 ###
@@ -1304,13 +1357,15 @@ Origin: {{origem}}
 POST {{api}}/vendas
 Content-Type: application/json
 Origin: {{origem}}
+Idempotency-Key: {{chaveVenda}}
 
-{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true }
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
 
 # 403 - sem Origin
 ###
 POST {{api}}/vendas
 Cookie: sid={{sessaoCliente}}
 Content-Type: application/json
+Idempotency-Key: {{chaveVenda}}
 
-{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true }
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
