@@ -1183,3 +1183,134 @@ Content-Type: application/json
 DELETE {{api}}/clientes/{{idClienteAdm}}
 Cookie: sid={{sessaoAdmin}}
 Origin: {{origem}}
+
+# ===== FRETE E VENDAS =====
+# Troque os ids pelos de produtos ativos do seu banco de dev (o cadastro cria tudo com estoque 0: dê entrada
+# em POST /api/estoque/movimentacoes antes de comprar) e pelo id de um endereço do cliente logado.
+@produtoA=1
+@produtoB=2
+@produtoPeixe=3
+@enderecoId=SUBSTITUA_PELO_ID_DE_UM_ENDERECO_DO_CLIENTE
+
+# 200 - cotação pública em São João del Rei: { frete, prazoDias, tipoEntrega: 'propria', subtotal, total }
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 2 }, { "produtoId": {{produtoB}}, "quantidade": 1 }], "cep": "36307-000" }
+
+# 200 - outro estado (Correios) e retirada na loja (frete 0)
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "cep": "01001000" }
+
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }, { "produtoId": {{produtoPeixe}}, "quantidade": 1 }], "retirada": true }
+
+# 422 - peixe fora de São João del Rei: 'itens.1.produtoId' (índice do item no body)
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }, { "produtoId": {{produtoPeixe}}, "quantidade": 1 }], "cep": "01001000" }
+
+# 422 - sem cep e sem retirada: { entrega: 'Escolha um endereço de entrega ou retirar na loja.' }
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }] }
+
+# 403 - sem Origin (429 depois de 30 cotações no mesmo minuto, por IP)
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true }
+
+# 201 - venda com entrega no endereço salvo. Preço, total, status e clienteId do body são ignorados
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "itens": [
+    { "produtoId": {{produtoA}}, "quantidade": 2, "precoUnitario": 1 },
+    { "produtoId": {{produtoA}}, "quantidade": 1 }
+  ],
+  "enderecoId": {{enderecoId}},
+  "total": 1,
+  "status": "paga"
+}
+
+# 201 - retirada na loja: tipoEntrega 'retirada', frete 0, entrega null
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true }
+
+# 409 - estoque insuficiente: { 'itens.0.quantidade': 'Não temos essa quantidade em estoque.' }
+# 409 - a 6ª compra aguardando pagamento: 'Você já tem 5 compras aguardando pagamento.'
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 50 }], "retirada": true }
+
+# 422 - 31 itens, quantidade 51, ou o mesmo produto somando mais de 50 (aqui: 'itens.0.quantidade')
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 30 }, { "produtoId": {{produtoA}}, "quantidade": 21 }], "retirada": true }
+
+# 404 - endereço que não é do cliente logado: 'Endereço não encontrado.'
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "enderecoId": 2147483000 }
+
+# 401 - sem login
+###
+# @no-cookie-jar
+POST {{api}}/vendas
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true }
+
+# 403 - sem Origin
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true }

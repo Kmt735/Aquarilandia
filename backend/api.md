@@ -1274,6 +1274,85 @@ inclusive se estiver desativado. Exige `Origin`.
 | `409` | Conta de admin (outro admin ou o próprio) | `'Não é possível alterar uma conta de administrador.'` |
 | `409` | Venda em andamento (mesmos status do `DELETE /me`) | `'Este cliente tem compras em andamento. Aguarde a entrega ou o cancelamento antes de remover a conta.'` |
 
+### Frete e vendas — `POST /api/frete/calcular` (#28) e `POST /api/vendas` (#30, #31), implementados em 05/11/2026
+
+As duas rotas validam o body com as mesmas funções (`modulos/vendas/venda.validacao.ts`) e calculam o frete com a
+mesma `calcularFrete` (D-29). Só as chaves abaixo são lidas: `precoUnitario`, `subtotal`, `frete`, `total`,
+`status`, `clienteId` e qualquer outra são ignoradas (seção 11). Preço sempre de `produtos.preco`.
+
+**Itens (as duas rotas):** `itens` com 1 a 30 posições, cada uma `{ produtoId, quantidade }`; `produtoId` inteiro
+de 1 a 2147483647 e `quantidade` inteira de 1 a 50. O mesmo produto em mais de um item é **somado**, e a soma também
+vai até 50. Os erros apontam o índice do item no body; num produto repetido, o **primeiro** índice em que ele apareceu.
+
+| Situação | Status | `detalhes` |
+|---|---|---|
+| Body que não é objeto | `422` | `{ body: 'Formato de dados inválido.' }` |
+| `itens` ausente, vazio ou com mais de 30 | `422` | `{ itens: 'Adicione de 1 a 30 produtos.' }` |
+| `produtoId` inválido | `422` | `{ 'itens.0.produtoId': 'Produto inválido.' }` |
+| `quantidade` fora de 1–50 (ou a soma do produto passando de 50) | `422` | `{ 'itens.0.quantidade': 'A quantidade precisa ser de 1 a 50.' }` |
+| Produto que não existe ou está inativo | `422` | `{ 'itens.0.produtoId': 'Produto indisponível.' }` |
+| Nem destino nem retirada, ou os dois juntos | `422` | `{ entrega: 'Escolha um endereço de entrega ou retirar na loja.' }` |
+| `retirada` que não é `true`/`false` | `422` | `{ retirada: 'Informe true para retirar na loja ou false para entrega.' }` |
+| Peixe vivo fora de São João del Rei (D-29) | `422` | `{ 'itens.0.produtoId': 'Este peixe só pode ser entregue em São João del Rei.' }` |
+| Total acima de 2147483647 centavos | `422` | `{ itens: 'O valor da compra passou do limite. Divida em compras menores.' }` |
+
+Erros de itens e de entrega saem juntos num `422` só.
+
+**`POST /api/frete/calcular`** — pública (o carrinho cota antes do login), exige `Origin`, `limiteFrete`
+(30 cotações por minuto por IP → `429`). Body: `itens` e **`cep`** (8 números; a máscara `36300-000` é aceita) **ou**
+`retirada: true`. CEP inválido ou fora das faixas → `422 { cep: 'Informe um CEP válido com 8 números ou escolha retirar
+na loja.' }`. Lê o catálogo sem trava (`buscarParaVenda` sem executor). `200`:
+
+```json
+{ "frete": 1000, "prazoDias": 1, "tipoEntrega": "propria", "subtotal": 4480, "total": 5480 }
+```
+
+`subtotal` e `total` são uma **estimativa** para o carrinho mostrar o valor: a venda recalcula tudo com os preços
+do momento da compra.
+
+**`POST /api/vendas`** — cliente logado (`autenticar`), exige `Origin`. Body: `itens` e **`enderecoId`** (um endereço
+salvo do próprio cliente) **ou** `retirada: true`. Cria a venda em `aguardando_pagamento`, com `expira_em` = criação +
+30 minutos, e baixa o estoque na mesma transação (fluxo na seção 8). `201`:
+
+```json
+{
+  "id": 42, "status": "aguardando_pagamento", "tipoEntrega": "propria",
+  "subtotal": 6470, "frete": 1000, "total": 7470, "prazoEntregaDias": 1,
+  "expiraEm": "2026-11-05T15:30:00.000Z", "criadoEm": "2026-11-05T15:00:00.000Z",
+  "itens": [
+    { "produtoId": 7, "nomeProduto": "Filtro X", "precoUnitario": 1990, "quantidade": 3, "subtotal": 5970 },
+    { "produtoId": 9, "nomeProduto": "Ração Y", "precoUnitario": 500, "quantidade": 1, "subtotal": 500 }
+  ],
+  "entrega": {
+    "cep": "36307000", "logradouro": "Rua A", "numero": "10", "complemento": null, "bairro": "Centro",
+    "cidade": "São João del Rei", "uf": "MG", "destinatario": "Maria", "telefone": "32999990000"
+  }
+}
+```
+
+`itens` vem um por produto (repetidos somados), na ordem em que cada produto apareceu no body. `entrega` é `null` na
+retirada (frete 0, nenhum `entrega_*` gravado). Destinatário e telefone são os da conta; o endereço é **copiado** para
+a venda (D-12).
+
+| Status | Quando | `erro` / `detalhes` |
+|---|---|---|
+| `401` | Sem login, ou conta desativada/anonimizada antes do pedido terminar | `'Faça login para continuar.'` |
+| `403` | Sem `Origin` | `'Origem da requisição não permitida.'` |
+| `404` | `enderecoId` inexistente ou de outro cliente | `'Endereço não encontrado.'` |
+| `409` | Já há 5 vendas em `aguardando_pagamento` ainda não vencidas (#31) | `'Você já tem 5 compras aguardando pagamento.'` |
+| `409` | Falta estoque | `'Estoque insuficiente'`, `{ 'itens.<índice>.quantidade': 'Não temos essa quantidade em estoque.' }` |
+| `422` | Os casos da tabela acima | — |
+| `422` | Conta sem telefone | `{ telefone: 'Cadastre um celular na sua conta antes de finalizar a compra.' }` |
+| `422` | CEP do endereço salvo fora das faixas de entrega | `{ enderecoId: 'Não entregamos no CEP deste endereço. Escolha outro endereço ou retire na loja.' }` |
+
+- **Limite da #31:** no máximo 5 vendas `aguardando_pagamento` com `expira_em` no futuro por cliente. As vencidas
+  (que a tarefa da #32 ainda vai cancelar) não contam. A contagem é feita depois da trava do cliente, então dois
+  pedidos ao mesmo tempo não passam juntos do limite.
+- **409 do estoque:** `baixarParaVenda` responde por `produtoId` (`itens.<produtoId>.quantidade` e
+  `itensIndisponiveis`, D-50/D-51). A venda traduz cada `produtoId` para o primeiro índice do item no body antes de
+  responder; o `produtoId` não aparece na resposta. Produto inativo nunca chega a esse 409: ele é recusado antes, com
+  `422` `'Produto indisponível.'`.
+
 ---
 
 ## 7. Banco de dados
@@ -1444,25 +1523,30 @@ servicoService.listarOpcoes(): Promise<string[]>   // valores aceitos no campo s
 
 `ProdutoVenda` e `ItemMovimento` ficam em `types/index.ts` (compartilhado), porque os dois módulos usam.
 
-### Fluxo de `POST /api/vendas` — orquestração ainda a implementar pelo Backend 2
-O fluxo abaixo é uma interface planejada, não uma rota funcional. Os contratos que ele usa (`buscarParaVenda`,
-`ProdutoVenda`, `baixarParaVenda` e `ItemMovimento`) já existem. Os helpers de estoque não reprecificam itens nem
-confirmam frete. Não confiar no preço salvo no navegador.
+### Fluxo de `POST /api/vendas` — implementado em 05/11/2026 (#30, #31)
+Contrato da rota (body, resposta e erros) na seção 6. Os helpers de estoque não reprecificam itens nem confirmam
+frete. Não confiar no preço salvo no navegador.
 
-A venda chama `buscarParaVenda` **duas vezes** (D-51):
+Fora da transação (barato, sem trava):
 
-1. `vendaService.criar` valida o body (422) e soma os itens repetidos do mesmo produto.
-2. Chama `produtoService.buscarParaVenda(ids)` **sem executor** → confere se todos existem e estão ativos e usa
-   preço e categoria para calcular o frete. É uma checagem rápida, fora da transação, só para recusar cedo.
-3. Calcula o frete (fora da transação).
-4. Abre `comTransacao` e chama `produtoService.buscarParaVenda(ids, client)` **de novo, com o client**: trava os
-   produtos até o COMMIT e revalida existência e ativo. O `preco_unitario` gravado em `itens_venda` vem **desta
-   segunda leitura**, não da primeira. Insere `vendas` e `itens_venda` (já somados, uma linha por produto) **antes**
-   da baixa → chama `estoqueService.baixarParaVenda(vendaId, itens, client)` com os mesmos produtos e quantidades
-   de `itens_venda` (diferente → 409 'Itens incompatíveis com a venda persistida'). A venda nasce como
-   `'aguardando_pagamento'` (a baixa recusa outro status), com `expira_em` = criação + 30 minutos. Falta de estoque
-   ou produto inativo → 409 'Estoque insuficiente' por `produtoId`; vendas traduz para o índice do item no body.
-5. Se qualquer passo lançar erro, tudo é desfeito.
+1. `vendaService.criar` valida o body (422) e soma os itens repetidos do mesmo produto (`venda.validacao.ts`).
+2. Lê nome e telefone do cliente; sem telefone → 422.
+
+Dentro de `comTransacao`, com as travas sempre nesta ordem:
+
+3. `clienteRepository.travarParaAlteracao` (cliente `FOR UPDATE`, `AND ativo`); conta inativa/anonimizada → 401.
+4. #31: conta as vendas `aguardando_pagamento` com `expira_em > now()`; 5 ou mais → 409.
+5. Endereço buscado por id **e** `cliente_id` (outro cliente → 404); na retirada, nenhum.
+6. `produtoService.buscarParaVenda(ids, client)` **com o client**: trava os produtos em ordem de id até o COMMIT e
+   confere existência e `ativo` (faltando/inativo → 422 no índice). O `preco_unitario` vem **desta** leitura.
+7. Subtotal com esses preços, `calcularFrete` (o índice do 422 do peixe é traduzido para o do body) e total.
+8. Insere `vendas` (cópia do endereço nos `entrega_*`, D-12), `itens_venda` (já somados, uma linha por produto) e o
+   primeiro `historico_status_venda` (`origem 'cliente'`) **antes** da baixa → `estoqueService.baixarParaVenda`
+   com os mesmos produtos e quantidades. O 409 'Estoque insuficiente' (por `produtoId`) é traduzido para o índice.
+9. Qualquer erro desfaz tudo: nenhuma venda, item, histórico ou baixa fica.
+
+A venda lê o catálogo **uma vez só**, com o client. A checagem rápida sem trava, que a D-51 previa como uma primeira
+chamada da venda, ficou com a cotação (`POST /api/frete/calcular`, #28), que o carrinho chama antes da compra.
 
 ### Gateway de pagamento — AbacatePay, Pix transparente (02/11/2026)
 O gateway é a **AbacatePay, API v2** (D-19). Começa só com **Pix transparente** (D-18): o backend cria a cobrança
