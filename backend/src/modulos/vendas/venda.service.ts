@@ -9,9 +9,10 @@ import { estoqueService } from '../estoque/estoque.service.js'
 import { calcularFrete } from './frete.service.js'
 import type { ResultadoFrete } from './frete.service.js'
 import { vendaRepository } from './venda.repository.js'
-import type { ItemPedido, NovoItemVenda, StatusVenda, VendaCriada } from './venda.types.js'
+import type { ItemPedido, NovoItemVenda, ResultadoCriacaoVenda, StatusVenda, VendaCriada } from './venda.types.js'
 import {
   exigirDisponiveis,
+  hashDoPedido,
   precificar,
   somarTotal,
   traduzirErroFrete,
@@ -64,6 +65,30 @@ function freteDaVenda(
   }
 }
 
+// 23505 = unique_violation; só a constraint da chave conta como repetição (qualquer outra continua sendo erro)
+function violouChaveUnica(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  const { code, constraint } = err as { code?: unknown; constraint?: unknown }
+  return code === '23505' && constraint === 'uq_vendas_cliente_chave'
+}
+
+async function vendaCompleta(id: number, clienteId: number, executor?: Queryable): Promise<VendaCriada> {
+  const venda = await vendaRepository.buscarCompleta(id, clienteId, executor)
+  if (!venda) throw new Error('Venda do cliente não encontrada logo depois de gravada.')
+  return venda
+}
+
+// A mesma chave voltou: com o mesmo pedido (mesmo hash), devolve a venda como ela está agora; com outro, 409
+async function repetir(
+  anterior: { id: number; hashRequisicao: string },
+  hash: string,
+  clienteId: number,
+  executor?: Queryable,
+): Promise<ResultadoCriacaoVenda> {
+  if (anterior.hashRequisicao !== hash) throw new AppError('Esta chave já foi usada em outra compra.', 409)
+  return { venda: await vendaCompleta(anterior.id, clienteId, executor), repetida: true }
+}
+
 export const vendaService = {
   async temCompraEmAndamento(clienteId: number, executor: Queryable): Promise<boolean> {
     return (await vendaRepository.contarEmAndamentoDoCliente(clienteId, statusEmAndamento, executor)) > 0
@@ -82,17 +107,18 @@ export const vendaService = {
   },
 
   // POST /api/vendas (#30, #31). Ordem das travas, a mesma em toda venda:
-  //   1. o cliente (FOR UPDATE): duas compras do mesmo cliente passam uma de cada vez (o limite de 5 abertas é
-  //      contado depois desta trava) e a compra não cruza com o apagar conta, que trava a mesma linha;
+  //   1. o cliente (FOR UPDATE): duas compras do mesmo cliente passam uma de cada vez (a Idempotency-Key e o
+  //      limite de 5 abertas são conferidos depois desta trava) e a compra não cruza com o apagar conta;
   //   2. os produtos (FOR NO KEY UPDATE, em ordem de id, no buscarParaVenda com o client): preço e ativo ficam fixos
   //      até o COMMIT, e duas vendas com os mesmos produtos travam na mesma ordem, sem deadlock;
   //   3. a baixa do estoque (Dev 2) trava a venda, os itens e os MESMOS produtos, na mesma ordem de id: a transação
   //      já tem essas travas, então a baixa não espera de novo.
   // O preço vem SÓ do catálogo, lido sob a trava do passo 2: o do body é ignorado e o da cotação pode estar velho.
   // Qualquer erro dentro da transação desfaz tudo (venda, itens, histórico e baixa).
-  async criar(clienteId: number, body: unknown): Promise<VendaCriada> {
+  async criar(clienteId: number, body: unknown, chave: string): Promise<ResultadoCriacaoVenda> {
     // Fora da transação: validação e leituras baratas, sem segurar conexão do pool nem trava
     const { itens, entrega } = validarPedido(body, 'endereco')
+    const hash = hashDoPedido({ itens, entrega })
     const cliente = await clienteRepository.buscarPorId(clienteId)
     if (!cliente) throw new AppError('Faça login para continuar.', 401)
     const { nome, telefone } = cliente
@@ -100,80 +126,88 @@ export const vendaService = {
       throw new AppError('Dados inválidos', 422, { telefone: 'Cadastre um celular na sua conta antes de finalizar a compra.' })
     }
 
-    return comTransacao(async (client) => {
-      // A trava do cliente vem PRIMEIRO; false = conta desativada ou anonimizada enquanto o pedido chegava
-      if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) {
-        throw new AppError('Faça login para continuar.', 401)
-      }
-      if ((await vendaRepository.contarAguardandoPagamento(clienteId, client)) >= maxVendasAguardando) {
-        throw new AppError('Você já tem 5 compras aguardando pagamento.', 409)
-      }
+    try {
+      return await comTransacao(async (client) => {
+        // A trava do cliente vem PRIMEIRO; false = conta desativada ou anonimizada enquanto o pedido chegava
+        if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) {
+          throw new AppError('Faça login para continuar.', 401)
+        }
 
-      // Endereço de outro cliente não é encontrado (filtro por id E cliente_id): 404, sem confirmar que existe
-      let endereco: Endereco | null = null
-      if (!entrega.retirada) {
-        endereco = await enderecoRepository.buscarDoCliente(entrega.enderecoId, clienteId, client)
-        if (!endereco) throw new AppError('Endereço não encontrado.', 404)
-      }
+        // Idempotência: um pedido repetido (clique duplo, nova tentativa da rede) com a mesma chave ESPERA na trava
+        // do cliente acima até o primeiro terminar; quando passa, já acha a venda pronta e só a devolve, sem criar
+        // nada nem baixar estoque. Fica antes do limite de 5: repetir uma compra não é uma compra nova
+        const anterior = await vendaRepository.buscarPorChave(clienteId, chave, client)
+        if (anterior) return repetir(anterior, hash, clienteId, client)
 
-      const produtos = await produtoService.buscarParaVenda(itens.map((item) => item.produtoId), client)
-      const { linhas, subtotal } = precificar(itens, exigirDisponiveis(itens, produtos))
-      const frete = freteDaVenda(endereco, itens, linhas, subtotal)
-      const total = somarTotal(subtotal, frete.frete)
+        if ((await vendaRepository.contarAguardandoPagamento(clienteId, client)) >= maxVendasAguardando) {
+          throw new AppError('Você já tem 5 compras aguardando pagamento.', 409)
+        }
 
-      // Cópia do endereço (D-12): a venda mostra para onde foi enviada mesmo se o endereço mudar ou for apagado
-      const copia = endereco && {
-        cep: endereco.cep,
-        logradouro: endereco.logradouro,
-        numero: endereco.numero,
-        complemento: endereco.complemento,
-        bairro: endereco.bairro,
-        cidade: endereco.cidade,
-        uf: endereco.uf,
-      }
-      const venda = await vendaRepository.inserir({
-        clienteId,
-        subtotal,
-        frete: frete.frete,
-        total,
-        tipoEntrega: frete.tipoEntrega,
-        prazoEntregaDias: frete.prazoDias,
-        destinatario: nome,
-        telefone,
-        endereco: copia,
-      }, client)
+        // Endereço de outro cliente não é encontrado (filtro por id E cliente_id): 404, sem confirmar que existe
+        let endereco: Endereco | null = null
+        if (!entrega.retirada) {
+          endereco = await enderecoRepository.buscarDoCliente(entrega.enderecoId, clienteId, client)
+          if (!endereco) throw new AppError('Endereço não encontrado.', 404)
+        }
 
-      const itensVenda: NovoItemVenda[] = linhas.map((linha) => ({
-        produtoId: linha.produtoId,
-        nomeProduto: linha.nomeProduto,
-        precoUnitario: linha.precoUnitario,
-        quantidade: linha.quantidade,
-        subtotal: linha.subtotal,
-      }))
-      await vendaRepository.inserirItens(venda.id, itensVenda, client)
-      await vendaRepository.registrarCriacao(venda.id, clienteId, client)
+        const produtos = await produtoService.buscarParaVenda(itens.map((item) => item.produtoId), client)
+        const { linhas, subtotal } = precificar(itens, exigirDisponiveis(itens, produtos))
+        const frete = freteDaVenda(endereco, itens, linhas, subtotal)
+        const total = somarTotal(subtotal, frete.frete)
 
-      // A baixa exige a venda e os itens_venda já gravados, com as quantidades somadas (D-51)
-      try {
-        const movimento = itens.map((item) => ({ produtoId: item.produtoId, quantidade: item.quantidade }))
-        await estoqueService.baixarParaVenda(venda.id, movimento, client)
-      } catch (err) {
-        traduzirEstoqueInsuficiente(err, itens)
-      }
+        // Cópia do endereço (D-12): a venda mostra para onde foi enviada mesmo se o endereço mudar ou for apagado
+        const copia = endereco && {
+          cep: endereco.cep,
+          logradouro: endereco.logradouro,
+          numero: endereco.numero,
+          complemento: endereco.complemento,
+          bairro: endereco.bairro,
+          cidade: endereco.cidade,
+          uf: endereco.uf,
+        }
+        const vendaId = await vendaRepository.inserir({
+          clienteId,
+          subtotal,
+          frete: frete.frete,
+          total,
+          tipoEntrega: frete.tipoEntrega,
+          prazoEntregaDias: frete.prazoDias,
+          destinatario: nome,
+          telefone,
+          endereco: copia,
+          chaveIdempotencia: chave,
+          hashRequisicao: hash,
+        }, client)
 
-      return {
-        id: venda.id,
-        status: venda.status,
-        tipoEntrega: frete.tipoEntrega,
-        subtotal,
-        frete: frete.frete,
-        total,
-        prazoEntregaDias: frete.prazoDias,
-        expiraEm: venda.expiraEm,
-        criadoEm: venda.criadoEm,
-        itens: itensVenda,
-        entrega: copia && { ...copia, destinatario: nome, telefone },
-      }
-    })
+        const itensVenda: NovoItemVenda[] = linhas.map((linha) => ({
+          produtoId: linha.produtoId,
+          nomeProduto: linha.nomeProduto,
+          precoUnitario: linha.precoUnitario,
+          quantidade: linha.quantidade,
+          subtotal: linha.subtotal,
+        }))
+        await vendaRepository.inserirItens(vendaId, itensVenda, client)
+        await vendaRepository.registrarCriacao(vendaId, clienteId, client)
+
+        // A baixa exige a venda e os itens_venda já gravados, com as quantidades somadas (D-51)
+        try {
+          const movimento = itens.map((item) => ({ produtoId: item.produtoId, quantidade: item.quantidade }))
+          await estoqueService.baixarParaVenda(vendaId, movimento, client)
+        } catch (err) {
+          traduzirEstoqueInsuficiente(err, itens)
+        }
+
+        // A resposta sai do banco, pela mesma função da repetição: as duas têm sempre o mesmo formato
+        return { venda: await vendaCompleta(vendaId, clienteId, client), repetida: false }
+      })
+    } catch (err) {
+      // Rede de segurança: com a trava do cliente, dois pedidos com a mesma chave não chegam juntos ao INSERT. Se
+      // mesmo assim o UNIQUE (cliente_id, chave_idempotencia) estourar, a outra venda já foi gravada: a transação
+      // desta já foi desfeita, então relê fora dela e trata como repetição
+      if (!violouChaveUnica(err)) throw err
+      const anterior = await vendaRepository.buscarPorChave(clienteId, chave)
+      if (!anterior) throw err
+      return repetir(anterior, hash, clienteId)
+    }
   },
 }

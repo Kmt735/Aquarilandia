@@ -1,7 +1,29 @@
 import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
-import type { NovaVenda, NovoItemVenda, StatusVenda, VendaInserida } from './venda.types.js'
+import type { NovaVenda, NovoItemVenda, StatusVenda, TipoEntrega, VendaCriada } from './venda.types.js'
+
+// Linha de vendas lida pelo buscarCompleta: os entrega_* de endereço são NULL na retirada
+interface LinhaVenda {
+  id: number
+  status: StatusVenda
+  tipoEntrega: TipoEntrega
+  subtotal: number
+  frete: number
+  total: number
+  prazoEntregaDias: number
+  expiraEm: Date
+  criadoEm: Date
+  destinatario: string
+  telefone: string
+  cep: string | null
+  logradouro: string | null
+  numero: string | null
+  complemento: string | null
+  bairro: string | null
+  cidade: string | null
+  uf: string | null
+}
 
 export const vendaRepository = {
   // #31: só as vencidas ficam de fora (expira_em no passado), porque a tarefa da #32 ainda vai cancelá-las.
@@ -17,14 +39,15 @@ export const vendaRepository = {
 
   // status e expira_em ficam com o DEFAULT do banco ('aguardando_pagamento' e now() + 30 minutos).
   // Na retirada, todos os entrega_* de endereço vão NULL (CHECK ck_vendas_endereco_entrega)
-  async inserir(dados: NovaVenda, executor: Queryable): Promise<VendaInserida> {
+  async inserir(dados: NovaVenda, executor: Queryable): Promise<number> {
     const endereco = dados.endereco
-    const { rows } = await executor.query<VendaInserida>(
+    const { rows } = await executor.query<{ id: number }>(
       `INSERT INTO vendas
          (cliente_id, subtotal, frete, total, tipo_entrega, prazo_entrega_dias, entrega_destinatario, entrega_telefone,
-          entrega_cep, entrega_logradouro, entrega_numero, entrega_complemento, entrega_bairro, entrega_cidade, entrega_uf)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-       RETURNING id, status, expira_em AS "expiraEm", criado_em AS "criadoEm"`,
+          entrega_cep, entrega_logradouro, entrega_numero, entrega_complemento, entrega_bairro, entrega_cidade, entrega_uf,
+          chave_idempotencia, hash_requisicao)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       RETURNING id`,
       [
         dados.clienteId,
         dados.subtotal,
@@ -41,9 +64,59 @@ export const vendaRepository = {
         endereco?.bairro ?? null,
         endereco?.cidade ?? null,
         endereco?.uf ?? null,
+        dados.chaveIdempotencia,
+        dados.hashRequisicao,
       ],
     )
-    return rows[0]
+    return rows[0].id
+  },
+
+  // Idempotência: a chave é procurada SEMPRE junto com o cliente, então a chave de um cliente nunca acha a venda
+  // de outro (o UNIQUE uq_vendas_cliente_chave é o mesmo par)
+  async buscarPorChave(
+    clienteId: number,
+    chave: string,
+    executor: Queryable = db,
+  ): Promise<{ id: number; hashRequisicao: string } | null> {
+    const { rows } = await executor.query<{ id: number; hashRequisicao: string }>(
+      'SELECT id, hash_requisicao AS "hashRequisicao" FROM vendas WHERE cliente_id = $1 AND chave_idempotencia = $2',
+      [clienteId, chave],
+    )
+    return rows[0] ?? null
+  },
+
+  // A venda completa, como o cliente vê (resposta da criação, da repetição e, depois, do detalhe da #34).
+  // Filtra por id E cliente_id: venda de outro cliente não é encontrada (quem chama responde 404)
+  async buscarCompleta(id: number, clienteId: number, executor: Queryable = db): Promise<VendaCriada | null> {
+    const { rows } = await executor.query<LinhaVenda>(
+      `SELECT id, status, tipo_entrega AS "tipoEntrega", subtotal, frete, total, prazo_entrega_dias AS "prazoEntregaDias",
+              expira_em AS "expiraEm", criado_em AS "criadoEm", entrega_destinatario AS destinatario,
+              entrega_telefone AS telefone, entrega_cep AS cep, entrega_logradouro AS logradouro, entrega_numero AS numero,
+              entrega_complemento AS complemento, entrega_bairro AS bairro, entrega_cidade AS cidade, entrega_uf AS uf
+         FROM vendas
+        WHERE id = $1 AND cliente_id = $2`,
+      [id, clienteId],
+    )
+    const venda = rows[0]
+    if (!venda) return null
+
+    // ORDER BY id = a ordem em que os itens foram gravados (a da primeira aparição de cada produto no body)
+    const { rows: itens } = await executor.query<NovoItemVenda>(
+      `SELECT produto_id AS "produtoId", nome_produto AS "nomeProduto", preco_unitario AS "precoUnitario",
+              quantidade, subtotal
+         FROM itens_venda
+        WHERE venda_id = $1
+        ORDER BY id`,
+      [id],
+    )
+
+    const { destinatario, telefone, cep, logradouro, numero, complemento, bairro, cidade, uf, ...resumo } = venda
+    // Na retirada não há endereço: entrega null. Fora dela, o CHECK ck_vendas_endereco_entrega garante cep,
+    // logradouro, numero, bairro, cidade e uf preenchidos (só o complemento pode ser NULL)
+    const entrega = resumo.tipoEntrega === 'retirada'
+      ? null
+      : { cep, logradouro, numero, complemento, bairro, cidade, uf, destinatario, telefone } as VendaCriada['entrega']
+    return { ...resumo, itens, entrega }
   },
 
   // Um INSERT só para todos os itens: cada array é uma coluna, e o unnest junta as posições em linhas

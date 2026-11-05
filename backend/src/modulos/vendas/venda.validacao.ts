@@ -2,6 +2,7 @@
 // jeito, então um carrinho que passou na cotação passa (ou falha igual) na compra.
 // Só as chaves esperadas são lidas: precoUnitario, total, status, clienteId e qualquer outra são ignoradas
 // (api.md, seção 11). Preço, total e dono nunca vêm do body.
+import { createHash } from 'node:crypto'
 import type { ProdutoVenda } from '../../types/index.js'
 import { AppError } from '../../utils/AppError.js'
 import type { EntregaCotacao, EntregaVenda, ItemPedido, NovoItemVenda } from './venda.types.js'
@@ -22,6 +23,9 @@ const msgProdutoIndisponivel = 'Produto indisponível.'
 const msgSemEstoque = 'Não temos essa quantidade em estoque.'
 
 type Erros = Record<string, string>
+
+// Mesmo formato, status e mensagem do POST /api/estoque/movimentacoes (Dev 2): UUID canônico em minúsculas
+const uuidCanonico = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 function ehIdValido(valor: unknown): valor is number {
   return typeof valor === 'number' && Number.isSafeInteger(valor) && valor > 0 && valor <= maxId
@@ -217,4 +221,25 @@ export function traduzirEstoqueInsuficiente(err: unknown, itensSomados: readonly
     detalhes[`itens.${indice}.quantidade`] = msgSemEstoque
   }
   throw new AppError('Estoque insuficiente', 409, detalhes)
+}
+
+// Header Idempotency-Key do POST /api/vendas: obrigatório. Falta ou formato inválido → 400, como no estoque
+export function validarChaveIdempotencia(valor: unknown): string {
+  if (typeof valor !== 'string' || !uuidCanonico.test(valor)) {
+    throw new AppError(msgDadosInvalidos, 400, {
+      'Idempotency-Key': 'Informe um UUID canônico em minúsculas (versão 1 a 8 e variante RFC).',
+    })
+  }
+  return valor
+}
+
+// SHA-256 da forma CANÔNICA do pedido já validado: um array de posições fixas, com os itens somados e ordenados por
+// produtoId. A mesma compra em outra ordem (ou com o mesmo produto dividido em dois itens) dá o mesmo hash; os
+// índices do body e chaves extras não entram. É ele que diz se a mesma chave voltou com "outra compra".
+export function hashDoPedido(pedido: { itens: readonly ItemPedido[]; entrega: EntregaVenda }): string {
+  const itens = [...pedido.itens]
+    .sort((a, b) => a.produtoId - b.produtoId)
+    .map((item) => [item.produtoId, item.quantidade])
+  const entrega = pedido.entrega.retirada ? ['retirada'] : ['endereco', pedido.entrega.enderecoId]
+  return createHash('sha256').update(JSON.stringify([itens, entrega])).digest('hex')
 }

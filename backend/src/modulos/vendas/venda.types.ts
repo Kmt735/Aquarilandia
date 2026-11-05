@@ -50,6 +50,9 @@ export interface NovaVenda {
   destinatario: string
   telefone: string
   endereco: EntregaCopiada | null
+  // Idempotency-Key do header e SHA-256 do pedido (21_vendas_idempotencia.sql)
+  chaveIdempotencia: string
+  hashRequisicao: string
 }
 
 export interface NovoItemVenda {
@@ -60,13 +63,7 @@ export interface NovoItemVenda {
   subtotal: number
 }
 
-export interface VendaInserida {
-  id: number
-  status: StatusVenda
-  expiraEm: Date
-  criadoEm: Date
-}
-
+// A venda como o cliente vê: resposta do POST /api/vendas (criação e repetição) e, depois, do detalhe (#34)
 export interface VendaCriada {
   id: number
   status: StatusVenda
@@ -79,4 +76,10 @@ export interface VendaCriada {
   criadoEm: Date
   itens: NovoItemVenda[]
   entrega: (EntregaCopiada & { destinatario: string; telefone: string }) | null
+}
+
+// repetida = a mesma Idempotency-Key já tinha criado esta venda (o controller manda Idempotent-Replayed: true)
+export interface ResultadoCriacaoVenda {
+  venda: VendaCriada
+  repetida: boolean
 }
