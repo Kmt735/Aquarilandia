@@ -16,7 +16,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     adminId = (await c.query("INSERT INTO clientes (nome, email, senha_hash, papel) VALUES ('Admin', 'admin@venda.example', 'hash', 'admin') RETURNING id")).rows[0].id
@@ -60,16 +60,36 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
     return (await c.query(`INSERT INTO enderecos_cliente (cliente_id, apelido, cep, logradouro, numero, complemento, bairro, cidade, uf)
       VALUES ($1, 'Casa', $2, 'Rua Teste', '10', 'Apto 1', 'Centro', 'São João del Rei', 'MG') RETURNING id`, [clienteId, cep])).rows[0].id
   }
-  async function pedir(metodo, caminho, body, { token, comOrigem = true } = {}) {
+  async function pedir(metodo, caminho, body, { token, comOrigem = true, chave } = {}) {
     const resposta = await fetch(`${api}${caminho}`, {
       method: metodo,
-      headers: { 'Content-Type': 'application/json', ...(comOrigem ? { Origin: origem } : {}), ...(token ? { Cookie: `sid=${token}` } : {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(comOrigem ? { Origin: origem } : {}),
+        ...(token ? { Cookie: `sid=${token}` } : {}),
+        ...(chave ? { 'Idempotency-Key': chave } : {}),
+      },
       body: JSON.stringify(body),
     })
     const texto = await resposta.text()
-    return { status: resposta.status, corpo: texto ? JSON.parse(texto) : null }
+    return { status: resposta.status, corpo: texto ? JSON.parse(texto) : null, repetida: resposta.headers.get('idempotent-replayed') }
   }
-  const comprar = (quem, body, opcoes = {}) => pedir('POST', '/vendas', body, { token: quem.token, ...opcoes })
+  // Lote 9b: como o frontend, o total esperado vem da cotação (#28) do mesmo carrinho e da mesma entrega.
+  // Cotação recusada (carrinho inválido) → 0: a venda falha pela mesma validação, não pelo total
+  async function totalDaCotacao(body) {
+    const destino = body.enderecoId === undefined
+      ? { retirada: body.retirada }
+      : { cep: (await c.query('SELECT cep FROM enderecos_cliente WHERE id = $1', [body.enderecoId])).rows[0]?.cep ?? '36300000' }
+    limites.limiteFrete.resetKey('127.0.0.1')
+    const cotacao = await pedir('POST', '/frete/calcular', { itens: body.itens, ...destino })
+    return cotacao.status === 200 ? cotacao.corpo.total : 0
+  }
+  // Lote 9b: o Idempotency-Key e o totalEsperado são obrigatórios; cada compra destes casos é uma tentativa nova
+  // (chave nova) e, se o caso não trouxer o totalEsperado, ele vem da cotação
+  async function comprar(quem, body, opcoes = {}) {
+    const completo = 'totalEsperado' in body || !Array.isArray(body.itens) ? body : { ...body, totalEsperado: await totalDaCotacao(body) }
+    return pedir('POST', '/vendas', completo, { token: quem.token, chave: randomUUID(), ...opcoes })
+  }
   const itens = (...pares) => pares.map(([produtoId, quantidade]) => ({ produtoId, quantidade }))
   const saldo = async (id) => (await c.query('SELECT estoque FROM produtos WHERE id = $1', [id])).rows[0].estoque
   const contagem = async () => (await c.query(`SELECT (SELECT count(*)::int FROM vendas) AS vendas, (SELECT count(*)::int FROM itens_venda) AS itens,
@@ -168,7 +188,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   it('11. sem login → 401; sem Origin → 403', async () => {
     const quem = await cliente(), p = await produto()
     const antes = await contagem()
-    assert.equal((await pedir('POST', '/vendas', { itens: itens([p, 1]), retirada: true })).status, 401)
+    assert.equal((await pedir('POST', '/vendas', { itens: itens([p, 1]), retirada: true }, { chave: randomUUID() })).status, 401)
     assert.equal((await comprar(quem, { itens: itens([p, 1]), retirada: true }, { comOrigem: false })).status, 403)
     assert.deepEqual(await contagem(), antes)
   })
