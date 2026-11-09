@@ -1467,6 +1467,7 @@ Envio de e-mail: `utils/email.ts` (dono: Celio) — serviço de envio de e-mail 
   `EMAIL_API_KEY`, `EMAIL_REMETENTE`.
   - `FRONTEND_URL` = endereço público do frontend, usado **só** para montar links em e-mails.
   - `CORS_ORIGIN` (já existe) = origem aceita no CORS e na checagem do header `Origin` (CSRF).
+  - Quais são obrigatórias (sempre e só em produção) e quais têm padrão: D-52.
 
 O `routes/index.ts` já deve ficar com todos os módulos montados, uma linha cada, para ninguém precisar editar depois:
 
