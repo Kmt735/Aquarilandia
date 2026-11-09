@@ -8,6 +8,41 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-52 — Configuração: falhar cedo, sem padrões perigosos
+- **Data:** 09/11/2026
+- **Decisão:**
+  - O `config/env.ts` valida o ambiente uma vez, quando é carregado. Faltou uma variável obrigatória → `Error`
+    `Variável de ambiente obrigatória ausente: <NOME>. Veja o .env.example.` e o servidor não sobe. Ausente, vazia
+    ou só com espaços contam igual. Nenhuma mensagem mostra o valor da variável.
+  - `NODE_ENV` é obrigatória, sem padrão, e só aceita `development`, `test` ou `production`.
+  - `DATABASE_URL` é obrigatória, sem padrão.
+  - Só em produção também são obrigatórias `CORS_ORIGIN`, `FRONTEND_URL`, `API_URL`, `GATEWAY_ACCESS_TOKEN` e
+    `GATEWAY_WEBHOOK_SECRET`; o segredo do webhook tem pelo menos 32 caracteres e `CORS_ORIGIN`, `FRONTEND_URL` e
+    `API_URL` começam com `https://`.
+  - Continuam com padrão: `PORT` (3333, em qualquer ambiente; se vier, precisa ser um número de 0 a 65535) e
+    `CORS_ORIGIN` (`http://localhost:5173`, só fora de produção). `FRONTEND_URL`, `API_URL` e `GATEWAY_*` são
+    opcionais fora de produção (sem token o gateway recusa a chamada; sem segredo o webhook recusa tudo).
+    `EMAIL_API_KEY` e `EMAIL_REMETENTE` são opcionais também em produção: o `email.ts` avisa e recusa enviar.
+  - `npm test` e `npm run test:integration` definem `NODE_ENV=test` e uma `DATABASE_URL` que não aponta para
+    banco nenhum (porta 1). A integração continua usando só o `TEST_DATABASE_URL` do PostgreSQL descartável.
+  - `docker-compose.yml`: o Postgres é publicado só em `127.0.0.1`, e `DB_USER`, `DB_PASSWORD` e `DB_NAME` não
+    têm padrão (o compose recusa rodar sem eles). `DB_PORT` mantém o padrão 5432.
+  - `.env.example` lista todas as variáveis com placeholders; o `.gitignore` ignora `.env.*`, menos o `.env.example`.
+- **Motivo:**
+  - Sem `NODE_ENV`, o backend assumia `development`. Em produção isso imprimia no log o link de recuperação de
+    senha (com o token), tirava o `Secure` do cookie `sid` e deixava o `trust proxy` desligado.
+  - Sem `DATABASE_URL`, usava o banco local com a senha que está no GitHub; foi assim que o `test:integration`
+    gravou no banco de dev.
+  - Com a porta em `0.0.0.0`, qualquer máquina da mesma rede (Wi-Fi da faculdade, por exemplo) alcançava o banco,
+    e com a senha padrão conhecida.
+- **O que cada dev faz antes de puxar a main:**
+  - Pôr no `backend/.env` `NODE_ENV=development` e, se ainda não tiver, `DB_USER`, `DB_PASSWORD` e `DB_NAME`
+    **iguais aos que o banco usa hoje** (a senha fica gravada no volume na primeira criação; trocar o `.env` não
+    troca a senha do banco). Quem nunca definiu usa os valores que eram o padrão antigo do compose.
+  - Rodar `docker compose up -d db` uma vez: o container é recriado para pegar o `127.0.0.1`, o volume e os
+    dados ficam. Nunca `db:reset` nem `down -v` para isso.
+- **Impacto:** D-07 (cookie `Secure`), D-09 (recuperação de senha), D-21 (segredo do webhook), seção 9 do `api.md`.
+
 ### D-51 — `buscarParaVenda` trava só com executor, em ordem de id; 409 por `produtoId` vira contrato oficial
 - **Data:** 05/11/2026
 - **Decisão:**

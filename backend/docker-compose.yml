@@ -3,12 +3,18 @@ services:
     image: postgres:17-alpine
     container_name: aquarilandia-db
     restart: unless-stopped
+    # Sem padrão (D-52): os valores vêm do backend/.env (veja o .env.example). Faltou um, o compose nem roda.
+    # ATENÇÃO: o Postgres grava usuário, senha e banco no volume pgdata só na PRIMEIRA criação (volume vazio).
+    # Depois disso, trocar o .env NÃO troca a senha do banco. Quem já tem o banco precisa pôr no .env o
+    # DB_PASSWORD (e o DB_USER e o DB_NAME) IGUAL ao que usa hoje, senão o backend não conecta.
+    # Não troque a senha do banco de ninguém por aqui.
     environment:
-      POSTGRES_USER: ${DB_USER:-aquarilandia}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-aquarilandia}
-      POSTGRES_DB: ${DB_NAME:-aquarilandia}
+      POSTGRES_USER: ${DB_USER:?Defina DB_USER no .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no .env}
+      POSTGRES_DB: ${DB_NAME:?Defina DB_NAME no .env}
     ports:
-      - '${DB_PORT:-5432}:5432'
+      # Só a própria máquina alcança o banco. Sem o 127.0.0.1, o Docker publica em 0.0.0.0 (toda a rede).
+      - '127.0.0.1:${DB_PORT:-5432}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Scripts executados só na primeira subida (volume vazio), em ordem alfabética

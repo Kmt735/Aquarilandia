@@ -1463,10 +1463,11 @@ Envio de e-mail: `utils/email.ts` (dono: Celio) — serviço de envio de e-mail 
   Já combinadas: `argon2` (hash de senha) e `express-rate-limit` (rate limit). A combinar antes de instalar:
   SDK do provedor de e-mail (provedor a definir).
 - Nova variável de ambiente: adicionar em `config/env.ts` **e** em `.env.example` no mesmo PR.
-  Novas: `SESSION_SECRET`, `API_URL`, `FRONTEND_URL`, `GATEWAY_ACCESS_TOKEN`, `GATEWAY_WEBHOOK_SECRET`,
+  Novas: `API_URL`, `FRONTEND_URL`, `GATEWAY_ACCESS_TOKEN`, `GATEWAY_WEBHOOK_SECRET`,
   `EMAIL_API_KEY`, `EMAIL_REMETENTE`.
   - `FRONTEND_URL` = endereço público do frontend, usado **só** para montar links em e-mails.
   - `CORS_ORIGIN` (já existe) = origem aceita no CORS e na checagem do header `Origin` (CSRF).
+  - Quais são obrigatórias (sempre e só em produção) e quais têm padrão: D-52.
 
 O `routes/index.ts` já deve ficar com todos os módulos montados, uma linha cada, para ninguém precisar editar depois:
 

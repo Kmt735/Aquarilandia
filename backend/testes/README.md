@@ -1,5 +1,29 @@
 # Testes do catálogo
 
+## Variáveis de ambiente (D-52)
+
+O `config/env.ts` não sobe sem `NODE_ENV` e `DATABASE_URL`. Os scripts já definem as duas, e o valor do script
+vale mais que o do shell (o `.env` não é lido pelos testes):
+
+- `npm test` e `npm run test:integration` rodam com `NODE_ENV=test` e
+  `DATABASE_URL=postgres://testes-sem-banco@127.0.0.1:1/testes_sem_banco`, que não aponta para banco nenhum: um
+  teste que esquecer de simular o `db` falha com conexão recusada em vez de gravar no banco de dev.
+- A integração continua usando só o `TEST_DATABASE_URL` (PostgreSQL descartável); cada suíte troca o
+  `DATABASE_URL` pelo schema dela antes de importar o `env.ts`.
+- Um arquivo só, fora do `npm`, precisa das mesmas variáveis na linha de comando:
+
+```bash
+NODE_ENV=test DATABASE_URL=postgres://testes-sem-banco@127.0.0.1:1/testes_sem_banco node --import tsx --test testes/config-env.test.mjs
+```
+
+`config-env.test.mjs` sobe o `src/server.ts` em processos separados, com um ambiente montado do zero, e confere
+que ele não sobe sem `NODE_ENV`/`DATABASE_URL` (ausentes ou vazias), com `NODE_ENV` ou `PORT` inválidas, nem em
+produção sem `CORS_ORIGIN`, `FRONTEND_URL`, `API_URL` e `GATEWAY_*`, com o segredo do webhook abaixo de 32
+caracteres ou com endereço em `http://`. Nenhuma mensagem pode repetir valor de variável. Controle positivo:
+produção completa (sem `EMAIL_API_KEY`) e o segredo de exatamente 32 caracteres carregam; fora de produção bastam
+as duas obrigatórias, com `PORT` 3333 e `CORS_ORIGIN` `http://localhost:5173`. `ciclo0-producao.test.mjs` define
+no próprio processo as variáveis fictícias que a produção exige.
+
 Leitura para venda (05/11/2026, D-51): `produto-venda.test.mjs` cobre IDs inválidos (Error comum, sem banco),
 lista vazia sem consulta, 101 IDs recusados (limite contado depois de tirar repetidos), repetidos removidos,
 parâmetro único de array, SQL com `FOR NO KEY UPDATE OF p` só com executor e pool sem trava sem executor.
@@ -32,7 +56,7 @@ Confere emEstoque público sem dados administrativos. As suítes de migração t
 em banco existente e bootstrap vazio. Use somente PostgreSQL descartável; cada suíte cria/remove seu schema.
 
 ```bash
-node --import tsx --test testes/estoque-leituras.test.mjs
+NODE_ENV=test DATABASE_URL=postgres://testes-sem-banco@127.0.0.1:1/testes_sem_banco node --import tsx --test testes/estoque-leituras.test.mjs
 TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste npm run test:integration
 ```
 
@@ -44,7 +68,7 @@ senha com estoque: [relatório de integração](../docs/estoque-leituras-integra
 Somente **após combinar o Backend 2 na cópia isolada**, executar também:
 
 ```bash
-TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste node --import tsx --test testes/homologacao/estoque-backend2.test.mjs
+NODE_ENV=test DATABASE_URL=postgres://testes-sem-banco@127.0.0.1:1/testes_sem_banco TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste node --import tsx --test testes/homologacao/estoque-backend2.test.mjs
 ```
 
 Esse harness exige as rotas remotas de recuperação de senha; fica fora dos globs de `npm test` e

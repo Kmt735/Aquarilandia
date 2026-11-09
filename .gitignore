@@ -3,6 +3,9 @@ dist
 .env
 .env.local
 .env.*.local
+# Qualquer variação do .env (.env.production, .env.teste...) fica fora do Git; só os modelos entram
+.env.*
+!.env.example
 *.log
 .DS_Store
 API_Aquarilandia_Rotas.pdf
