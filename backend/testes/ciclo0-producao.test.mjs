@@ -3,7 +3,13 @@ import { once } from 'node:events'
 import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test'
 
 // O runner executa cada arquivo em processo separado; não muda o ambiente de outras suítes.
+// Em produção o env.ts exige estas variáveis (D-52); os valores são fictícios e só existem neste processo.
 process.env.NODE_ENV = 'production'
+process.env.CORS_ORIGIN = 'https://loja.example'
+process.env.FRONTEND_URL = 'https://loja.example'
+process.env.API_URL = 'https://api.loja.example'
+process.env.GATEWAY_ACCESS_TOKEN = 'token-ficticio-de-teste'
+process.env.GATEWAY_WEBHOOK_SECRET = 'segredo-ficticio-de-teste-com-mais-de-32-caracteres'
 const { app } = await import('../src/app.ts')
 const { db } = await import('../src/config/db.ts')
 const { env } = await import('../src/config/env.ts')
