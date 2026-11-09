@@ -2,8 +2,11 @@
 // Por isso dá para testar cada regra sem servidor nem PostgreSQL, e a mesma regra serve à cotação
 // (POST /api/frete/calcular, #28) e à criação da venda (#30), sem as duas calcularem o frete de jeitos diferentes.
 import { AppError } from '../../utils/AppError.js'
+import { produtoService } from '../catalogo/produto.service.js'
 import { configFrete } from './frete.config.js'
 import type { ConfigFrete, FaixaCep } from './frete.config.js'
+import type { CotacaoFrete } from './venda.types.js'
+import { exigirDisponiveis, precificar, somarTotal, traduzirErroFrete, validarPedido } from './venda.validacao.js'
 
 export interface EntradaFrete {
   cep?: string
@@ -63,4 +66,24 @@ export function calcularFrete(entrada: EntradaFrete, config: Readonly<ConfigFret
   // e) Frete grátis vale para entrega própria e Correios (a retirada já é 0); o prazo não muda
   if (config.freteGratisAcima !== null && entrada.subtotal >= config.freteGratisAcima) resultado.frete = 0
   return resultado
+}
+
+export const freteService = {
+  // POST /api/frete/calcular (#28): mesma validação e mesmo calcularFrete da criação da venda (#30), só que sem
+  // login, sem transação e sem trava (buscarParaVenda sem executor). O valor é uma estimativa: a venda recalcula
+  // tudo com os preços travados no momento da compra.
+  async cotar(body: unknown): Promise<CotacaoFrete> {
+    const { itens, entrega } = validarPedido(body, 'cep')
+    const produtos = await produtoService.buscarParaVenda(itens.map((item) => item.produtoId))
+    const { linhas, subtotal } = precificar(itens, exigirDisponiveis(itens, produtos))
+
+    let resultado: ResultadoFrete
+    try {
+      // linhas está na ordem dos itens somados: o índice do erro do peixe é traduzido com essa mesma lista
+      resultado = calcularFrete({ ...entrega, itens: linhas, subtotal })
+    } catch (err) {
+      traduzirErroFrete(err, itens)
+    }
+    return { ...resultado, subtotal, total: somarTotal(subtotal, resultado.frete) }
+  },
 }

@@ -1,9 +1,161 @@
 import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
-import type { StatusVenda } from './venda.types.js'
+import type {
+  EtapaHistorico,
+  FiltroVendas,
+  LinhaPagamento,
+  LinhaResumoVenda,
+  NovaVenda,
+  NovoItemVenda,
+  StatusVenda,
+  TipoEntrega,
+  VendaCriada,
+} from './venda.types.js'
+
+// Linha de vendas lida pelo buscarCompleta: os entrega_* de endereço são NULL na retirada
+interface LinhaVenda {
+  id: number
+  status: StatusVenda
+  tipoEntrega: TipoEntrega
+  subtotal: number
+  frete: number
+  total: number
+  prazoEntregaDias: number
+  expiraEm: Date
+  criadoEm: Date
+  destinatario: string
+  telefone: string
+  cep: string | null
+  logradouro: string | null
+  numero: string | null
+  complemento: string | null
+  bairro: string | null
+  cidade: string | null
+  uf: string | null
+}
 
 export const vendaRepository = {
+  // #31: só as vencidas ficam de fora (expira_em no passado), porque a tarefa da #32 ainda vai cancelá-las.
+  // now() é o início da transação de quem chama: a mesma hora para todas as linhas
+  async contarAguardandoPagamento(clienteId: number, executor: Queryable): Promise<number> {
+    const { rows } = await executor.query<{ total: number }>(
+      `SELECT count(*)::int AS total FROM vendas
+        WHERE cliente_id = $1 AND status = 'aguardando_pagamento' AND expira_em > now()`,
+      [clienteId],
+    )
+    return rows[0].total
+  },
+
+  // status e expira_em ficam com o DEFAULT do banco ('aguardando_pagamento' e now() + 30 minutos).
+  // Na retirada, todos os entrega_* de endereço vão NULL (CHECK ck_vendas_endereco_entrega)
+  async inserir(dados: NovaVenda, executor: Queryable): Promise<number> {
+    const endereco = dados.endereco
+    const { rows } = await executor.query<{ id: number }>(
+      `INSERT INTO vendas
+         (cliente_id, subtotal, frete, total, tipo_entrega, prazo_entrega_dias, entrega_destinatario, entrega_telefone,
+          entrega_cep, entrega_logradouro, entrega_numero, entrega_complemento, entrega_bairro, entrega_cidade, entrega_uf,
+          chave_idempotencia, hash_requisicao)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       RETURNING id`,
+      [
+        dados.clienteId,
+        dados.subtotal,
+        dados.frete,
+        dados.total,
+        dados.tipoEntrega,
+        dados.prazoEntregaDias,
+        dados.destinatario,
+        dados.telefone,
+        endereco?.cep ?? null,
+        endereco?.logradouro ?? null,
+        endereco?.numero ?? null,
+        endereco?.complemento ?? null,
+        endereco?.bairro ?? null,
+        endereco?.cidade ?? null,
+        endereco?.uf ?? null,
+        dados.chaveIdempotencia,
+        dados.hashRequisicao,
+      ],
+    )
+    return rows[0].id
+  },
+
+  // Idempotência: a chave é procurada SEMPRE junto com o cliente, então a chave de um cliente nunca acha a venda
+  // de outro (o UNIQUE uq_vendas_cliente_chave é o mesmo par)
+  async buscarPorChave(
+    clienteId: number,
+    chave: string,
+    executor: Queryable = db,
+  ): Promise<{ id: number; hashRequisicao: string } | null> {
+    const { rows } = await executor.query<{ id: number; hashRequisicao: string }>(
+      'SELECT id, hash_requisicao AS "hashRequisicao" FROM vendas WHERE cliente_id = $1 AND chave_idempotencia = $2',
+      [clienteId, chave],
+    )
+    return rows[0] ?? null
+  },
+
+  // A venda completa, como o cliente vê (resposta da criação, da repetição e, depois, do detalhe da #34).
+  // Filtra por id E cliente_id: venda de outro cliente não é encontrada (quem chama responde 404)
+  async buscarCompleta(id: number, clienteId: number, executor: Queryable = db): Promise<VendaCriada | null> {
+    const { rows } = await executor.query<LinhaVenda>(
+      `SELECT id, status, tipo_entrega AS "tipoEntrega", subtotal, frete, total, prazo_entrega_dias AS "prazoEntregaDias",
+              expira_em AS "expiraEm", criado_em AS "criadoEm", entrega_destinatario AS destinatario,
+              entrega_telefone AS telefone, entrega_cep AS cep, entrega_logradouro AS logradouro, entrega_numero AS numero,
+              entrega_complemento AS complemento, entrega_bairro AS bairro, entrega_cidade AS cidade, entrega_uf AS uf
+         FROM vendas
+        WHERE id = $1 AND cliente_id = $2`,
+      [id, clienteId],
+    )
+    const venda = rows[0]
+    if (!venda) return null
+
+    // ORDER BY id = a ordem em que os itens foram gravados (a da primeira aparição de cada produto no body)
+    const { rows: itens } = await executor.query<NovoItemVenda>(
+      `SELECT produto_id AS "produtoId", nome_produto AS "nomeProduto", preco_unitario AS "precoUnitario",
+              quantidade, subtotal
+         FROM itens_venda
+        WHERE venda_id = $1
+        ORDER BY id`,
+      [id],
+    )
+
+    const { destinatario, telefone, cep, logradouro, numero, complemento, bairro, cidade, uf, ...resumo } = venda
+    // Na retirada não há endereço: entrega null. Fora dela, o CHECK ck_vendas_endereco_entrega garante cep,
+    // logradouro, numero, bairro, cidade e uf preenchidos (só o complemento pode ser NULL)
+    const entrega = resumo.tipoEntrega === 'retirada'
+      ? null
+      : { cep, logradouro, numero, complemento, bairro, cidade, uf, destinatario, telefone } as VendaCriada['entrega']
+    return { ...resumo, itens, entrega }
+  },
+
+  // Um INSERT só para todos os itens: cada array é uma coluna, e o unnest junta as posições em linhas
+  async inserirItens(vendaId: number, itens: readonly NovoItemVenda[], executor: Queryable): Promise<void> {
+    await executor.query(
+      `INSERT INTO itens_venda (venda_id, produto_id, nome_produto, preco_unitario, quantidade, subtotal)
+       SELECT $1, i.produto_id, i.nome_produto, i.preco_unitario, i.quantidade, i.subtotal
+         FROM unnest($2::integer[], $3::text[], $4::integer[], $5::integer[], $6::integer[])
+           AS i (produto_id, nome_produto, preco_unitario, quantidade, subtotal)`,
+      [
+        vendaId,
+        itens.map((item) => item.produtoId),
+        itens.map((item) => item.nomeProduto),
+        itens.map((item) => item.precoUnitario),
+        itens.map((item) => item.quantidade),
+        itens.map((item) => item.subtotal),
+      ],
+    )
+  },
+
+  // Primeiro registro do histórico: sem status anterior, feito pelo próprio cliente
+  async registrarCriacao(vendaId: number, clienteId: number, executor: Queryable): Promise<void> {
+    await executor.query(
+      `INSERT INTO historico_status_venda (venda_id, status_anterior, status_novo, origem, alterado_por_id)
+       VALUES ($1, NULL, 'aguardando_pagamento', 'cliente', $2)`,
+      [vendaId, clienteId],
+    )
+  },
+
   async contarEmAndamentoDoCliente(
     clienteId: number,
     status: readonly StatusVenda[],
@@ -67,5 +219,89 @@ export const vendaRepository = {
       [vendaId, de, para, autoria.ator, autoria.clienteId, autoria.observacao ?? null],
     )
     return true
+  },
+
+  // ---------- #32 expiração ----------
+
+  // Até `limite` vendas aguardando pagamento vencidas há mais de 5 minutos, as mais antigas primeiro (usa o índice
+  // parcial idx_vendas_expira_em). A folga de 5 minutos está explicada no venda.tarefas.ts
+  async buscarVencidas(limite: number): Promise<number[]> {
+    const { rows } = await db.query<{ id: number }>(
+      `SELECT id FROM vendas
+        WHERE status = 'aguardando_pagamento' AND expira_em < now() - interval '5 minutes'
+        ORDER BY expira_em, id
+        LIMIT $1`,
+      [limite],
+    )
+    return rows.map((linha) => linha.id)
+  },
+
+  // ---------- #33 e #37 compras do cliente ----------
+
+  // Uma consulta para a página inteira, sem N+1: o LATERAL conta os itens e pega o nome do primeiro (menor id de
+  // itens_venda) de cada venda. Um agregado sem GROUP BY sempre devolve uma linha, então a venda sem itens também
+  // aparece (0 e NULL). A contagem usa o MESMO WHERE. Tudo entra como parâmetro, inclusive o LIMIT e o OFFSET
+  async listarDoCliente(clienteId: number, filtro: FiltroVendas): Promise<{ linhas: LinhaResumoVenda[]; total: number }> {
+    const valores: unknown[] = [clienteId]
+    let where = 'WHERE v.cliente_id = $1'
+    if (filtro.status) {
+      valores.push(filtro.status)
+      where += ` AND v.status = $${valores.length}`
+    }
+
+    const { rows: contagem } = await db.query<{ total: number }>(
+      `SELECT count(*)::int AS total FROM vendas v ${where}`,
+      valores,
+    )
+    const { rows } = await db.query<LinhaResumoVenda>(
+      `SELECT v.id, v.status, v.total, v.tipo_entrega AS "tipoEntrega", i.quantidade AS "quantidadeItens",
+              i.primeiro AS "primeiroItem", v.criado_em AS "criadoEm"
+         FROM vendas v
+        CROSS JOIN LATERAL (
+          SELECT count(*)::int AS quantidade, (array_agg(iv.nome_produto ORDER BY iv.id))[1] AS primeiro
+            FROM itens_venda iv
+           WHERE iv.venda_id = v.id
+        ) i
+        ${where}
+        ORDER BY v.criado_em DESC, v.id DESC
+        LIMIT $${valores.length + 1} OFFSET $${valores.length + 2}`,
+      [...valores, filtro.limite, (filtro.pagina - 1) * filtro.limite],
+    )
+    return { linhas: rows, total: contagem[0].total }
+  },
+
+  // ---------- #34 detalhe da compra ----------
+  // As três leituras abaixo filtram só pela venda: quem chama já conferiu o dono com o buscarCompleta(id, clienteId)
+
+  async buscarCodigoRastreio(vendaId: number): Promise<string | null> {
+    const { rows } = await db.query<{ codigoRastreio: string | null }>(
+      'SELECT codigo_rastreio AS "codigoRastreio" FROM vendas WHERE id = $1',
+      [vendaId],
+    )
+    return rows[0]?.codigoRastreio ?? null
+  },
+
+  // Ordem cronológica; o id desempata duas mudanças no mesmo instante. Sem origem nem alterado_por_id
+  async listarHistorico(vendaId: number): Promise<EtapaHistorico[]> {
+    const { rows } = await db.query<EtapaHistorico>(
+      `SELECT status_novo AS status, criado_em AS data
+         FROM historico_status_venda
+        WHERE venda_id = $1
+        ORDER BY criado_em, id`,
+      [vendaId],
+    )
+    return rows
+  },
+
+  // Só id, status, método e data: nenhum id do gateway, código Pix, valor, detalhe ou dado de estorno sai do banco
+  async listarPagamentos(vendaId: number): Promise<LinhaPagamento[]> {
+    const { rows } = await db.query<LinhaPagamento>(
+      `SELECT id, status, metodo, criado_em AS "criadoEm"
+         FROM pagamentos
+        WHERE venda_id = $1
+        ORDER BY criado_em DESC, id DESC`,
+      [vendaId],
+    )
+    return rows
   },
 }

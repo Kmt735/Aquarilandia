@@ -2,6 +2,9 @@ import type { Request, Response  } from "express";
 import { authService } from "./auth.service.js";
 import { opcoesCookie } from './sessao.cookie.js'
 
+// A mesma resposta exista a conta ou não (api.md, seção 11)
+const msgEsqueciSenha = 'Se este e-mail estiver cadastrado, você receberá um link para criar uma senha nova.'
+
 export const authController = {
     async cadastrar (req: Request, res: Response): Promise<void>{
         const cliente = await authService.cadastrar(req.body)
@@ -24,5 +27,13 @@ export const authController = {
   },
   async buscarSessao(req: Request, res: Response): Promise<void> {
   res.json(await authService.buscarSessao(req.usuario!.id))
+  },
+  async esqueciSenha(req: Request, res: Response): Promise<void> {
+    await authService.esqueciSenha(req.body)
+    res.status(202).json({ mensagem: msgEsqueciSenha })
+  },
+  async redefinirSenha(req: Request, res: Response): Promise<void> {
+    await authService.redefinirSenha(req.body)
+    res.status(204).end()
   },
 }

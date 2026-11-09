@@ -157,26 +157,26 @@ padrão da D-41 em orçamentos: toda rota registrada abaixo dela já nasce só d
 POST   /api/auth/cadastro                       (público, rate limit)
 POST   /api/auth/login                          (público, rate limit — cria sessão, cookie "sid")
 POST   /api/auth/logout                         (logado)
-POST   /api/auth/esqueci-senha                  (público, rate limit — responde 202 sempre)
-POST   /api/auth/redefinir-senha                (público, rate limit)
+POST   /api/auth/esqueci-senha                  { email }   (público, rate limit por IP e por e-mail — 202 sempre igual; ver seção 6)
+POST   /api/auth/redefinir-senha                { token, novaSenha }   (público, rate limit — 204; ver seção 6)
 GET    /api/auth/sessao                         (logado — usuário da sessão atual)
 
 GET    /api/clientes/me                         (cliente)
-PATCH  /api/clientes/me                         (cliente)
+PATCH  /api/clientes/me                         { nome?, email?, telefone?, senhaAtual? }   (cliente — senhaAtual quando o e-mail muda, D-47; ver seção 6)
 PATCH  /api/clientes/me/senha                   (cliente)
 DELETE /api/clientes/me                         { senha }   (cliente — anonimiza, LGPD; ver seção 6)
 GET    /api/clientes/me/enderecos               (cliente)
 POST   /api/clientes/me/enderecos               (cliente)
 PATCH  /api/clientes/me/enderecos/:enderecoId   (cliente, dono)
 DELETE /api/clientes/me/enderecos/:enderecoId   (cliente, dono)
-GET    /api/clientes/me/vendas                  ?status=&pagina=&limite=   (cliente)
-GET    /api/clientes/me/vendas/:id              (cliente, dono — inclui itens e histórico)
+GET    /api/clientes/me/vendas                  ?status=&pagina=&limite=   (cliente — ver seção 6)
+GET    /api/clientes/me/vendas/:id              (cliente, dono — inclui itens, histórico e pagamento; ver seção 6)
 
 GET    /api/clientes                            ?busca=&papel=&pagina=&limite=   (admin — ver seção 6)
 GET    /api/clientes/:id                        (admin — inclui endereços, totalVendas e totalGasto; ver seção 6)
 PATCH  /api/clientes/:id                        { ativo }   (admin — ativar/desativar; ver seção 6)
 DELETE /api/clientes/:id                        (admin — anonimiza, LGPD; ver seção 6)
-GET    /api/clientes/:id/vendas                 (admin — ainda não implementada, depende da #33)
+GET    /api/clientes/:id/vendas                 ?status=&pagina=&limite=   (admin — ver seção 6)
 
 POST   /api/frete/calcular                      (público, rate limit)
 
@@ -1157,6 +1157,53 @@ enviados. Os dois leem só as 9 chaves abaixo: `id`, `clienteId`, `criadoEm` etc
 - `DELETE` do principal → o endereço mais recente que sobrou vira o principal.
 - Endereço de outro cliente ou inexistente → `404` `'Endereço não encontrado.'`; `:enderecoId` inválido → `400`.
 
+### Dados da conta (`PATCH /api/clientes/me`) — senha atual para trocar o e-mail (D-47, 03/11/2026)
+
+Lê só `nome`, `email` e `telefone` (regras do cadastro, acima), mais `senhaAtual` (sem `trim`) quando o `email` vem.
+A `senhaAtual` só é exigida se o `email`, já normalizado, for **diferente** do atual: mandar o próprio e-mail
+(inclusive em maiúsculas), ou só nome e telefone, não pede senha. Exige `Origin`.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `200` | Dados atualizados | o cliente (mesmo formato do `GET /me`) |
+| `401` | Sem login | `'Faça login para continuar.'` |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `409` | E-mail de outra conta (conferido depois da senha) | `'Não foi possível salvar as alterações.'` com `{ email: 'Este e-mail já está cadastrado.' }` |
+| `422` | Body que não é objeto | `{ body: 'Formato de dados inválido.' }` |
+| `422` | Nenhum dos três campos | `{ body: 'Informe pelo menos um campo para atualizar: nome, e-mail ou telefone.' }` |
+| `422` | Campo fora da regra | uma mensagem por campo (tabela do cadastro) |
+| `422` | E-mail novo sem `senhaAtual` (ou vazia) | `{ senhaAtual: 'Digite sua senha atual para trocar o e-mail.' }` |
+| `422` | `senhaAtual` errada (ou com mais de 128 caracteres) | `{ senhaAtual: 'Senha atual incorreta.' }` |
+| `429` | Só com `email` no body: limite compartilhado com `PATCH /me/senha` e `DELETE /me` (5 respostas de erro em 15 min) | `'Muitas tentativas…'` |
+
+Quando o e-mail muda, a gravação e a exclusão dos links de recuperação pendentes vão juntas numa transação, e
+depois um aviso ("Aquarilândia: seu e-mail foi alterado", sem o e-mail novo e sem link) vai para o e-mail **antigo**.
+
+### Recuperação de senha — implementado em 03/11/2026
+
+Regras na seção 11 e na D-09. As duas rotas exigem `Origin`.
+
+**`POST /api/auth/esqueci-senha`** — body `{ email }` (`trim` + minúsculas).
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `202` | E-mail com formato válido, **exista a conta ou não** | `{ mensagem: 'Se este e-mail estiver cadastrado, você receberá um link para criar uma senha nova.' }` |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `422` | Body que não é objeto | `{ body: 'Formato de dados inválido.' }` |
+| `422` | E-mail ausente ou mal formado | `{ email: 'Digite um e-mail válido. Exemplo: nome@email.com.' }` |
+| `429` | 4º pedido em 1 hora do mesmo IP **ou** para o mesmo e-mail (contam todos os pedidos, inclusive os `202` e `422`) | `'Muitas tentativas…'` |
+
+**`POST /api/auth/redefinir-senha`** — body `{ token, novaSenha }`. `novaSenha` sem `trim`, regra da `senha` do cadastro.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `204` | Senha trocada; todos os links e todas as sessões da conta apagados (o frontend manda a pessoa para o login) | sem corpo |
+| `400` | Token ausente, fora do formato, inexistente, vencido ou já usado; conta desativada ou anonimizada | `'Link inválido ou expirado.'` (sempre a mesma) |
+| `403` | Header `Origin` ausente ou diferente | `'Origem da requisição não permitida.'` |
+| `422` | Body que não é objeto | `{ body: 'Formato de dados inválido.' }` |
+| `422` | `novaSenha` fora da regra | `{ novaSenha: 'A senha precisa ter pelo menos 8 caracteres.' }` |
+| `429` | 11º pedido em 1 hora do mesmo IP (contam todos os pedidos) | `'Muitas tentativas…'` |
+
 ### Apagar a conta (`DELETE /api/clientes/me`) — implementado em 31/10/2026
 
 Body `{ senha }` (a senha atual, sem `trim`). Anonimiza a conta (D-23): ver seção 11.
@@ -1227,6 +1274,188 @@ inclusive se estiver desativado. Exige `Origin`.
 | `409` | Conta de admin (outro admin ou o próprio) | `'Não é possível alterar uma conta de administrador.'` |
 | `409` | Venda em andamento (mesmos status do `DELETE /me`) | `'Este cliente tem compras em andamento. Aguarde a entrega ou o cancelamento antes de remover a conta.'` |
 
+### Frete e vendas — `POST /api/frete/calcular` (#28) e `POST /api/vendas` (#30, #31), implementados em 05/11/2026
+
+As duas rotas validam o body com as mesmas funções (`modulos/vendas/venda.validacao.ts`) e calculam o frete com a
+mesma `calcularFrete` (D-29). Só as chaves abaixo são lidas: `precoUnitario`, `subtotal`, `frete`, `total`,
+`status`, `clienteId` e qualquer outra são ignoradas (seção 11). Preço sempre de `produtos.preco`.
+
+**Itens (as duas rotas):** `itens` com 1 a 30 posições, cada uma `{ produtoId, quantidade }`; `produtoId` inteiro
+de 1 a 2147483647 e `quantidade` inteira de 1 a 50. O mesmo produto em mais de um item é **somado**, e a soma também
+vai até 50. Os erros apontam o índice do item no body; num produto repetido, o **primeiro** índice em que ele apareceu.
+
+| Situação | Status | `detalhes` |
+|---|---|---|
+| Body que não é objeto | `422` | `{ body: 'Formato de dados inválido.' }` |
+| `itens` ausente, vazio ou com mais de 30 | `422` | `{ itens: 'Adicione de 1 a 30 produtos.' }` |
+| `produtoId` inválido | `422` | `{ 'itens.0.produtoId': 'Produto inválido.' }` |
+| `quantidade` fora de 1–50 (ou a soma do produto passando de 50) | `422` | `{ 'itens.0.quantidade': 'A quantidade precisa ser de 1 a 50.' }` |
+| Produto que não existe ou está inativo | `422` | `{ 'itens.0.produtoId': 'Produto indisponível.' }` |
+| Nem destino nem retirada, ou os dois juntos | `422` | `{ entrega: 'Escolha um endereço de entrega ou retirar na loja.' }` |
+| `retirada` que não é `true`/`false` | `422` | `{ retirada: 'Informe true para retirar na loja ou false para entrega.' }` |
+| Peixe vivo fora de São João del Rei (D-29) | `422` | `{ 'itens.0.produtoId': 'Este peixe só pode ser entregue em São João del Rei.' }` |
+| Total acima de 2147483647 centavos | `422` | `{ itens: 'O valor da compra passou do limite. Divida em compras menores.' }` |
+
+Erros de itens e de entrega saem juntos num `422` só.
+
+**`POST /api/frete/calcular`** — pública (o carrinho cota antes do login), exige `Origin`, `limiteFrete`
+(30 cotações por minuto por IP → `429`). Body: `itens` e **`cep`** (8 números; a máscara `36300-000` é aceita) **ou**
+`retirada: true`. CEP inválido ou fora das faixas → `422 { cep: 'Informe um CEP válido com 8 números ou escolha retirar
+na loja.' }`. Lê o catálogo sem trava (`buscarParaVenda` sem executor). `200`:
+
+```json
+{ "frete": 1000, "prazoDias": 1, "tipoEntrega": "propria", "subtotal": 4480, "total": 5480 }
+```
+
+`subtotal` e `total` são uma **estimativa** para o carrinho mostrar o valor: a venda recalcula tudo com os preços
+do momento da compra.
+
+**`POST /api/vendas`** — cliente logado (`autenticar`), exige `Origin` e o header **`Idempotency-Key`** (desde o Lote 9b).
+Body: `itens`, **`enderecoId`** (um endereço salvo do próprio cliente) **ou** `retirada: true`, e **`totalEsperado`**
+(centavos). Cria a venda em `aguardando_pagamento`, com `expira_em` = criação + 30 minutos, e baixa o estoque na mesma
+transação (fluxo na seção 8). `201`:
+
+```json
+{
+  "id": 42, "status": "aguardando_pagamento", "tipoEntrega": "propria",
+  "subtotal": 6470, "frete": 1000, "total": 7470, "prazoEntregaDias": 1,
+  "expiraEm": "2026-11-05T15:30:00.000Z", "criadoEm": "2026-11-05T15:00:00.000Z",
+  "itens": [
+    { "produtoId": 7, "nomeProduto": "Filtro X", "precoUnitario": 1990, "quantidade": 3, "subtotal": 5970 },
+    { "produtoId": 9, "nomeProduto": "Ração Y", "precoUnitario": 500, "quantidade": 1, "subtotal": 500 }
+  ],
+  "entrega": {
+    "cep": "36307000", "logradouro": "Rua A", "numero": "10", "complemento": null, "bairro": "Centro",
+    "cidade": "São João del Rei", "uf": "MG", "destinatario": "Maria", "telefone": "32999990000"
+  }
+}
+```
+
+`itens` vem um por produto (repetidos somados), na ordem em que cada produto apareceu no body. `entrega` é `null` na
+retirada (frete 0, nenhum `entrega_*` gravado). Destinatário e telefone são os da conta; o endereço é **copiado** para
+a venda (D-12).
+
+| Status | Quando | `erro` / `detalhes` |
+|---|---|---|
+| `201` | Venda criada, ou **repetição** da mesma `Idempotency-Key` com o mesmo pedido (header `Idempotent-Replayed: true`) | a venda |
+| `400` | `Idempotency-Key` ausente ou fora do formato | `'Dados inválidos'`, `{ 'Idempotency-Key': 'Informe um UUID canônico em minúsculas (versão 1 a 8 e variante RFC).' }` |
+| `401` | Sem login, ou conta desativada/anonimizada antes do pedido terminar | `'Faça login para continuar.'` |
+| `403` | Sem `Origin` | `'Origem da requisição não permitida.'` |
+| `404` | `enderecoId` inexistente ou de outro cliente | `'Endereço não encontrado.'` |
+| `409` | A mesma `Idempotency-Key` já criou uma venda com **outro** pedido | `'Esta chave já foi usada em outra compra.'` |
+| `409` | O total recalculado (preços do catálogo + frete) é diferente do `totalEsperado` | `'O valor da compra mudou desde a cotação. Confira o carrinho antes de finalizar.'`, `{ totalEsperado: 'O total agora é R$ 1.234,56.' }` |
+| `409` | Já há 5 vendas em `aguardando_pagamento` ainda não vencidas (#31) | `'Você já tem 5 compras aguardando pagamento.'` |
+| `409` | Falta estoque | `'Estoque insuficiente'`, `{ 'itens.<índice>.quantidade': 'Não temos essa quantidade em estoque.' }` |
+| `422` | Os casos da tabela acima | — |
+| `422` | `totalEsperado` ausente ou que não é inteiro de 0 a 2147483647 | `{ totalEsperado: 'Atualize o carrinho antes de finalizar a compra.' }` |
+| `422` | Conta sem telefone | `{ telefone: 'Cadastre um celular na sua conta antes de finalizar a compra.' }` |
+| `422` | CEP do endereço salvo fora das faixas de entrega | `{ enderecoId: 'Não entregamos no CEP deste endereço. Escolha outro endereço ou retire na loja.' }` |
+
+- **`Idempotency-Key` (clique duplo e nova tentativa da rede):** UUID canônico em minúsculas, no mesmo formato do
+  `POST /api/estoque/movimentacoes`. O frontend gera **um UUID por tentativa de finalizar a compra** e **reusa o
+  mesmo** se repetir essa mesma compra (timeout, erro de rede, clique duplo). A chave é por cliente.
+  - Mesma chave + mesmo pedido → `201` com a venda **já criada** e `Idempotent-Replayed: true`: nada é criado, o estoque
+    não é baixado de novo e não há histórico novo. O corpo tem o mesmo formato da criação, com o estado **atual** da
+    venda (o `status` pode já ser outro, ex.: `paga` ou `cancelada`). Vale também com 5 vendas abertas: a chave é
+    conferida antes do limite.
+  - "Mesmo pedido" = mesmo SHA-256 da forma canônica: itens somados e ordenados por `produtoId`, a entrega
+    (`retirada` ou `enderecoId`) e o `totalEsperado`. A mesma compra com os itens em outra ordem é repetição.
+  - Mesma chave + outro pedido → `409 'Esta chave já foi usada em outra compra.'`.
+  - A mesma chave de **outro** cliente cria uma venda nova para ele (busca e `UNIQUE` por `cliente_id` + chave).
+  - Tentativa recusada (409, 422, 404…) não grava nada: a chave continua livre e pode ser usada de novo.
+- **`totalEsperado`:** o `total` da cotação (`POST /api/frete/calcular`) do mesmo carrinho e da mesma entrega. Ele
+  **só confere**: o preço continua vindo só do catálogo. Se o total recalculado com os preços travados e o frete for
+  diferente, `409` com o total novo em reais e **nada** é criado; o carrinho mostra o valor novo e o cliente confirma
+  numa nova tentativa (com o `totalEsperado` novo). A cotação não lê `totalEsperado`.
+- **Limite da #31:** no máximo 5 vendas `aguardando_pagamento` com `expira_em` no futuro por cliente. As vencidas
+  (que a tarefa da #32 ainda vai cancelar) não contam. A contagem é feita depois da trava do cliente, então dois
+  pedidos ao mesmo tempo não passam juntos do limite.
+- **409 do estoque:** `baixarParaVenda` responde por `produtoId` (`itens.<produtoId>.quantidade` e
+  `itensIndisponiveis`, D-50/D-51). A venda traduz cada `produtoId` para o primeiro índice do item no body antes de
+  responder; o `produtoId` não aparece na resposta. Produto inativo nunca chega a esse 409: ele é recusado antes, com
+  `422` `'Produto indisponível.'`.
+
+### Compras do cliente (#33, #34, #37) e expiração das vendas (#32) — implementados em 09/11/2026
+
+As três rotas respondem com `Cache-Control: no-store` (endereço, histórico e pagamento são dados pessoais) e não
+exigem `Origin` (são leituras, como o `GET /me`). O dono vem **sempre** da sessão (`req.usuario.id`), nunca da URL
+(D-08). As duas `/me/vendas` ficam **acima** da guarda do `clienteRoutes`; a `/:id/vendas`, **abaixo** dela (só admin).
+
+**`GET /api/clientes/me/vendas`** — as compras do cliente logado, paginadas (seção 4: `{ dados, total, pagina, limite }`),
+das mais recentes para as mais antigas (`criadoEm` decrescente e depois `id` decrescente).
+
+| Query | Regra | Erro (`400` `'Parâmetros inválidos'`) |
+|---|---|---|
+| `status` | opcional; um dos valores do DOMAIN `status_venda` (`aguardando_pagamento`, `paga`, `em_separacao`, `enviada`, `pronta_retirada`, `entregue`, `cancelamento_solicitado`, `cancelada`), exatamente; repetido também é inválido | `{ status: 'Status inválido.' }` |
+| `pagina`, `limite` | seção 4 (padrão 1 e 20, máximo 100) | mensagens da seção 4 |
+
+Os erros de `status` e da paginação saem juntos num `400` só. Cada item:
+
+```json
+{ "id": 42, "status": "aguardando_pagamento", "total": 7470, "tipoEntrega": "propria",
+  "quantidadeItens": 3, "resumo": "Filtro X e mais 2 itens", "criadoEm": "2026-11-09T15:00:00.000Z" }
+```
+
+- `quantidadeItens` = linhas de `itens_venda` (produtos diferentes da compra), não a soma das quantidades.
+- `resumo` = o nome do **primeiro** item da compra (menor `id` de `itens_venda`, a ordem em que os produtos apareceram
+  no `POST /api/vendas`): 1 item → `'Filtro X'`; 2 → `'Filtro X e mais 1 item'`; 3 ou mais → `'Filtro X e mais N itens'`.
+  `null` só numa venda sem itens, que a API não cria.
+- Uma consulta para a página inteira (sem N+1) e uma de contagem com o mesmo `WHERE`.
+
+Sem login → `401` `'Faça login para continuar.'`.
+
+**`GET /api/clientes/me/vendas/:id`** — a compra do cliente logado, no mesmo formato da resposta do `POST /api/vendas`
+(itens e entrega), mais:
+
+- `codigoRastreio`: o código dos Correios, ou `null`;
+- `historico`: `[{ status, data }]` em ordem cronológica (desempate pelo `id`). **Sem** `origem`, quem mudou
+  (`alterado_por_id`) nem `observacao`: são dados internos da loja;
+- `pagamento`: **um** pagamento, ou `null` se a compra não tiver nenhum. É o `aprovado` mais recente; sem aprovado, o
+  mais recente de qualquer status (desempate pelo `id`). Só `{ status, metodo, criadoEm }`: nunca ids do gateway, código
+  Pix, valor, `status_detalhe` ou dados de estorno. A mensagem amigável por status fica para a #48. Quando a #35 criar
+  o `estorno_solicitado_em`, a regra passa a ser "aprovado e sem estorno marcado" (anotado para a #47).
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `200` | Compra do cliente logado | a compra |
+| `400` | `:id` que não é inteiro positivo | `'Id inválido.'` |
+| `401` | Sem login | `'Faça login para continuar.'` |
+| `404` | Inexistente **ou de outro cliente** (a mesma resposta: não confirma que existe) | `'Compra não encontrada.'` |
+
+**`GET /api/clientes/:id/vendas`** (admin) — as compras de um cliente, com o mesmo formato, a mesma paginação e o
+mesmo filtro `status` da `/me/vendas`. Encontra também contas desativadas e anonimizadas (o histórico de vendas de
+uma conta anonimizada continua visível para a loja). A query é conferida antes de procurar o cliente.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `400` | `:id` inválido / query inválida | `'Id inválido.'` / `'Parâmetros inválidos'` com `detalhes` |
+| `401` / `403` | Sem login / cliente (a guarda do `clienteRoutes`) | `'Faça login para continuar.'` / `'Acesso permitido somente para administradores.'` |
+| `404` | Cliente inexistente | `'Cliente não encontrado.'` |
+
+**Expiração das vendas não pagas (#32, D-16)** — tarefa agendada do módulo `vendas` (`venda.tarefas.ts`), iniciada pelo
+`server.ts` depois do `listen`. Não tem rota. Não roda com `NODE_ENV=test` (os testes chamam `executarExpiracao` direto).
+
+- Roda a cada **5 minutos**, e uma primeira vez **30 s** depois de o servidor subir. Nunca duas rodadas ao mesmo tempo
+  no mesmo processo; os timers não seguram o processo vivo (`unref`).
+- Cada rodada pega até **100** vendas `aguardando_pagamento` com `expira_em` vencido há **mais de 5 minutos** (as mais
+  antigas primeiro; o resto fica para a rodada seguinte). A folga existe porque o Pix vence junto com a venda, mas o
+  aviso da AbacatePay pode chegar com atraso: sem ela, uma venda paga no último segundo seria cancelada. A reconsulta do
+  pagamento no gateway antes de cancelar entra na #47.
+- Cada venda tem a **sua** transação: `aguardando_pagamento → cancelada` pelo `mudarStatus` (histórico com origem
+  `sistema` e a observação `'Pagamento não recebido no prazo.'`) e `estoqueService.estornarVenda` na mesma transação —
+  cancelada e estoque devolvido juntos, ou nenhum dos dois. A trava otimista (`WHERE status = 'aguardando_pagamento'`)
+  faz a venda que foi paga ou cancelada nesse meio-tempo ficar como está, e impede duas rodadas (ou duas instâncias do
+  servidor) de cancelar a mesma venda duas vezes; o `estornarVenda` também é idempotente.
+- Venda sem baixa de estoque (dado inconsistente, ex.: inserida à mão): o `409 'Venda sem baixa original de estoque'`
+  não desfaz o cancelamento (não havia estoque baixado a devolver) e vai para o log
+  (`[expiracao] venda <id> sem baixa de estoque`). Qualquer outro erro desfaz só a transação daquela venda, conta como
+  erro e vai para o log com um código curto (`[expiracao] venda <id>: <código>`), sem dados pessoais; as outras vendas
+  seguem, e a venda que falhou é tentada de novo na próxima rodada.
+- **Limpezas**, na mesma rodada: `authService.limparSessoesVencidas()` e `authService.limparTokensVencidos()` apagam as
+  linhas de `sessoes` e de `tokens_recuperacao_senha` com `expira_em` no passado. Elas já não valiam (as consultas
+  conferem `expira_em > now()`); apagar só impede que as tabelas cresçam para sempre. A tarefa chama o service do auth,
+  nunca os repositories (seção 8).
+
 ---
 
 ## 7. Banco de dados
@@ -1254,6 +1483,7 @@ O Postgres executa `db/init/*.sql` em ordem alfabética, então a numeração de
 | `01_schema.sql` *(já existe — renomear para `01_catalogo.sql`)* | Dev 2 | categorias, produtos, tabelas de detalhe |
 | `10_clientes.sql` | Celio | clientes, enderecos_cliente, sessoes, tokens_recuperacao_senha |
 | `20_vendas.sql` | Celio | domain status_venda, vendas, itens_venda, historico_status_venda, pagamentos, eventos_webhook |
+| `21_vendas_idempotencia.sql` | Celio | `vendas.chave_idempotencia` e `vendas.hash_requisicao` (Idempotency-Key do `POST /api/vendas`); em banco existente, aplicar com o comando do topo do arquivo, sem `db:reset` |
 | `30_estoque.sql` | Dev 2 | movimentacoes_estoque (pode ter FK para vendas) |
 | `31_estoque_vendas.sql` | Backend 1 | evolução002 de operações/movimentos vinculados a vendas; sem alterar schema comercial |
 | `90_seed.sql` | ambos (só `INSERT`) | dados de exemplo |
@@ -1397,25 +1627,36 @@ servicoService.listarOpcoes(): Promise<string[]>   // valores aceitos no campo s
 
 `ProdutoVenda` e `ItemMovimento` ficam em `types/index.ts` (compartilhado), porque os dois módulos usam.
 
-### Fluxo de `POST /api/vendas` — orquestração ainda a implementar pelo Backend 2
-O fluxo abaixo é uma interface planejada, não uma rota funcional. Os contratos que ele usa (`buscarParaVenda`,
-`ProdutoVenda`, `baixarParaVenda` e `ItemMovimento`) já existem. Os helpers de estoque não reprecificam itens nem
-confirmam frete. Não confiar no preço salvo no navegador.
+### Fluxo de `POST /api/vendas` — implementado em 05/11/2026 (#30, #31)
+Contrato da rota (body, resposta e erros) na seção 6. Os helpers de estoque não reprecificam itens nem confirmam
+frete. Não confiar no preço salvo no navegador.
 
-A venda chama `buscarParaVenda` **duas vezes** (D-51):
+Fora da transação (barato, sem trava):
 
-1. `vendaService.criar` valida o body (422) e soma os itens repetidos do mesmo produto.
-2. Chama `produtoService.buscarParaVenda(ids)` **sem executor** → confere se todos existem e estão ativos e usa
-   preço e categoria para calcular o frete. É uma checagem rápida, fora da transação, só para recusar cedo.
-3. Calcula o frete (fora da transação).
-4. Abre `comTransacao` e chama `produtoService.buscarParaVenda(ids, client)` **de novo, com o client**: trava os
-   produtos até o COMMIT e revalida existência e ativo. O `preco_unitario` gravado em `itens_venda` vem **desta
-   segunda leitura**, não da primeira. Insere `vendas` e `itens_venda` (já somados, uma linha por produto) **antes**
-   da baixa → chama `estoqueService.baixarParaVenda(vendaId, itens, client)` com os mesmos produtos e quantidades
-   de `itens_venda` (diferente → 409 'Itens incompatíveis com a venda persistida'). A venda nasce como
-   `'aguardando_pagamento'` (a baixa recusa outro status), com `expira_em` = criação + 30 minutos. Falta de estoque
-   ou produto inativo → 409 'Estoque insuficiente' por `produtoId`; vendas traduz para o índice do item no body.
-5. Se qualquer passo lançar erro, tudo é desfeito.
+1. `vendaService.criar` valida o body (422) e soma os itens repetidos do mesmo produto (`venda.validacao.ts`).
+2. Lê nome e telefone do cliente; sem telefone → 422.
+
+Dentro de `comTransacao`, com as travas sempre nesta ordem:
+
+3. `clienteRepository.travarParaAlteracao` (cliente `FOR UPDATE`, `AND ativo`); conta inativa/anonimizada → 401.
+   Idempotência (Lote 9b): busca a venda do cliente com a `Idempotency-Key`. Mesmo hash → devolve essa venda
+   (`vendaRepository.buscarCompleta`) sem criar nada; outro hash → 409. Um pedido repetido em paralelo espera nesta
+   trava e, quando passa, já acha a venda pronta; o `UNIQUE (cliente_id, chave_idempotencia)` é a rede de segurança
+   (um 23505 nele é tratado como repetição).
+4. #31: conta as vendas `aguardando_pagamento` com `expira_em > now()`; 5 ou mais → 409.
+5. Endereço buscado por id **e** `cliente_id` (outro cliente → 404); na retirada, nenhum.
+6. `produtoService.buscarParaVenda(ids, client)` **com o client**: trava os produtos em ordem de id até o COMMIT e
+   confere existência e `ativo` (faltando/inativo → 422 no índice). O `preco_unitario` vem **desta** leitura.
+7. Subtotal com esses preços, `calcularFrete` (o índice do 422 do peixe é traduzido para o do body) e total.
+   Total diferente do `totalEsperado` → 409, antes de qualquer INSERT.
+8. Insere `vendas` (cópia do endereço nos `entrega_*`, D-12, e a chave + o hash do pedido), `itens_venda` (já somados, uma linha por produto) e o
+   primeiro `historico_status_venda` (`origem 'cliente'`) **antes** da baixa → `estoqueService.baixarParaVenda`
+   com os mesmos produtos e quantidades. O 409 'Estoque insuficiente' (por `produtoId`) é traduzido para o índice.
+9. Qualquer erro desfaz tudo: nenhuma venda, item, histórico ou baixa fica. A resposta é montada do banco pela
+   mesma `buscarCompleta` da repetição.
+
+A venda lê o catálogo **uma vez só**, com o client (D-51). A checagem rápida sem trava é a cotação
+(`POST /api/frete/calcular`, #28), que o carrinho chama antes da compra e de onde vem o `totalEsperado`.
 
 ### Gateway de pagamento — AbacatePay, Pix transparente (02/11/2026)
 O gateway é a **AbacatePay, API v2** (D-19). Começa só com **Pix transparente** (D-18): o backend cria a cobrança
@@ -1441,12 +1682,13 @@ e da #47.
 - O webhook só confirma o pagamento (venda → `'paga'`); não mexe em estoque. Sempre valida a
   assinatura e reconsulta o pagamento na API do gateway antes de confirmar.
 - Pagamento aprovado de venda já cancelada ou expirada → o módulo `vendas` solicita o estorno.
-- Cancelar venda paga: estorno **automático** do valor total pela API do gateway, com chave de
-  idempotência; depois `estornarVenda`. Se o gateway falhar, a venda fica `'cancelamento_solicitado'`
-  e o estorno é tentado de novo.
+- Cancelar venda paga: estorno **automático** do valor total pela API do gateway; depois `estornarVenda`.
+  Se o gateway falhar, a venda fica `'cancelamento_solicitado'` e o estorno é tentado de novo.
 - O estorno é tentado até 5 vezes pela tarefa agendada (contador em `pagamentos.estorno_tentativas`);
   depois disso a venda continua em `'cancelamento_solicitado'` e o admin resolve manualmente.
-  A chave de idempotência do estorno é derivada do id da venda (`estorno-venda-<id>`).
+  A AbacatePay não tem chave de idempotência no estorno (D-22). Repetir é seguro mesmo assim: o segundo pedido é
+  recusado com "Esta cobrança já foi reembolsada.", que conta como **sucesso** (já estornado). (Corrigido em
+  03/11/2026; antes este item citava uma chave `estorno-venda-<id>` que o gateway não oferece.)
 - O cliente pode cancelar até antes de a venda ser enviada.
 
 ---
@@ -1655,6 +1897,7 @@ clienteRoutes.get('/', autenticar, exigirAdmin, clienteController.listar)       
   redefinir a senha ou ser anonimizado.
 - Rate limit nas duas rotas (por IP e, no `esqueci-senha`, também por e-mail).
 - O token nunca é logado nem devolvido em resposta; ele só existe no link do e-mail.
+- Implementado em 03/11/2026 (#19b, #19c): status e mensagens na seção 6, regras completas na D-09.
 
 ### Regras
 - O dono vem do login: rotas `/me` usam `req.usuario.id`; nunca aceitar `clienteId` do body ou da URL

@@ -126,9 +126,11 @@ describe('Clientes — rotas de admin com sessões, papéis e vendas reais no Po
       assert.equal((await resposta.json()).id, ids.get('ana'))
       assert.equal((await requisitar('ana', 'GET', '/me/enderecos')).status, 200)
     })
-    it('GET /:id/vendas ainda não existe: admin recebe 404, atrás da guarda', async () => {
+    it('GET /:id/vendas (#37) fica atrás da guarda: cliente 403, admin 200', async () => {
       assert.equal((await requisitar('ana', 'GET', `/${ids.get('bia')}/vendas`)).status, 403)
-      assert.equal((await requisitar('chefe', 'GET', `/${ids.get('bia')}/vendas`)).status, 404)
+      const comoAdmin = await requisitar('chefe', 'GET', `/${ids.get('bia')}/vendas`)
+      assert.equal(comoAdmin.status, 200)
+      assert.deepEqual(Object.keys(await comoAdmin.json()).sort(), ['dados', 'limite', 'pagina', 'total'])
     })
   })
 

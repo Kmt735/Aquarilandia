@@ -44,15 +44,17 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** D-07 (cookie `Secure`), D-09 (recuperação de senha), D-21 (segredo do webhook), seção 9 do `api.md`.
 
 ### D-51 — `buscarParaVenda` trava só com executor, em ordem de id; 409 por `produtoId` vira contrato oficial
-- **Data:** 05/11/2026
+- **Data:** 05/11/2026 (ajustada em 05/11/2026 à criação de venda implementada no Lote 9, #30)
 - **Decisão:**
   - `produtoService.buscarParaVenda(ids, executor?)` faz uma consulta só, com `ANY($1::integer[])`, sem filtrar
     `ativo` e em ordem de `id`.
-  - **Sem executor** (cotação de frete, checagem antes da transação): consulta simples no pool, **sem trava**.
+  - **Sem executor** (cotação de frete, `POST /api/frete/calcular`, #28): consulta simples no pool, **sem trava**.
   - **Com executor** (client de `comTransacao`): acrescenta `FOR NO KEY UPDATE OF p`, na mesma ordem de `id` da
     `baixarParaVenda`; os produtos ficam travados até o COMMIT ou ROLLBACK. Só a tabela `produtos` é travada, não `categorias`.
-  - A venda chama duas vezes: sem executor, antes da transação (recusar cedo e calcular o frete), e com o client,
-    dentro dela. O `preco_unitario` de `itens_venda` vem da segunda chamada.
+  - A venda (`POST /api/vendas`, #30) lê o catálogo **uma vez só**: `buscarParaVenda(ids, client)`, dentro da
+    transação, depois da trava do cliente, travando os produtos em ordem de id. O `preco_unitario` de `itens_venda`
+    vem dessa leitura. A checagem rápida sem trava, antes da compra, é a cotação de frete (#28), que o carrinho chama
+    antes; a venda não faz uma segunda leitura sem executor.
   - Repetidos são removidos antes da consulta. Lista vazia → `[]` sem ir ao banco. ID que não seja inteiro de 1 a
     2147483647, ou mais de 100 IDs depois de tirar os repetidos → `Error` comum (500), não `AppError`: o body é
     validado pela venda, que responde 422 antes de chamar.
@@ -409,23 +411,60 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   frontend usa `/me` nessas telas.
 
 ### D-09 — Recuperação de senha por e-mail
-- **Data:** 19/10/2026
-- **Decisão:** a recuperação de senha por e-mail entra na entrega de 19/11. Fluxo e regras conforme a seção 11 do
-  `api.md`:
-  - token aleatório guardado só como hash, válido por 30 minutos; resposta `202` sempre;
-  - o token é válido se existe e não venceu, e a conta precisa estar ativa e não anonimizada; senão `400`
-    "Link inválido ou expirado.";
-  - pedir um link novo apaga todos os tokens anteriores do cliente; redefinir a senha apaga todos os tokens e
-    todas as sessões dele, na mesma transação que grava a senha (por isso o token é de uso único);
-  - o link usa `FRONTEND_URL`;
+- **Data:** 19/10/2026 (atualizado em 03/11/2026: implementada na #19b e na #19c, com os detalhes abaixo)
+- **Decisão:** a recuperação de senha por e-mail entra na entrega de 19/11. Contrato no `api.md` (seções 6 e 11):
+  - `POST /api/auth/esqueci-senha` responde **sempre** `202` com a mesma mensagem, exista a conta ou não. Só fogem
+    disso o `422` de formato do e-mail, o `403` de `Origin` e o `429`, e nenhum deles depende de a conta existir.
+    Só conta ativa e não anonimizada recebe link;
+  - o link é `<FRONTEND_URL>/redefinir-senha?token=<token>`, com um token aleatório de 32 bytes (`gerarToken`,
+    43 caracteres base64url). O banco guarda **só o hash** SHA-256; o token inteiro existe apenas no e-mail. Vale
+    **30 minutos**, contados pelo relógio do banco;
+  - pedir um link novo apaga os anteriores do cliente. Redefinir a senha grava a senha nova e apaga **todos** os
+    tokens e **todas** as sessões dele na mesma transação, e é isso que torna o link de **uso único**. Trocar a
+    senha logado (`PATCH /me/senha`) e trocar o e-mail (D-47) também apagam os links pendentes;
+  - qualquer problema no link (inventado, fora do formato, vencido, já usado, conta desativada ou anonimizada)
+    responde `400` "Link inválido ou expirado.", sem dizer o motivo;
+  - limites: no esqueci-senha, 3 pedidos por hora por IP **e** 3 por hora por e-mail; no redefinir-senha, 10 por
+    hora por IP. Todos contam também os pedidos que deram certo;
+  - o e-mail sai **depois do COMMIT e sem esperar** o provedor, para o tempo de resposta não revelar quem tem conta.
+    Falha no envio vira só `[esqueci-senha] falha ao enviar e-mail` no log, sem o e-mail nem o token;
+  - as travas seguem a ordem das outras operações da conta: primeiro o cliente, depois o token (sem deadlock);
+  - sem `FRONTEND_URL`, nenhum token é criado (log `[esqueci-senha] FRONTEND_URL ausente`) e a resposta continua
+    `202`;
+  - **sem provedor de e-mail** (pendente): em desenvolvimento o e-mail aparece no terminal (`[email:dev]`, com o
+    link e o token, só para testes locais); em produção o envio falha, nenhum e-mail sai e a resposta continua
+    `202` (o token fica no banco até vencer ou até o próximo pedido);
   - sem limpeza periódica de tokens vencidos na entrega de 19/11: ficam até o cliente pedir outro link, redefinir
-    a senha ou ser anonimizado.
+    a senha, trocar a senha ou o e-mail, ou ser anonimizado.
 
   A senha temporária gerada pelo admin foi descartada.
 - **Motivo:** sem recuperação, um cliente que esquece a senha perde o acesso à conta; o fluxo por e-mail não depende
-  de atendimento manual.
+  de atendimento manual. A resposta sempre igual e o envio sem espera não deixam o formulário virar um teste de
+  "quem tem conta"; o limite por e-mail impede encher a caixa de entrada de alguém trocando de IP.
 - **Impacto:** tabela `tokens_recuperacao_senha`, coluna `trocar_senha` removida, `utils/email.ts` (compartilhado),
-  duas telas novas no frontend ("esqueci minha senha" e "criar senha nova").
+  `middlewares/rateLimit.ts` (compartilhado), duas telas novas no frontend ("esqueci minha senha" e "criar senha
+  nova", na rota `/redefinir-senha`, que lê o `token` da URL).
+
+### D-47 — Senha atual para trocar o e-mail
+- **Data:** 03/11/2026 (decisão do grupo)
+- **Decisão:**
+  - `PATCH /api/clientes/me` passa a exigir `senhaAtual` (sem `trim`) quando o `email` enviado é **diferente** do
+    atual, comparado já normalizado. Mandar o próprio e-mail (inclusive em maiúsculas), ou só nome e telefone,
+    continua sem senha;
+  - sem `senhaAtual` → `422` "Digite sua senha atual para trocar o e-mail."; errada (ou com mais de 128 caracteres)
+    → `422` "Senha atual incorreta.". A senha é conferida **antes** do `409` de e-mail em uso;
+  - a troca roda numa transação: trava o cliente, grava o e-mail e **apaga os links de recuperação pendentes**
+    (o link mandado ao e-mail antigo deixa de valer);
+  - depois do COMMIT, um aviso "Aquarilândia: seu e-mail foi alterado" vai para o e-mail **antigo**, sem mostrar
+    o e-mail novo e sem link, sem esperar o provedor;
+  - limite: só quando o body traz `email`, o PATCH passa pelo `limiteTrocaSenha` (5 erros em 15 minutos por IP),
+    o mesmo contador da troca de senha e do apagar conta.
+- **Motivo:** sessão roubada + recuperação de senha = conta roubada. Quem rouba o cookie troca o e-mail para um seu,
+  pede "esqueci a senha" e fica com a conta de vez, sem nunca saber a senha. Pedir a senha atual fecha esse caminho;
+  o aviso no e-mail antigo dá ao dono a chance de reagir; apagar os links impede que um link já enviado continue
+  valendo para o endereço que não é mais da conta.
+- **Impacto:** módulos `clientes` e `auth`; no frontend, a tela de dados da conta precisa do campo de senha atual
+  quando o e-mail muda.
 
 ---
 
@@ -666,12 +705,13 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** módulos `clientes` e `auth`.
 
 ### D-31 — CPF não é coletado
-- **Data:** 19/10/2026
-- **Decisão:** o cadastro não pede CPF. Reavaliar se a loja precisar do CPF para nota fiscal ou se uma
-  transportadora exigir.
-- **Motivo:** minimização de dados (LGPD); reduz o estrago em caso de vazamento; o gateway coleta o CPF na própria
-  página de pagamento quando precisa; cadastro mais rápido.
-- **Impacto:** a coluna `clientes.cpf` é removida (`10_clientes.sql`); módulos `clientes` e `auth`.
+- **Data:** 19/10/2026 (atualizado em 03/11/2026: o motivo "o gateway coleta o CPF na própria página de pagamento"
+  deixou de valer com o Pix transparente, D-18)
+- **Decisão:** o cadastro não pede CPF. O Pix transparente vai **sem `customer`** (D-18), então a cobrança não
+  precisa de CPF. Quando o cartão entrar, a AbacatePay exige `customer` com `taxId`, e **esta decisão será revista**.
+  Reavaliar também se a loja precisar do CPF para nota fiscal ou se uma transportadora exigir.
+- **Motivo:** minimização de dados (LGPD); reduz o estrago em caso de vazamento; cadastro mais rápido.
+- **Impacto:** a coluna `clientes.cpf` é removida (`10_clientes.sql`); módulos `clientes`, `auth` e `pagamentos`.
 
 ### D-32 — Termos de uso e políticas
 - **Data:** 19/10/2026

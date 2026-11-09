@@ -1,4 +1,7 @@
+import { env } from '../../config/env.js'
 import { AppError } from '../../utils/AppError.js'
+import { enviarEmail } from '../../utils/email.js'
+import type { MensagemEmail } from '../../utils/email.js'
 import { comTransacao } from '../../utils/transacao.js'
 import type { Queryable } from '../../utils/transacao.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
@@ -22,6 +25,10 @@ import { tokenRepository } from './token.repository.js'
 const DURACAO_SESSAO_MS = 7 * 24 *60 *60 *1000
 const MSG_LOGIN_INVALIDO = 'Email ou senha incorretos.'
 const msgCadastroRecusado = 'Não foi possível criar a conta.'
+// Uma mensagem só para todo problema do link (inventado, vencido, já usado, conta desativada): não ensina nada
+const msgLinkInvalido = 'Link inválido ou expirado.'
+// O formato exato do gerarToken: 32 bytes em base64url são sempre 43 caracteres, sem "=" no fim
+const formatoToken = /^[A-Za-z0-9_-]{43}$/
 
 function validarCadastro (body: unknown): DadosCadastro {
     const erros: Record<string,string> = {}
@@ -106,6 +113,56 @@ function validarTrocaSenha(body: unknown): { senhaAtual: string; novaSenha: stri
 
   if (Object.keys(erros).length) throw new AppError('Dados inválidos', 422, erros)
   return { senhaAtual, novaSenha }
+}
+
+function validarEsqueciSenha(body: unknown): string {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+  }
+
+  // O formato é checado antes de qualquer consulta: o 422 vale igual para quem tem e para quem não tem conta
+  const email = normalizarEmail((body as Record<string, unknown>).email)
+  const msgEmail = erroEmail(email)
+  if (msgEmail) throw new AppError('Dados inválidos', 422, { email: msgEmail })
+  return email
+}
+
+export function tokenComFormatoValido(token: unknown): token is string {
+  return typeof token === 'string' && formatoToken.test(token)
+}
+
+// novaSenha sem trim, como no cadastro. Token fora do formato recebe a mesma resposta de um token que não existe
+function validarRedefinicao(body: unknown): { token: string; novaSenha: string } {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+  }
+
+  const dados = body as Record<string, unknown>
+  const novaSenha = String(dados.novaSenha ?? '')
+  const msgNovaSenha = erroSenha(novaSenha)
+  if (msgNovaSenha) throw new AppError('Dados inválidos', 422, { novaSenha: msgNovaSenha })
+
+  if (!tokenComFormatoValido(dados.token)) throw new AppError(msgLinkInvalido, 400)
+  return { token: dados.token, novaSenha }
+}
+
+// O token vai codificado na URL (o base64url já é seguro em URL; o encodeURIComponent protege se o formato mudar)
+export function montarEmailRecuperacao(para: string, token: string, frontendUrl: string): MensagemEmail {
+  const link = `${frontendUrl}/redefinir-senha?token=${encodeURIComponent(token)}`
+  return {
+    para,
+    assunto: 'Aquarilândia: criar uma senha nova',
+    texto: [
+      'Olá!',
+      '',
+      'Recebemos um pedido para criar uma senha nova na sua conta da Aquarilândia.',
+      'Para criar a senha nova, abra o link abaixo. Ele vale por 30 minutos e só pode ser usado uma vez:',
+      '',
+      link,
+      '',
+      'Se você não pediu uma senha nova, pode ignorar este e-mail: a sua senha continua a mesma.',
+    ].join('\n'),
+  }
 }
 
 export const authService = {
@@ -204,11 +261,80 @@ export const authService = {
     await comTransacao(async (client) => {
       await clienteRepository.atualizarSenha(clienteId, novoHash, client)
       await sessaoRepository.excluirOutrasDoCliente(clienteId, hashToken(tokenAtual), client)
+      // Um link de recuperação pedido antes da troca deixa de valer
+      await tokenRepository.excluirDoCliente(clienteId, client)
+    })
+  },
+  // #19b. Não devolve nada: o controller responde sempre o mesmo 202, exista a conta ou não
+  async esqueciSenha(body: unknown): Promise<void> {
+    const email = validarEsqueciSenha(body)
+
+    // Sem FRONTEND_URL o link sairia quebrado: nenhum token é criado (o log não leva o e-mail)
+    const frontendUrl = env.frontendUrl
+    if (!frontendUrl) {
+      console.error('[esqueci-senha] FRONTEND_URL ausente')
+      return
+    }
+
+    const clienteId = await clienteRepository.buscarIdAtivoPorEmail(email)
+    if (clienteId === null) return
+
+    const token = gerarToken()
+    const criado = await comTransacao(async (client) => {
+      // Cliente travado primeiro, na mesma ordem do redefinir-senha e das outras operações da conta (sem deadlock).
+      // false: a conta foi desativada ou anonimizada entre a busca e a trava
+      if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) return false
+      // Um link novo invalida o anterior
+      await tokenRepository.excluirDoCliente(clienteId, client)
+      await tokenRepository.inserir(clienteId, hashToken(token), client)
+      return true
+    })
+    if (!criado) return
+
+    // Depois do COMMIT e sem await: esperar o provedor deixaria a resposta de quem tem conta bem mais lenta que a de
+    // quem não tem, e o tempo revelaria a conta. O catch não leva o e-mail nem o token
+    void enviarEmail(montarEmailRecuperacao(email, token, frontendUrl)).catch(() => {
+      console.error('[esqueci-senha] falha ao enviar e-mail')
+    })
+  },
+  // #19c
+  async redefinirSenha(body: unknown): Promise<void> {
+    const dados = validarRedefinicao(body)
+
+    // O argon2 é lento de propósito: roda antes e fora da transação, sem segurar conexão do pool
+    const novoHash = await gerarHash(dados.novaSenha)
+    const tokenHash = hashToken(dados.token)
+
+    // Sem trava: só descobre de quem é o token
+    const clienteId = await tokenRepository.buscarClientePorHash(tokenHash)
+    if (clienteId === null) throw new AppError(msgLinkInvalido, 400)
+
+    await comTransacao(async (client) => {
+      // Cliente antes do token, a mesma ordem do esqueci-senha (que trava o cliente e depois apaga os tokens).
+      // Na ordem inversa, um redefinir com o token travado esperando o cliente e um esqueci-senha com o cliente
+      // travado esperando o token ficariam presos um no outro (deadlock)
+      if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) throw new AppError(msgLinkInvalido, 400)
+      // Conferido de novo com o cliente travado: outro pedido pode ter usado ou trocado o token enquanto este esperava
+      if (!(await tokenRepository.travarValido(tokenHash, clienteId, client))) throw new AppError(msgLinkInvalido, 400)
+
+      await clienteRepository.atualizarSenha(clienteId, novoHash, client)
+      // Apaga TODOS os tokens (é o que torna o link de uso único) e TODAS as sessões, na mesma transação da senha
+      await authService.revogarAcessos(clienteId, client)
     })
   },
   // Apaga todas as sessões e tokens; usado ao apagar a conta (LGPD) e, na #38, pelo admin
   async revogarAcessos(clienteId: number, executor: Queryable): Promise<void> {
     await sessaoRepository.excluirTodasDoCliente(clienteId, executor)
     await tokenRepository.excluirDoCliente(clienteId, executor)
+  },
+
+  // Limpezas da tarefa agendada (venda.tarefas.ts, a cada 5 minutos). Uma sessão ou um link vencido já não vale
+  // (as consultas conferem expira_em > now()); apagar só evita que as tabelas cresçam para sempre
+  async limparSessoesVencidas(): Promise<void> {
+    await sessaoRepository.excluirVencidas()
+  },
+
+  async limparTokensVencidos(): Promise<void> {
+    await tokenRepository.excluirVencidos()
   },
 }

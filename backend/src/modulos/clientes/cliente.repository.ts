@@ -27,6 +27,14 @@ export const clienteRepository = {
         const { rows } = await db.query<Cliente>(`SELECT ${colunas} FROM clientes WHERE email = $1`, [email])
         return rows[0] ?? null
     },
+    // Recuperação de senha: só conta ativa e não anonimizada (a anonimizada já não tem e-mail; o filtro deixa claro)
+    async buscarIdAtivoPorEmail(email: string): Promise<number | null> {
+        const { rows } = await db.query<{ id: number }>(
+            'SELECT id FROM clientes WHERE email = $1 AND ativo AND anonimizado_em IS NULL',
+            [email],
+        )
+        return rows[0]?.id ?? null
+    },
     async inserir(dados:NovoCliente):Promise<Cliente> {
         const { rows } = await db.query<Cliente>(`INSERT INTO  clientes(nome,email,telefone,senha_hash,aceitou_termos_em) VALUES ($1,$2,$3,$4,now()) RETURNING ${colunas}`, [dados.nome, dados.email, dados.telefone, dados.senhaHash])
         return rows[0]
@@ -50,7 +58,7 @@ export const clienteRepository = {
         const { rows } = await db.query<Cliente>(`SELECT ${colunas} FROM clientes WHERE id = $1 AND ativo `,[id])
         return rows[0] ?? null
     },
-    async atualizar(id: number, dados: AtualizacaoCliente): Promise<Cliente | null> {
+    async atualizar(id: number, dados: AtualizacaoCliente, executor: Queryable = db): Promise<Cliente | null> {
         const sets: string[] = []
         const valores: unknown[] = []
         // Percorre o mapa fixo, não o objeto recebido: só nome, email e telefone podem entrar no SET
@@ -62,7 +70,7 @@ export const clienteRepository = {
         sets.push('atualizado_em = now()')
         valores.push(id)
 
-        const { rows } = await db.query<Cliente>(
+        const { rows } = await executor.query<Cliente>(
             `UPDATE clientes SET ${sets.join(', ')} WHERE id = $${valores.length} AND ativo RETURNING ${colunas}`,
             valores,
         )

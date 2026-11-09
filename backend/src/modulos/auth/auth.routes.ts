@@ -1,7 +1,13 @@
 import { Router } from 'express'
 import { autenticar } from '../../middlewares/autenticar.js'
 import { exigirOrigem } from '../../middlewares/exigirOrigem.js'
-import { limiteCadastro, limiteLogin } from '../../middlewares/rateLimit.js'
+import {
+  limiteCadastro,
+  limiteEsqueciSenhaEmail,
+  limiteEsqueciSenhaIp,
+  limiteLogin,
+  limiteRedefinirSenha,
+} from '../../middlewares/rateLimit.js'
 import { authController } from './auth.controller.js'
 
 export const authRoutes = Router()
@@ -11,3 +17,12 @@ authRoutes.post('/cadastro', exigirOrigem, limiteCadastro, authController.cadast
 authRoutes.post('/login', exigirOrigem, limiteLogin, authController.login)
 authRoutes.post('/logout', exigirOrigem, autenticar, authController.logout)
 authRoutes.get('/sessao', autenticar, authController.buscarSessao)
+// Dois limites no esqueci-senha: o do IP primeiro (quem pede demais) e depois o do e-mail (quem recebe demais)
+authRoutes.post(
+  '/esqueci-senha',
+  exigirOrigem,
+  limiteEsqueciSenhaIp,
+  limiteEsqueciSenhaEmail,
+  authController.esqueciSenha,
+)
+authRoutes.post('/redefinir-senha', exigirOrigem, limiteRedefinirSenha, authController.redefinirSenha)

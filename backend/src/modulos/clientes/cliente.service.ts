@@ -1,7 +1,10 @@
 import { AppError } from '../../utils/AppError.js'
+import { enviarEmail } from '../../utils/email.js'
+import type { MensagemEmail } from '../../utils/email.js'
 import { comTransacao } from '../../utils/transacao.js'
 import { paginacao } from '../../utils/validacao.js'
 import { authService } from '../auth/auth.service.js'
+import { tokenRepository } from '../auth/token.repository.js'
 import { vendaService } from '../vendas/venda.service.js'
 import { clienteRepository } from './cliente.repository.js'
 import type {
@@ -35,8 +38,9 @@ const msgCompraEmAndamento = {
   admin: 'Este cliente tem compras em andamento. Aguarde a entrega ou o cancelamento antes de remover a conta.',
 } as const
 
-// Lê só nome, email e telefone; qualquer outra chave (papel, ativo, id, senhaHash...) é ignorada (api.md, seção 11)
-function validarAtualizacao(body: unknown): AtualizacaoCliente {
+// Lê só nome, email e telefone, mais a senhaAtual quando o email vem (D-47); qualquer outra chave (papel, ativo, id,
+// senhaHash...) é ignorada (api.md, seção 11). A senhaAtual é conferida no service, só se o e-mail mudar
+function validarAtualizacao(body: unknown): { atualizacao: AtualizacaoCliente; senhaAtual: string } {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
   }
@@ -50,6 +54,7 @@ function validarAtualizacao(body: unknown): AtualizacaoCliente {
 
   const erros: Record<string, string> = {}
   const atualizacao: AtualizacaoCliente = {}
+  let senhaAtual = ''
 
   if (dados.nome !== undefined) {
     const nome = String(dados.nome ?? '').trim()
@@ -62,6 +67,8 @@ function validarAtualizacao(body: unknown): AtualizacaoCliente {
     const msgEmail = erroEmail(email)
     if (msgEmail) erros.email = msgEmail
     atualizacao.email = email
+    // Sem trim, como na troca de senha: espaço também é caractere da senha
+    senhaAtual = String(dados.senhaAtual ?? '')
   }
   if (dados.telefone !== undefined) {
     const telefone = normalizarTelefone(dados.telefone)
@@ -71,7 +78,24 @@ function validarAtualizacao(body: unknown): AtualizacaoCliente {
   }
 
   if (Object.keys(erros).length) throw new AppError('Dados inválidos', 422, erros)
-  return atualizacao
+  return { atualizacao, senhaAtual }
+}
+
+// Vai para o e-mail ANTIGO: sem o e-mail novo e sem link (um link num e-mail inesperado ensina a clicar em golpe)
+function montarAvisoEmailAlterado(para: string): MensagemEmail {
+  return {
+    para,
+    assunto: 'Aquarilândia: seu e-mail foi alterado',
+    texto: [
+      'Olá!',
+      '',
+      'O e-mail de acesso da sua conta na Aquarilândia acabou de ser trocado.',
+      'A partir de agora, este endereço não recebe mais as mensagens da conta.',
+      '',
+      'Se foi você, não precisa fazer nada.',
+      'Se não foi você, fale com a loja o quanto antes.',
+    ].join('\n'),
+  }
 }
 
 // Senha sem trim, como no cadastro e na troca de senha: espaço também é caractere da senha
@@ -128,17 +152,51 @@ export const clienteService = {
   },
 
   async atualizarMeusDados(clienteId: number, body: unknown): Promise<Cliente> {
-    const dados = validarAtualizacao(body)
+    const { atualizacao: dados, senhaAtual } = validarAtualizacao(body)
 
+    // Preenchido só quando o e-mail muda de verdade: é para ele que vai o aviso
+    let emailAntigo: string | null = null
     if (typeof dados.email === 'string') {
-      const donoDoEmail = await clienteRepository.buscarPorEmail(dados.email)
-      // Mandar o próprio e-mail de volta (ex.: em maiúsculas) não é conflito
-      if (donoDoEmail && donoDoEmail.id !== clienteId) throw new AppError(msgAlteracaoRecusada, 409, detalhesEmailEmUso)
+      const atual = await clienteRepository.buscarPorId(clienteId)
+      if (!atual) throw new AppError('Cliente não encontrado.', 404)
+
+      if (atual.email === dados.email) {
+        // O próprio e-mail (ex.: em maiúsculas, já normalizado) não exige senha e nem é regravado
+        delete dados.email
+      } else {
+        // D-47: sessão roubada + recuperação de senha = conta roubada. Trocar o e-mail exige a senha atual
+        if (senhaAtual === '') {
+          throw new AppError('Dados inválidos', 422, { senhaAtual: 'Digite sua senha atual para trocar o e-mail.' })
+        }
+        const hash = await clienteRepository.buscarHashSenha(clienteId)
+        if (!hash) throw new AppError('Faça login para continuar.', 401)
+        // Mesmo curto-circuito da troca de senha; o argon2 roda aqui, fora da transação
+        const senhaConfere = senhaAtual.length <= 128 && (await verificarSenha(hash, senhaAtual))
+        if (!senhaConfere) throw new AppError('Dados inválidos', 422, { senhaAtual: 'Senha atual incorreta.' })
+
+        // Depois da senha: sem ela, a sessão roubada não descobre quais e-mails têm conta
+        const donoDoEmail = await clienteRepository.buscarPorEmail(dados.email)
+        if (donoDoEmail && donoDoEmail.id !== clienteId) {
+          throw new AppError(msgAlteracaoRecusada, 409, detalhesEmailEmUso)
+        }
+        emailAntigo = atual.email
+      }
     }
 
     let cliente: Cliente | null
     try {
-      cliente = await clienteRepository.atualizar(clienteId, dados)
+      if (emailAntigo === null) {
+        cliente = await clienteRepository.atualizar(clienteId, dados)
+      } else {
+        cliente = await comTransacao(async (client) => {
+          // Cliente travado primeiro, como no esqueci-senha: um link não nasce no meio da troca do e-mail
+          if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) return null
+          const atualizado = await clienteRepository.atualizar(clienteId, dados, client)
+          // O link de recuperação mandado ao e-mail antigo deixa de valer
+          await tokenRepository.excluirDoCliente(clienteId, client)
+          return atualizado
+        })
+      }
     } catch (err) {
       // Outro cliente pegou o mesmo e-mail entre a checagem acima e o UPDATE
       if (ehEmailDuplicado(err)) throw new AppError(msgAlteracaoRecusada, 409, detalhesEmailEmUso)
@@ -146,6 +204,13 @@ export const clienteService = {
     }
 
     if (!cliente) throw new AppError('Cliente não encontrado.', 404)
+
+    // Depois do COMMIT e sem esperar o provedor. Se não foi a pessoa, o aviso chega no endereço que ela ainda lê
+    if (emailAntigo !== null) {
+      void enviarEmail(montarAvisoEmailAlterado(emailAntigo)).catch(() => {
+        console.error('[troca-email] falha ao enviar o aviso')
+      })
+    }
     return cliente
   },
 

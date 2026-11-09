@@ -462,21 +462,69 @@ Origin: {{origem}}
   "telefone": "123"
 }
 
-# 409 - e-mail de outra conta (detalhes.email)
+# 409 - e-mail de outra conta (detalhes.email). Desde a D-47 a senha atual vem antes: sem ela seria 422
 ###
 PATCH {{api}}/clientes/me
 Content-Type: application/json
 Origin: {{origem}}
 
-{ "email": "teste.conta.bruno@example.com" }
+{
+  "email": "teste.conta.bruno@example.com",
+  "senhaAtual": "senhaAna1234"
+}
 
-# 200 - o próprio e-mail em maiúsculas não é conflito (fica salvo em minúsculas)
+# 200 - o próprio e-mail em maiúsculas não é conflito nem troca: não pede senhaAtual (fica salvo em minúsculas)
 ###
 PATCH {{api}}/clientes/me
 Content-Type: application/json
 Origin: {{origem}}
 
-{ "email": "TESTE.CONTA.ANA@EXEMPLO.COM" }
+{ "email": "TESTE.CONTA.ANA@EXAMPLE.COM" }
+
+# ----- D-47: trocar o e-mail exige a senha atual -----
+# As tentativas com email no body contam no mesmo limite da troca de senha (5 erros em 15 min).
+
+# 422 - e-mail novo sem senhaAtual (detalhes.senhaAtual: 'Digite sua senha atual para trocar o e-mail.')
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "teste.conta.ana2@example.com" }
+
+# 422 - senha atual errada (detalhes.senhaAtual: 'Senha atual incorreta.')
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana2@example.com",
+  "senhaAtual": "senhaErrada999"
+}
+
+# 200 - com a senha certa: o e-mail muda, os links de recuperação pendentes morrem e o aviso
+# "Aquarilândia: seu e-mail foi alterado" vai para o e-mail ANTIGO (em dev sem chave: "[email:dev]" no terminal)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana2@example.com",
+  "senhaAtual": "senhaAna1234"
+}
+
+# 200 - volta para o e-mail original (para os blocos seguintes continuarem valendo)
+###
+PATCH {{api}}/clientes/me
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "email": "teste.conta.ana@example.com",
+  "senhaAtual": "senhaAna1234"
+}
 
 # 400 - body null: o express.json (modo strict, no app.ts) recusa raiz que não é objeto nem array
 # antes de chegar ao service. Com [] ou sem body, quem responde é o service: 422 detalhes.body.
@@ -586,6 +634,71 @@ Origin: {{origem}}
 {
   "senhaAtual": "senhaErrada999",
   "novaSenha": "outraSenha1234"
+}
+
+# ===== RECUPERAÇÃO DE SENHA (esqueci-senha e redefinir-senha) =====
+# O servidor precisa de FRONTEND_URL (ex.: http://localhost:5173); sem ela, nenhum link é criado.
+# Em desenvolvimento sem EMAIL_API_KEY, o e-mail aparece no terminal do servidor como "[email:dev]",
+# com o link .../redefinir-senha?token=<token>. Copie o token de lá para @tokenRecuperacao (não commite).
+# RATE LIMIT: esqueci-senha aceita 3 pedidos por hora por IP e 3 por hora por e-mail, CONTANDO os que deram
+# certo; redefinir-senha, 10 por hora por IP. Reinicie o servidor para zerar os contadores.
+@tokenRecuperacao=COLE_AQUI_O_TOKEN_DO_TERMINAL
+
+# 202 - conta existente: a resposta é sempre a mesma
+###
+POST {{api}}/auth/esqueci-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "teste.conta.ana@example.com" }
+
+# 202 - conta que não existe: o MESMO corpo, sem e-mail no terminal
+###
+POST {{api}}/auth/esqueci-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "ninguem.teste@example.com" }
+
+# 422 - e-mail mal formado (detalhes.email)
+###
+POST {{api}}/auth/esqueci-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "email": "nada" }
+
+# 400 - token inventado: 'Link inválido ou expirado.' (a mesma mensagem para vencido, já usado ou conta desativada)
+###
+POST {{api}}/auth/redefinir-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "token": "tokeninventado",
+  "novaSenha": "senhaRedefinida1234"
+}
+
+# 422 - nova senha curta (detalhes.novaSenha)
+###
+POST {{api}}/auth/redefinir-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "token": "{{tokenRecuperacao}}",
+  "novaSenha": "123"
+}
+
+# 204 - redefine com o token do terminal: todas as sessões da conta caem e o link não vale de novo (repita: 400)
+###
+POST {{api}}/auth/redefinir-senha
+Content-Type: application/json
+Origin: {{origem}}
+
+{
+  "token": "{{tokenRecuperacao}}",
+  "novaSenha": "senhaRedefinida1234"
 }
 
 # ===== ENDEREÇOS (/me/enderecos) =====
@@ -1070,3 +1183,252 @@ Content-Type: application/json
 DELETE {{api}}/clientes/{{idClienteAdm}}
 Cookie: sid={{sessaoAdmin}}
 Origin: {{origem}}
+
+# ===== FRETE E VENDAS =====
+# Troque os ids pelos de produtos ativos do seu banco de dev (o cadastro cria tudo com estoque 0: dê entrada
+# em POST /api/estoque/movimentacoes antes de comprar) e pelo id de um endereço do cliente logado.
+@produtoA=1
+@produtoB=2
+@produtoPeixe=3
+@enderecoId=SUBSTITUA_PELO_ID_DE_UM_ENDERECO_DO_CLIENTE
+
+# 200 - cotação pública em São João del Rei: { frete, prazoDias, tipoEntrega: 'propria', subtotal, total }
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 2 }, { "produtoId": {{produtoB}}, "quantidade": 1 }], "cep": "36307-000" }
+
+# 200 - outro estado (Correios) e retirada na loja (frete 0)
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "cep": "01001000" }
+
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }, { "produtoId": {{produtoPeixe}}, "quantidade": 1 }], "retirada": true }
+
+# 422 - peixe fora de São João del Rei: 'itens.1.produtoId' (índice do item no body)
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }, { "produtoId": {{produtoPeixe}}, "quantidade": 1 }], "cep": "01001000" }
+
+# 422 - sem cep e sem retirada: { entrega: 'Escolha um endereço de entrega ou retirar na loja.' }
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }] }
+
+# 403 - sem Origin (429 depois de 30 cotações no mesmo minuto, por IP)
+###
+# @no-cookie-jar
+POST {{api}}/frete/calcular
+Content-Type: application/json
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true }
+
+# POST /api/vendas exige o header Idempotency-Key (UUID canônico em minúsculas) e o totalEsperado no body.
+# totalEsperado = o "total" da cotação acima para o MESMO carrinho e a MESMA entrega. Para uma compra nova, troque a
+# chave (ex.: gere com {{$guid}} e passe para minúsculas); para testar a repetição, mande de novo com a MESMA chave.
+@chaveVenda=7f0c6a7e-2b1d-4c3a-9e8f-1a2b3c4d5e6f
+@totalEsperado=SUBSTITUA_PELO_TOTAL_DA_COTACAO
+
+# 201 - venda com entrega no endereço salvo. Preço, total, status e clienteId do body são ignorados
+# 201 de novo, com o MESMO id e o header Idempotent-Replayed: true - mandar este pedido uma segunda vez (mesma chave)
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: {{chaveVenda}}
+
+{
+  "itens": [
+    { "produtoId": {{produtoA}}, "quantidade": 2, "precoUnitario": 1 },
+    { "produtoId": {{produtoA}}, "quantidade": 1 }
+  ],
+  "enderecoId": {{enderecoId}},
+  "totalEsperado": {{totalEsperado}},
+  "total": 1,
+  "status": "paga"
+}
+
+# 409 - a mesma chave com OUTRO carrinho: 'Esta chave já foi usada em outra compra.'
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: {{chaveVenda}}
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# 409 - total diferente do recalculado: 'O valor da compra mudou desde a cotação. Confira o carrinho antes de finalizar.'
+#       { totalEsperado: 'O total agora é R$ X,YY.' } (nada é criado; a chave continua livre)
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: 0b3e7a52-9c41-4f6d-8a2b-5d7e1c9f3a60
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true, "totalEsperado": 1 }
+
+# 400 - sem Idempotency-Key: { 'Idempotency-Key': 'Informe um UUID canônico em minúsculas (versão 1 a 8 e variante RFC).' }
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# 422 - sem totalEsperado: { totalEsperado: 'Atualize o carrinho antes de finalizar a compra.' }
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: 4c9d2e18-6a3f-4b7e-9d1c-8e2f5a7b3c04
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true }
+
+# 201 - retirada na loja: tipoEntrega 'retirada', frete 0, entrega null
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: 9a1f4c7e-3d2b-4e8a-b6c5-1f0e9d8c7b6a
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# 409 - estoque insuficiente: { 'itens.0.quantidade': 'Não temos essa quantidade em estoque.' }
+# 409 - a 6ª compra aguardando pagamento: 'Você já tem 5 compras aguardando pagamento.'
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: 2e6b8d40-7f1a-4c3e-a9d2-6b5c4f3e2d10
+
+{ "itens": [{ "produtoId": {{produtoB}}, "quantidade": 50 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# 422 - 31 itens, quantidade 51, ou o mesmo produto somando mais de 50 (aqui: 'itens.0.quantidade')
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: 5d3c1b9a-8e7f-4a6b-8c2d-3e4f5a6b7c8d
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 30 }, { "produtoId": {{produtoA}}, "quantidade": 21 }], "retirada": true, "totalEsperado": 0 }
+
+# 404 - endereço que não é do cliente logado: 'Endereço não encontrado.'
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: 6f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "enderecoId": 2147483000, "totalEsperado": {{totalEsperado}} }
+
+# 401 - sem login
+###
+# @no-cookie-jar
+POST {{api}}/vendas
+Content-Type: application/json
+Origin: {{origem}}
+Idempotency-Key: {{chaveVenda}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# 403 - sem Origin
+###
+POST {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+Content-Type: application/json
+Idempotency-Key: {{chaveVenda}}
+
+{ "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# ===== COMPRAS DO CLIENTE =====
+# GET /api/clientes/me/vendas (#33) e GET /api/clientes/me/vendas/:id (#34): do cliente logado, sem Origin (são leituras).
+# GET /api/clientes/:id/vendas (#37): só admin, o mesmo formato. Todas com Cache-Control: no-store.
+# Faça antes uma compra em "FRETE E VENDAS" e anote o id devolvido.
+@idVenda=SUBSTITUA_PELO_ID_DE_UMA_VENDA_DO_CLIENTE
+
+# 200 - { dados, total, pagina, limite }, mais recentes primeiro. Cada item: id, status, total, tipoEntrega,
+# quantidadeItens, resumo ('Filtro X' ou 'Filtro X e mais 2 itens') e criadoEm
+###
+GET {{api}}/clientes/me/vendas
+Cookie: sid={{sessaoCliente}}
+
+# 200 - filtro por status e paginação (limite até 100)
+###
+GET {{api}}/clientes/me/vendas?status=cancelada&pagina=1&limite=5
+Cookie: sid={{sessaoCliente}}
+
+# 400 - 'Parâmetros inválidos', { status: 'Status inválido.', limite: 'O limite precisa ser um número inteiro de 1 a 100.' }
+###
+GET {{api}}/clientes/me/vendas?status=xyz&limite=500
+Cookie: sid={{sessaoCliente}}
+
+# 401 - sem login
+###
+# @no-cookie-jar
+GET {{api}}/clientes/me/vendas
+
+# 200 - a compra completa (itens, entrega) + codigoRastreio, historico [{ status, data }] e pagamento
+# ({ status, metodo, criadoEm } ou null). Nada de quem mudou o status, ids do gateway, código Pix ou estorno
+###
+GET {{api}}/clientes/me/vendas/{{idVenda}}
+Cookie: sid={{sessaoCliente}}
+
+# 404 - compra de outro cliente ou inexistente: 'Compra não encontrada.' (o mesmo nos dois casos)
+###
+GET {{api}}/clientes/me/vendas/2147483647
+Cookie: sid={{sessaoCliente}}
+
+# 400 - 'Id inválido.'
+###
+GET {{api}}/clientes/me/vendas/abc
+Cookie: sid={{sessaoCliente}}
+
+# 200 - admin: as compras de um cliente (também de conta desativada ou anonimizada), mesmo formato e filtros
+###
+GET {{api}}/clientes/{{idClienteAdm}}/vendas?pagina=1&limite=20
+Cookie: sid={{sessaoAdmin}}
+
+# 403 - cliente logado; 404 - cliente inexistente: 'Cliente não encontrado.'
+###
+GET {{api}}/clientes/{{idClienteAdm}}/vendas
+Cookie: sid={{sessaoCliente}}
+
+###
+GET {{api}}/clientes/2147483647/vendas
+Cookie: sid={{sessaoAdmin}}
+
+# Expiração (#32): não tem rota. Uma venda 'aguardando_pagamento' vencida há mais de 5 minutos é cancelada pela
+# tarefa do servidor (a cada 5 min; a primeira rodada 30 s depois de subir), com o estoque devolvido. Para ver no
+# banco de dev, depois de uma rodada:
+#   SELECT id, status, expira_em FROM vendas WHERE id = <id>;
+#   SELECT status_novo, origem, observacao FROM historico_status_venda WHERE venda_id = <id> ORDER BY id;

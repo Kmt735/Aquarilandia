@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import { idParam } from '../../utils/validacao.js'
 import { authService } from '../auth/auth.service.js'
 import { opcoesCookie } from '../auth/sessao.cookie.js'
+import { vendaService } from '../vendas/venda.service.js'
 import { clienteService } from './cliente.service.js'
 
 // O `!` em req.usuario é seguro só porque toda rota /me passa antes pelo `autenticar`
@@ -27,6 +28,16 @@ export const clienteController = {
     res.status(204).end()
   },
 
+  // Compras do cliente: a consulta é do módulo vendas. no-store: dados pessoais (endereço, histórico, pagamento)
+  async listarMinhasVendas(req: Request, res: Response): Promise<void> {
+    res.set('Cache-Control', 'no-store').json(await vendaService.listarDoCliente(req.usuario!.id, req.query))
+  },
+
+  async buscarMinhaVenda(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    res.set('Cache-Control', 'no-store').json(await vendaService.buscarDoCliente(id, req.usuario!.id))
+  },
+
   // no-store nas respostas de admin: têm dados pessoais e não podem ficar em cache (como na D-41)
   async listarParaAdmin(req: Request, res: Response): Promise<void> {
     res.set('Cache-Control', 'no-store').json(await clienteService.listarParaAdmin(req.query))
@@ -40,6 +51,11 @@ export const clienteController = {
   async definirAtivoPeloAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
     const id = idParam(req.params.id)
     res.set('Cache-Control', 'no-store').json(await clienteService.definirAtivoPeloAdmin(req.usuario!.id, id, req.body))
+  },
+
+  async listarVendasDoCliente(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    res.set('Cache-Control', 'no-store').json(await vendaService.listarDoClienteParaAdmin(id, req.query))
   },
 
   async removerPeloAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
