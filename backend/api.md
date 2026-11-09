@@ -169,14 +169,14 @@ GET    /api/clientes/me/enderecos               (cliente)
 POST   /api/clientes/me/enderecos               (cliente)
 PATCH  /api/clientes/me/enderecos/:enderecoId   (cliente, dono)
 DELETE /api/clientes/me/enderecos/:enderecoId   (cliente, dono)
-GET    /api/clientes/me/vendas                  ?status=&pagina=&limite=   (cliente)
-GET    /api/clientes/me/vendas/:id              (cliente, dono — inclui itens e histórico)
+GET    /api/clientes/me/vendas                  ?status=&pagina=&limite=   (cliente — ver seção 6)
+GET    /api/clientes/me/vendas/:id              (cliente, dono — inclui itens, histórico e pagamento; ver seção 6)
 
 GET    /api/clientes                            ?busca=&papel=&pagina=&limite=   (admin — ver seção 6)
 GET    /api/clientes/:id                        (admin — inclui endereços, totalVendas e totalGasto; ver seção 6)
 PATCH  /api/clientes/:id                        { ativo }   (admin — ativar/desativar; ver seção 6)
 DELETE /api/clientes/:id                        (admin — anonimiza, LGPD; ver seção 6)
-GET    /api/clientes/:id/vendas                 (admin — ainda não implementada, depende da #33)
+GET    /api/clientes/:id/vendas                 ?status=&pagina=&limite=   (admin — ver seção 6)
 
 POST   /api/frete/calcular                      (público, rate limit)
 
@@ -1374,6 +1374,87 @@ a venda (D-12).
   `itensIndisponiveis`, D-50/D-51). A venda traduz cada `produtoId` para o primeiro índice do item no body antes de
   responder; o `produtoId` não aparece na resposta. Produto inativo nunca chega a esse 409: ele é recusado antes, com
   `422` `'Produto indisponível.'`.
+
+### Compras do cliente (#33, #34, #37) e expiração das vendas (#32) — implementados em 09/11/2026
+
+As três rotas respondem com `Cache-Control: no-store` (endereço, histórico e pagamento são dados pessoais) e não
+exigem `Origin` (são leituras, como o `GET /me`). O dono vem **sempre** da sessão (`req.usuario.id`), nunca da URL
+(D-08). As duas `/me/vendas` ficam **acima** da guarda do `clienteRoutes`; a `/:id/vendas`, **abaixo** dela (só admin).
+
+**`GET /api/clientes/me/vendas`** — as compras do cliente logado, paginadas (seção 4: `{ dados, total, pagina, limite }`),
+das mais recentes para as mais antigas (`criadoEm` decrescente e depois `id` decrescente).
+
+| Query | Regra | Erro (`400` `'Parâmetros inválidos'`) |
+|---|---|---|
+| `status` | opcional; um dos valores do DOMAIN `status_venda` (`aguardando_pagamento`, `paga`, `em_separacao`, `enviada`, `pronta_retirada`, `entregue`, `cancelamento_solicitado`, `cancelada`), exatamente; repetido também é inválido | `{ status: 'Status inválido.' }` |
+| `pagina`, `limite` | seção 4 (padrão 1 e 20, máximo 100) | mensagens da seção 4 |
+
+Os erros de `status` e da paginação saem juntos num `400` só. Cada item:
+
+```json
+{ "id": 42, "status": "aguardando_pagamento", "total": 7470, "tipoEntrega": "propria",
+  "quantidadeItens": 3, "resumo": "Filtro X e mais 2 itens", "criadoEm": "2026-11-09T15:00:00.000Z" }
+```
+
+- `quantidadeItens` = linhas de `itens_venda` (produtos diferentes da compra), não a soma das quantidades.
+- `resumo` = o nome do **primeiro** item da compra (menor `id` de `itens_venda`, a ordem em que os produtos apareceram
+  no `POST /api/vendas`): 1 item → `'Filtro X'`; 2 → `'Filtro X e mais 1 item'`; 3 ou mais → `'Filtro X e mais N itens'`.
+  `null` só numa venda sem itens, que a API não cria.
+- Uma consulta para a página inteira (sem N+1) e uma de contagem com o mesmo `WHERE`.
+
+Sem login → `401` `'Faça login para continuar.'`.
+
+**`GET /api/clientes/me/vendas/:id`** — a compra do cliente logado, no mesmo formato da resposta do `POST /api/vendas`
+(itens e entrega), mais:
+
+- `codigoRastreio`: o código dos Correios, ou `null`;
+- `historico`: `[{ status, data }]` em ordem cronológica (desempate pelo `id`). **Sem** `origem`, quem mudou
+  (`alterado_por_id`) nem `observacao`: são dados internos da loja;
+- `pagamento`: **um** pagamento, ou `null` se a compra não tiver nenhum. É o `aprovado` mais recente; sem aprovado, o
+  mais recente de qualquer status (desempate pelo `id`). Só `{ status, metodo, criadoEm }`: nunca ids do gateway, código
+  Pix, valor, `status_detalhe` ou dados de estorno. A mensagem amigável por status fica para a #48. Quando a #35 criar
+  o `estorno_solicitado_em`, a regra passa a ser "aprovado e sem estorno marcado" (anotado para a #47).
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `200` | Compra do cliente logado | a compra |
+| `400` | `:id` que não é inteiro positivo | `'Id inválido.'` |
+| `401` | Sem login | `'Faça login para continuar.'` |
+| `404` | Inexistente **ou de outro cliente** (a mesma resposta: não confirma que existe) | `'Compra não encontrada.'` |
+
+**`GET /api/clientes/:id/vendas`** (admin) — as compras de um cliente, com o mesmo formato, a mesma paginação e o
+mesmo filtro `status` da `/me/vendas`. Encontra também contas desativadas e anonimizadas (o histórico de vendas de
+uma conta anonimizada continua visível para a loja). A query é conferida antes de procurar o cliente.
+
+| Status | Quando | Resposta |
+|---|---|---|
+| `400` | `:id` inválido / query inválida | `'Id inválido.'` / `'Parâmetros inválidos'` com `detalhes` |
+| `401` / `403` | Sem login / cliente (a guarda do `clienteRoutes`) | `'Faça login para continuar.'` / `'Acesso permitido somente para administradores.'` |
+| `404` | Cliente inexistente | `'Cliente não encontrado.'` |
+
+**Expiração das vendas não pagas (#32, D-16)** — tarefa agendada do módulo `vendas` (`venda.tarefas.ts`), iniciada pelo
+`server.ts` depois do `listen`. Não tem rota. Não roda com `NODE_ENV=test` (os testes chamam `executarExpiracao` direto).
+
+- Roda a cada **5 minutos**, e uma primeira vez **30 s** depois de o servidor subir. Nunca duas rodadas ao mesmo tempo
+  no mesmo processo; os timers não seguram o processo vivo (`unref`).
+- Cada rodada pega até **100** vendas `aguardando_pagamento` com `expira_em` vencido há **mais de 5 minutos** (as mais
+  antigas primeiro; o resto fica para a rodada seguinte). A folga existe porque o Pix vence junto com a venda, mas o
+  aviso da AbacatePay pode chegar com atraso: sem ela, uma venda paga no último segundo seria cancelada. A reconsulta do
+  pagamento no gateway antes de cancelar entra na #47.
+- Cada venda tem a **sua** transação: `aguardando_pagamento → cancelada` pelo `mudarStatus` (histórico com origem
+  `sistema` e a observação `'Pagamento não recebido no prazo.'`) e `estoqueService.estornarVenda` na mesma transação —
+  cancelada e estoque devolvido juntos, ou nenhum dos dois. A trava otimista (`WHERE status = 'aguardando_pagamento'`)
+  faz a venda que foi paga ou cancelada nesse meio-tempo ficar como está, e impede duas rodadas (ou duas instâncias do
+  servidor) de cancelar a mesma venda duas vezes; o `estornarVenda` também é idempotente.
+- Venda sem baixa de estoque (dado inconsistente, ex.: inserida à mão): o `409 'Venda sem baixa original de estoque'`
+  não desfaz o cancelamento (não havia estoque baixado a devolver) e vai para o log
+  (`[expiracao] venda <id> sem baixa de estoque`). Qualquer outro erro desfaz só a transação daquela venda, conta como
+  erro e vai para o log com um código curto (`[expiracao] venda <id>: <código>`), sem dados pessoais; as outras vendas
+  seguem, e a venda que falhou é tentada de novo na próxima rodada.
+- **Limpezas**, na mesma rodada: `authService.limparSessoesVencidas()` e `authService.limparTokensVencidos()` apagam as
+  linhas de `sessoes` e de `tokens_recuperacao_senha` com `expira_em` no passado. Elas já não valiam (as consultas
+  conferem `expira_em > now()`); apagar só impede que as tabelas cresçam para sempre. A tarefa chama o service do auth,
+  nunca os repositories (seção 8).
 
 ---
 

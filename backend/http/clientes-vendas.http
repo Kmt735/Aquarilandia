@@ -1369,3 +1369,66 @@ Content-Type: application/json
 Idempotency-Key: {{chaveVenda}}
 
 { "itens": [{ "produtoId": {{produtoA}}, "quantidade": 1 }], "retirada": true, "totalEsperado": {{totalEsperado}} }
+
+# ===== COMPRAS DO CLIENTE =====
+# GET /api/clientes/me/vendas (#33) e GET /api/clientes/me/vendas/:id (#34): do cliente logado, sem Origin (são leituras).
+# GET /api/clientes/:id/vendas (#37): só admin, o mesmo formato. Todas com Cache-Control: no-store.
+# Faça antes uma compra em "FRETE E VENDAS" e anote o id devolvido.
+@idVenda=SUBSTITUA_PELO_ID_DE_UMA_VENDA_DO_CLIENTE
+
+# 200 - { dados, total, pagina, limite }, mais recentes primeiro. Cada item: id, status, total, tipoEntrega,
+# quantidadeItens, resumo ('Filtro X' ou 'Filtro X e mais 2 itens') e criadoEm
+###
+GET {{api}}/clientes/me/vendas
+Cookie: sid={{sessaoCliente}}
+
+# 200 - filtro por status e paginação (limite até 100)
+###
+GET {{api}}/clientes/me/vendas?status=cancelada&pagina=1&limite=5
+Cookie: sid={{sessaoCliente}}
+
+# 400 - 'Parâmetros inválidos', { status: 'Status inválido.', limite: 'O limite precisa ser um número inteiro de 1 a 100.' }
+###
+GET {{api}}/clientes/me/vendas?status=xyz&limite=500
+Cookie: sid={{sessaoCliente}}
+
+# 401 - sem login
+###
+# @no-cookie-jar
+GET {{api}}/clientes/me/vendas
+
+# 200 - a compra completa (itens, entrega) + codigoRastreio, historico [{ status, data }] e pagamento
+# ({ status, metodo, criadoEm } ou null). Nada de quem mudou o status, ids do gateway, código Pix ou estorno
+###
+GET {{api}}/clientes/me/vendas/{{idVenda}}
+Cookie: sid={{sessaoCliente}}
+
+# 404 - compra de outro cliente ou inexistente: 'Compra não encontrada.' (o mesmo nos dois casos)
+###
+GET {{api}}/clientes/me/vendas/2147483647
+Cookie: sid={{sessaoCliente}}
+
+# 400 - 'Id inválido.'
+###
+GET {{api}}/clientes/me/vendas/abc
+Cookie: sid={{sessaoCliente}}
+
+# 200 - admin: as compras de um cliente (também de conta desativada ou anonimizada), mesmo formato e filtros
+###
+GET {{api}}/clientes/{{idClienteAdm}}/vendas?pagina=1&limite=20
+Cookie: sid={{sessaoAdmin}}
+
+# 403 - cliente logado; 404 - cliente inexistente: 'Cliente não encontrado.'
+###
+GET {{api}}/clientes/{{idClienteAdm}}/vendas
+Cookie: sid={{sessaoCliente}}
+
+###
+GET {{api}}/clientes/2147483647/vendas
+Cookie: sid={{sessaoAdmin}}
+
+# Expiração (#32): não tem rota. Uma venda 'aguardando_pagamento' vencida há mais de 5 minutos é cancelada pela
+# tarefa do servidor (a cada 5 min; a primeira rodada 30 s depois de subir), com o estoque devolvido. Para ver no
+# banco de dev, depois de uma rodada:
+#   SELECT id, status, expira_em FROM vendas WHERE id = <id>;
+#   SELECT status_novo, origem, observacao FROM historico_status_venda WHERE venda_id = <id> ORDER BY id;
