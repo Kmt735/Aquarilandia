@@ -1,6 +1,7 @@
 import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
 import type { Queryable } from '../../utils/transacao.js'
+import { paginacao } from '../../utils/validacao.js'
 import { produtoService } from '../catalogo/produto.service.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
 import type { Endereco } from '../clientes/cliente.types.js'
@@ -9,7 +10,16 @@ import { estoqueService } from '../estoque/estoque.service.js'
 import { calcularFrete } from './frete.service.js'
 import type { ResultadoFrete } from './frete.service.js'
 import { vendaRepository } from './venda.repository.js'
-import type { ItemPedido, NovoItemVenda, ResultadoCriacaoVenda, StatusVenda, VendaCriada } from './venda.types.js'
+import { listaStatusVenda } from './venda.types.js'
+import type {
+  FiltroVendas,
+  ItemPedido,
+  NovoItemVenda,
+  PaginaVendas,
+  ResultadoCriacaoVenda,
+  StatusVenda,
+  VendaCriada,
+} from './venda.types.js'
 import {
   exigirDisponiveis,
   formatarReais,
@@ -73,6 +83,50 @@ function violouChaveUnica(err: unknown): boolean {
   return code === '23505' && constraint === 'uq_vendas_cliente_chave'
 }
 
+// 'Filtro X' (1 item), 'Filtro X e mais 1 item' (2) ou 'Filtro X e mais 2 itens' (3 ou mais).
+// quantidade = linhas de itens_venda (produtos diferentes), não a soma das quantidades. Exportada para os testes
+export function montarResumo(primeiroItem: string | null, quantidadeItens: number): string | null {
+  if (primeiroItem === null || quantidadeItens < 1) return null
+  const outros = quantidadeItens - 1
+  if (outros === 0) return primeiroItem
+  return `${primeiroItem} e mais ${outros} ${outros === 1 ? 'item' : 'itens'}`
+}
+
+// ?status= (opcional, um dos valores do DOMAIN status_venda) e a paginação da seção 4. Os erros dos dois saem juntos
+function validarFiltroVendas(query: Record<string, unknown>): FiltroVendas {
+  const erros: Record<string, string> = {}
+  let status: StatusVenda | null = null
+  if (query.status !== undefined) {
+    // Repetido (?status=a&status=b) chega como array e também é inválido
+    const valor = query.status
+    if (typeof valor === 'string' && (listaStatusVenda as readonly string[]).includes(valor)) {
+      status = valor as StatusVenda
+    } else {
+      erros.status = 'Status inválido.'
+    }
+  }
+
+  let pagina: { pagina: number; limite: number } = { pagina: 1, limite: 20 }
+  try {
+    pagina = paginacao(query)
+  } catch (err) {
+    if (!(err instanceof AppError)) throw err
+    Object.assign(erros, err.detalhes)
+  }
+
+  if (Object.keys(erros).length) throw new AppError('Parâmetros inválidos', 400, erros)
+  return { status, ...pagina }
+}
+
+async function listarVendas(clienteId: number, filtro: FiltroVendas): Promise<PaginaVendas> {
+  const { linhas, total } = await vendaRepository.listarDoCliente(clienteId, filtro)
+  const dados = linhas.map(({ primeiroItem, ...linha }) => ({
+    ...linha,
+    resumo: montarResumo(primeiroItem, linha.quantidadeItens),
+  }))
+  return { dados, total, pagina: filtro.pagina, limite: filtro.limite }
+}
+
 async function vendaCompleta(id: number, clienteId: number, executor?: Queryable): Promise<VendaCriada> {
   const venda = await vendaRepository.buscarCompleta(id, clienteId, executor)
   if (!venda) throw new Error('Venda do cliente não encontrada logo depois de gravada.')
@@ -91,6 +145,11 @@ async function repetir(
 }
 
 export const vendaService = {
+  // GET /api/clientes/me/vendas (#33): clienteId vem SEMPRE da sessão (req.usuario.id), nunca da URL (D-08)
+  async listarDoCliente(clienteId: number, query: Record<string, unknown>): Promise<PaginaVendas> {
+    return listarVendas(clienteId, validarFiltroVendas(query))
+  },
+
   async temCompraEmAndamento(clienteId: number, executor: Queryable): Promise<boolean> {
     return (await vendaRepository.contarEmAndamentoDoCliente(clienteId, statusEmAndamento, executor)) > 0
   },

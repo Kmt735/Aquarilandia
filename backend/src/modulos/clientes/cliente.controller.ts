@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import { idParam } from '../../utils/validacao.js'
 import { authService } from '../auth/auth.service.js'
 import { opcoesCookie } from '../auth/sessao.cookie.js'
+import { vendaService } from '../vendas/venda.service.js'
 import { clienteService } from './cliente.service.js'
 
 // O `!` em req.usuario é seguro só porque toda rota /me passa antes pelo `autenticar`
@@ -25,6 +26,11 @@ export const clienteController = {
     // Mesmos atributos do login, senão o navegador não apaga o cookie da sessão
     res.clearCookie('sid', opcoesCookie)
     res.status(204).end()
+  },
+
+  // Compras do cliente: a consulta é do módulo vendas. no-store: dados pessoais (endereço, histórico, pagamento)
+  async listarMinhasVendas(req: Request, res: Response): Promise<void> {
+    res.set('Cache-Control', 'no-store').json(await vendaService.listarDoCliente(req.usuario!.id, req.query))
   },
 
   // no-store nas respostas de admin: têm dados pessoais e não podem ficar em cache (como na D-41)

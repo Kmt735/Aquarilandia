@@ -1,7 +1,15 @@
 import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
-import type { NovaVenda, NovoItemVenda, StatusVenda, TipoEntrega, VendaCriada } from './venda.types.js'
+import type {
+  FiltroVendas,
+  LinhaResumoVenda,
+  NovaVenda,
+  NovoItemVenda,
+  StatusVenda,
+  TipoEntrega,
+  VendaCriada,
+} from './venda.types.js'
 
 // Linha de vendas lida pelo buscarCompleta: os entrega_* de endereço são NULL na retirada
 interface LinhaVenda {
@@ -224,5 +232,39 @@ export const vendaRepository = {
       [limite],
     )
     return rows.map((linha) => linha.id)
+  },
+
+  // ---------- #33 e #37 compras do cliente ----------
+
+  // Uma consulta para a página inteira, sem N+1: o LATERAL conta os itens e pega o nome do primeiro (menor id de
+  // itens_venda) de cada venda. Um agregado sem GROUP BY sempre devolve uma linha, então a venda sem itens também
+  // aparece (0 e NULL). A contagem usa o MESMO WHERE. Tudo entra como parâmetro, inclusive o LIMIT e o OFFSET
+  async listarDoCliente(clienteId: number, filtro: FiltroVendas): Promise<{ linhas: LinhaResumoVenda[]; total: number }> {
+    const valores: unknown[] = [clienteId]
+    let where = 'WHERE v.cliente_id = $1'
+    if (filtro.status) {
+      valores.push(filtro.status)
+      where += ` AND v.status = $${valores.length}`
+    }
+
+    const { rows: contagem } = await db.query<{ total: number }>(
+      `SELECT count(*)::int AS total FROM vendas v ${where}`,
+      valores,
+    )
+    const { rows } = await db.query<LinhaResumoVenda>(
+      `SELECT v.id, v.status, v.total, v.tipo_entrega AS "tipoEntrega", i.quantidade AS "quantidadeItens",
+              i.primeiro AS "primeiroItem", v.criado_em AS "criadoEm"
+         FROM vendas v
+        CROSS JOIN LATERAL (
+          SELECT count(*)::int AS quantidade, (array_agg(iv.nome_produto ORDER BY iv.id))[1] AS primeiro
+            FROM itens_venda iv
+           WHERE iv.venda_id = v.id
+        ) i
+        ${where}
+        ORDER BY v.criado_em DESC, v.id DESC
+        LIMIT $${valores.length + 1} OFFSET $${valores.length + 2}`,
+      [...valores, filtro.limite, (filtro.pagina - 1) * filtro.limite],
+    )
+    return { linhas: rows, total: contagem[0].total }
   },
 }

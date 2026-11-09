@@ -1,12 +1,16 @@
-export type StatusVenda =
-  | 'aguardando_pagamento'
-  | 'paga'
-  | 'em_separacao'
-  | 'pronta_retirada'
-  | 'enviada'
-  | 'entregue'
-  | 'cancelamento_solicitado'
-  | 'cancelada'
+// Os mesmos valores do DOMAIN status_venda (db/init/20_vendas.sql): o ?status= das listagens é conferido nesta lista
+export const listaStatusVenda = [
+  'aguardando_pagamento',
+  'paga',
+  'em_separacao',
+  'enviada',
+  'pronta_retirada',
+  'entregue',
+  'cancelamento_solicitado',
+  'cancelada',
+] as const
+
+export type StatusVenda = (typeof listaStatusVenda)[number]
 
 export type TipoEntrega = 'correios' | 'propria' | 'retirada'
 
@@ -89,4 +93,42 @@ export interface VendaCriada {
 export interface ResultadoCriacaoVenda {
   venda: VendaCriada
   repetida: boolean
+}
+
+// ---------- Compras do cliente (#33, #34, #37) ----------
+
+export interface FiltroVendas {
+  status: StatusVenda | null
+  pagina: number
+  limite: number
+}
+
+// Linha da listagem como sai do banco: o resumo é montado no service
+export interface LinhaResumoVenda {
+  id: number
+  status: StatusVenda
+  total: number
+  tipoEntrega: TipoEntrega
+  quantidadeItens: number
+  primeiroItem: string | null
+  criadoEm: Date
+}
+
+// Item de GET /api/clientes/me/vendas e de GET /api/clientes/:id/vendas
+export interface ResumoVenda {
+  id: number
+  status: StatusVenda
+  total: number
+  tipoEntrega: TipoEntrega
+  quantidadeItens: number
+  // 'Filtro X' ou 'Filtro X e mais 2 itens'; null só numa venda sem itens (não acontece pela API)
+  resumo: string | null
+  criadoEm: Date
+}
+
+export interface PaginaVendas {
+  dados: ResumoVenda[]
+  total: number
+  pagina: number
+  limite: number
 }
