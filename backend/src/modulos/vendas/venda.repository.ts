@@ -210,4 +210,19 @@ export const vendaRepository = {
     )
     return true
   },
+
+  // ---------- #32 expiração ----------
+
+  // Até `limite` vendas aguardando pagamento vencidas há mais de 5 minutos, as mais antigas primeiro (usa o índice
+  // parcial idx_vendas_expira_em). A folga de 5 minutos está explicada no venda.tarefas.ts
+  async buscarVencidas(limite: number): Promise<number[]> {
+    const { rows } = await db.query<{ id: number }>(
+      `SELECT id FROM vendas
+        WHERE status = 'aguardando_pagamento' AND expira_em < now() - interval '5 minutes'
+        ORDER BY expira_em, id
+        LIMIT $1`,
+      [limite],
+    )
+    return rows.map((linha) => linha.id)
+  },
 }
