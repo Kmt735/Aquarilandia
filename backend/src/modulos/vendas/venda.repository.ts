@@ -2,7 +2,9 @@ import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
 import type {
+  EtapaHistorico,
   FiltroVendas,
+  LinhaPagamento,
   LinhaResumoVenda,
   NovaVenda,
   NovoItemVenda,
@@ -266,5 +268,40 @@ export const vendaRepository = {
       [...valores, filtro.limite, (filtro.pagina - 1) * filtro.limite],
     )
     return { linhas: rows, total: contagem[0].total }
+  },
+
+  // ---------- #34 detalhe da compra ----------
+  // As três leituras abaixo filtram só pela venda: quem chama já conferiu o dono com o buscarCompleta(id, clienteId)
+
+  async buscarCodigoRastreio(vendaId: number): Promise<string | null> {
+    const { rows } = await db.query<{ codigoRastreio: string | null }>(
+      'SELECT codigo_rastreio AS "codigoRastreio" FROM vendas WHERE id = $1',
+      [vendaId],
+    )
+    return rows[0]?.codigoRastreio ?? null
+  },
+
+  // Ordem cronológica; o id desempata duas mudanças no mesmo instante. Sem origem nem alterado_por_id
+  async listarHistorico(vendaId: number): Promise<EtapaHistorico[]> {
+    const { rows } = await db.query<EtapaHistorico>(
+      `SELECT status_novo AS status, criado_em AS data
+         FROM historico_status_venda
+        WHERE venda_id = $1
+        ORDER BY criado_em, id`,
+      [vendaId],
+    )
+    return rows
+  },
+
+  // Só id, status, método e data: nenhum id do gateway, código Pix, valor, detalhe ou dado de estorno sai do banco
+  async listarPagamentos(vendaId: number): Promise<LinhaPagamento[]> {
+    const { rows } = await db.query<LinhaPagamento>(
+      `SELECT id, status, metodo, criado_em AS "criadoEm"
+         FROM pagamentos
+        WHERE venda_id = $1
+        ORDER BY criado_em DESC, id DESC`,
+      [vendaId],
+    )
+    return rows
   },
 }

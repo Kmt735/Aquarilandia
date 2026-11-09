@@ -132,3 +132,34 @@ export interface PaginaVendas {
   pagina: number
   limite: number
 }
+
+// Os mesmos valores do CHECK de pagamentos.status (db/init/20_vendas.sql)
+export type StatusPagamento = 'pendente' | 'aprovado' | 'recusado' | 'estornado' | 'cancelado' | 'em_disputa'
+
+// Linha de pagamentos lida para o detalhe. Só estas colunas saem do banco: nenhum id do gateway, código Pix,
+// valor, status_detalhe ou dado de estorno. O id serve só para desempatar a ordem e não vai para a resposta
+export interface LinhaPagamento {
+  id: number
+  status: StatusPagamento
+  metodo: string | null
+  criadoEm: Date
+}
+
+export interface PagamentoDaVenda {
+  status: StatusPagamento
+  metodo: string | null
+  criadoEm: Date
+}
+
+// Histórico como o cliente vê: sem origem nem alterado_por_id (quem mudou é dado interno da loja)
+export interface EtapaHistorico {
+  status: StatusVenda
+  data: Date
+}
+
+// Resposta de GET /api/clientes/me/vendas/:id: a venda completa da criação mais o acompanhamento
+export interface DetalheVenda extends VendaCriada {
+  codigoRastreio: string | null
+  historico: EtapaHistorico[]
+  pagamento: PagamentoDaVenda | null
+}

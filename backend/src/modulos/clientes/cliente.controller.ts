@@ -33,6 +33,11 @@ export const clienteController = {
     res.set('Cache-Control', 'no-store').json(await vendaService.listarDoCliente(req.usuario!.id, req.query))
   },
 
+  async buscarMinhaVenda(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    res.set('Cache-Control', 'no-store').json(await vendaService.buscarDoCliente(id, req.usuario!.id))
+  },
+
   // no-store nas respostas de admin: têm dados pessoais e não podem ficar em cache (como na D-41)
   async listarParaAdmin(req: Request, res: Response): Promise<void> {
     res.set('Cache-Control', 'no-store').json(await clienteService.listarParaAdmin(req.query))

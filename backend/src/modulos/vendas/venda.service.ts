@@ -12,9 +12,12 @@ import type { ResultadoFrete } from './frete.service.js'
 import { vendaRepository } from './venda.repository.js'
 import { listaStatusVenda } from './venda.types.js'
 import type {
+  DetalheVenda,
   FiltroVendas,
   ItemPedido,
+  LinhaPagamento,
   NovoItemVenda,
+  PagamentoDaVenda,
   PaginaVendas,
   ResultadoCriacaoVenda,
   StatusVenda,
@@ -92,6 +95,24 @@ export function montarResumo(primeiroItem: string | null, quantidadeItens: numbe
   return `${primeiroItem} e mais ${outros} ${outros === 1 ? 'item' : 'itens'}`
 }
 
+// O pagamento que a compra mostra: o 'aprovado' mais recente; sem aprovado, o mais recente de qualquer status;
+// sem pagamentos, null. "Mais recente" = maior criadoEm, e o maior id no empate. Não depende da ordem recebida.
+// Devolve só status, método e data (o id serve só para o desempate). Exportada para os testes.
+// Quando a #35 criar o estorno_solicitado_em, a regra passa a ser "aprovado e sem estorno marcado": fica anotado para
+// a #47 (um pagamento em dobro, já estornado, não pode aparecer como o pagamento da compra).
+export function escolherPagamento(pagamentos: readonly LinhaPagamento[]): PagamentoDaVenda | null {
+  const maisRecente = (a: LinhaPagamento, b: LinhaPagamento): LinhaPagamento => {
+    const diferenca = a.criadoEm.getTime() - b.criadoEm.getTime()
+    if (diferenca !== 0) return diferenca > 0 ? a : b
+    return a.id > b.id ? a : b
+  }
+  const aprovados = pagamentos.filter((pagamento) => pagamento.status === 'aprovado')
+  const candidatos = aprovados.length ? aprovados : pagamentos
+  if (!candidatos.length) return null
+  const { status, metodo, criadoEm } = candidatos.reduce(maisRecente)
+  return { status, metodo, criadoEm }
+}
+
 // ?status= (opcional, um dos valores do DOMAIN status_venda) e a paginação da seção 4. Os erros dos dois saem juntos
 function validarFiltroVendas(query: Record<string, unknown>): FiltroVendas {
   const erros: Record<string, string> = {}
@@ -148,6 +169,19 @@ export const vendaService = {
   // GET /api/clientes/me/vendas (#33): clienteId vem SEMPRE da sessão (req.usuario.id), nunca da URL (D-08)
   async listarDoCliente(clienteId: number, query: Record<string, unknown>): Promise<PaginaVendas> {
     return listarVendas(clienteId, validarFiltroVendas(query))
+  },
+
+  // GET /api/clientes/me/vendas/:id (#34). O buscarCompleta filtra por id E cliente_id: venda de outro cliente cai no
+  // mesmo 404 da inexistente, sem confirmar que ela existe (D-08). Só depois disso as outras leituras, pela venda
+  async buscarDoCliente(id: number, clienteId: number): Promise<DetalheVenda> {
+    const venda = await vendaRepository.buscarCompleta(id, clienteId)
+    if (!venda) throw new AppError('Compra não encontrada.', 404)
+    const [codigoRastreio, historico, pagamentos] = await Promise.all([
+      vendaRepository.buscarCodigoRastreio(id),
+      vendaRepository.listarHistorico(id),
+      vendaRepository.listarPagamentos(id),
+    ])
+    return { ...venda, codigoRastreio, historico, pagamento: escolherPagamento(pagamentos) }
   },
 
   async temCompraEmAndamento(clienteId: number, executor: Queryable): Promise<boolean> {

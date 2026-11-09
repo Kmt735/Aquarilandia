@@ -32,8 +32,9 @@ clienteRoutes.get('/me/enderecos', autenticar, enderecoController.listarMeus)
 clienteRoutes.post('/me/enderecos', exigirOrigem, autenticar, enderecoController.criar)
 clienteRoutes.patch('/me/enderecos/:enderecoId', exigirOrigem, autenticar, enderecoController.atualizar)
 clienteRoutes.delete('/me/enderecos/:enderecoId', exigirOrigem, autenticar, enderecoController.excluir)
-// Compras do próprio cliente (#33): leitura, sem exigirOrigem (como o GET /me)
+// Compras do próprio cliente (#33, #34): leitura, sem exigirOrigem (como o GET /me)
 clienteRoutes.get('/me/vendas', autenticar, clienteController.listarMinhasVendas)
+clienteRoutes.get('/me/vendas/:id', autenticar, clienteController.buscarMinhaVenda)
 
 // Daqui para baixo, só admin; rota nova já nasce protegida (D-41).
 // Por isso qualquer rota /me nova (ex.: /me/vendas) precisa ser registrada ACIMA desta linha.
