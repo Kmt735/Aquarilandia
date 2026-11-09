@@ -41,7 +41,7 @@ clienteRoutes.get('/me/vendas/:id', autenticar, clienteController.buscarMinhaVen
 clienteRoutes.use(autenticar, exigirAdmin)
 clienteRoutes.get('/', clienteController.listarParaAdmin)
 clienteRoutes.get('/:id', clienteController.buscarParaAdmin)
+clienteRoutes.get('/:id/vendas', clienteController.listarVendasDoCliente)
 // Escritas de admin: exigirOrigem (CSRF) depois da guarda, como em orçamentos
 clienteRoutes.patch('/:id', exigirOrigem, clienteController.definirAtivoPeloAdmin)
 clienteRoutes.delete('/:id', exigirOrigem, clienteController.removerPeloAdmin)
-// GET /:id/vendas (#37) fica para depois: depende da listagem de vendas (#33)

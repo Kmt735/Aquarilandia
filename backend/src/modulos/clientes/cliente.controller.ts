@@ -53,6 +53,11 @@ export const clienteController = {
     res.set('Cache-Control', 'no-store').json(await clienteService.definirAtivoPeloAdmin(req.usuario!.id, id, req.body))
   },
 
+  async listarVendasDoCliente(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    res.set('Cache-Control', 'no-store').json(await vendaService.listarDoClienteParaAdmin(id, req.query))
+  },
+
   async removerPeloAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
     const id = idParam(req.params.id)
     await clienteService.removerPeloAdmin(req.usuario!.id, id)

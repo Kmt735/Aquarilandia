@@ -171,6 +171,14 @@ export const vendaService = {
     return listarVendas(clienteId, validarFiltroVendas(query))
   },
 
+  // GET /api/clientes/:id/vendas (#37, admin): o mesmo formato, paginação e filtro. A query é conferida antes do banco.
+  // buscarParaAdmin acha também contas desativadas e anonimizadas: o admin vê as vendas de uma conta anonimizada
+  async listarDoClienteParaAdmin(clienteId: number, query: Record<string, unknown>): Promise<PaginaVendas> {
+    const filtro = validarFiltroVendas(query)
+    if (!(await clienteRepository.buscarParaAdmin(clienteId))) throw new AppError('Cliente não encontrado.', 404)
+    return listarVendas(clienteId, filtro)
+  },
+
   // GET /api/clientes/me/vendas/:id (#34). O buscarCompleta filtra por id E cliente_id: venda de outro cliente cai no
   // mesmo 404 da inexistente, sem confirmar que ela existe (D-08). Só depois disso as outras leituras, pela venda
   async buscarDoCliente(id: number, clienteId: number): Promise<DetalheVenda> {
