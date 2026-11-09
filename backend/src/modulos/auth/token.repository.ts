@@ -16,6 +16,10 @@ export const tokenRepository = {
     )
   },
 
+  async excluirVencidos(): Promise<void> {
+    await db.query('DELETE FROM tokens_recuperacao_senha WHERE expira_em < now()')
+  },
+
   // Sem trava e sem olhar a validade: só descobre de quem é o token, para o service travar o cliente antes
   async buscarClientePorHash(tokenHash: string): Promise<number | null> {
     const { rows } = await db.query<{ clienteId: number }>(

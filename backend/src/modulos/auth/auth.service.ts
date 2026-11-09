@@ -327,4 +327,14 @@ export const authService = {
     await sessaoRepository.excluirTodasDoCliente(clienteId, executor)
     await tokenRepository.excluirDoCliente(clienteId, executor)
   },
+
+  // Limpezas da tarefa agendada (venda.tarefas.ts, a cada 5 minutos). Uma sessão ou um link vencido já não vale
+  // (as consultas conferem expira_em > now()); apagar só evita que as tabelas cresçam para sempre
+  async limparSessoesVencidas(): Promise<void> {
+    await sessaoRepository.excluirVencidas()
+  },
+
+  async limparTokensVencidos(): Promise<void> {
+    await tokenRepository.excluirVencidos()
+  },
 }

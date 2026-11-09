@@ -38,4 +38,8 @@ export const sessaoRepository = {
     await executor.query('DELETE FROM sessoes WHERE cliente_id = $1', [clienteId])
   },
 
+  async excluirVencidas(): Promise<void> {
+    await db.query('DELETE FROM sessoes WHERE expira_em < now()')
+  },
+
 }
