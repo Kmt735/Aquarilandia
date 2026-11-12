@@ -54,8 +54,11 @@ export default function SiteNav() {
   const [menuAberto, setMenuAberto] = useState(false)
   const escuro = tema === 'dark'
   const fechar = () => setMenuAberto(false)
-  const conta = usuario ? { rotulo: 'Minha conta', to: ROTAS.minhaConta } : { rotulo: 'Entrar', to: ROTAS.entrar }
-
+  const conta = !usuario
+    ? { rotulo: 'Entrar', to: ROTAS.entrar }
+    : usuario.papel === 'admin'
+      ? { rotulo: 'Painel admin', to: ROTAS.admin }
+      : { rotulo: 'Minha conta', to: ROTAS.minhaConta }
   return (
     <header className="sticky top-0 z-(--z-header) border-b border-border bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
       <a
