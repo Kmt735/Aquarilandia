@@ -1,8 +1,8 @@
 // INTEGRAÇÃO: rotas de auth e clientes do backend (cadastro, login, logout, senha, endereços).
 // Hoje tudo é simulado em memória/sessionStorage com os dados de mocks/conta.js.
-import { ENDERECOS_EXEMPLO, USUARIO_EXEMPLO } from '../mocks/conta'
 import { ErroApi, gravarSessao, lerSessao, simularRede } from './http'
 import { MENSAGENS, regras, validar } from '../utils/validacao'
+import { ADMIN_EXEMPLO, ENDERECOS_EXEMPLO, USUARIO_EXEMPLO } from '../mocks/conta'
 
 const CHAVE_SESSAO = 'aquarilandia-sessao-exemplo'
 const CHAVE_ENDERECOS = 'aquarilandia-enderecos-exemplo'
@@ -17,7 +17,8 @@ function exigirValido(dados, mapa) {
 export async function entrar({ email, senha }) {
   exigirValido({ email, senha }, { email: regras.email, senha: regras.senhaLogin })
   await simularRede(600)
-  const usuario = { ...USUARIO_EXEMPLO, email: email.trim() }
+  const eAdmin = email.trim().toLowerCase() === ADMIN_EXEMPLO.email
+  const usuario = eAdmin ? { ...ADMIN_EXEMPLO } : { ...USUARIO_EXEMPLO, email: email.trim() }
   gravarSessao(CHAVE_SESSAO, usuario)
   return usuario
 }

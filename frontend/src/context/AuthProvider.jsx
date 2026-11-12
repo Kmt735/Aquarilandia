@@ -6,7 +6,12 @@ import { AuthContext } from './contexts'
 export default function AuthProvider({ children }) {
   const [usuario, setUsuario] = useState(conta.sessaoAtual)
 
-  const entrar = useCallback(async (dados) => setUsuario(await conta.entrar(dados)), [])
+  // Devolve o usuário para a tela de login decidir para onde ir (admin ou cliente)
+  const entrar = useCallback(async (dados) => {
+    const logado = await conta.entrar(dados)
+    setUsuario(logado)
+    return logado
+  }, [])
   const cadastrar = useCallback(async (dados) => setUsuario(await conta.cadastrar(dados)), [])
   const sair = useCallback(async () => {
     await conta.sair()
@@ -14,6 +19,9 @@ export default function AuthProvider({ children }) {
   }, [])
   const atualizar = useCallback(async (dados) => setUsuario(await conta.atualizarDados(usuario, dados)), [usuario])
 
-  const value = useMemo(() => ({ usuario, entrar, cadastrar, sair, atualizar }), [usuario, entrar, cadastrar, sair, atualizar])
+  const value = useMemo(
+    () => ({ usuario, eAdmin: usuario?.papel === 'admin', entrar, cadastrar, sair, atualizar }),
+    [usuario, entrar, cadastrar, sair, atualizar],
+  )
   return <AuthContext value={value}>{children}</AuthContext>
 }

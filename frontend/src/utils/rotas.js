@@ -1,4 +1,6 @@
 export const ROTAS = {
+  admin: '/admin',
+  adminProdutos: '/admin/produtos',
   inicio: '/',
   loja: '/loja',
   peixes: '/peixes',
