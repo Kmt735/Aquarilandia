@@ -17,6 +17,8 @@ import { ROTAS } from './utils/rotas'
 
 // Telas de conta, checkout e ajuda carregam sob demanda (bundle inicial menor)
 const CompararPeixesPage = lazy(() => import('./pages/CompararPeixesPage'))
+const AdminPedidosPage = lazy(() => import('./pages/admin/AdminPedidosPage'))
+const AdminPedidoDetalhePage = lazy(() => import('./pages/admin/AdminPedidoDetalhePage'))
 const MonteSeuAquarioPage = lazy(() => import('./pages/MonteSeuAquarioPage'))
 const NaoEncontradaPage = lazy(() => import('./pages/NaoEncontradaPage'))
 const PerguntasFrequentesPage = lazy(() => import('./pages/PerguntasFrequentesPage'))
@@ -38,6 +40,7 @@ const ContaLayout = lazy(() => import('./components/templates/ContaLayout'))
 const AdminLayout = lazy(() => import('./components/templates/AdminLayout'))
 const AdminInicioPage = lazy(() => import('./pages/admin/AdminInicioPage'))
 const AdminProdutosPage = lazy(() => import('./pages/admin/AdminProdutosPage'))
+const AdminItemFormPage = lazy(() => import('./pages/admin/AdminItemFormPage'))
 
 // Endereço antigo do guia: quem já tinha o link cai no novo, mantendo a âncora
 function RedirecionarPrimeiroAquario() {
@@ -88,8 +91,12 @@ export default function App() {
                     </Route>
                     <Route path={`${ROTAS.pagamento}/:resultado`} element={<RetornoPagamentoPage />} />
                    <Route path={ROTAS.admin} element={<AdminLayout />}>
+                    <Route path="pedidos" element={<AdminPedidosPage />} />
+                    <Route path="pedidos/:id" element={<AdminPedidoDetalhePage />} />
                    <Route index element={<AdminInicioPage />} />
                     <Route path="produtos" element={<AdminProdutosPage />} />
+                    <Route path="produtos/novo" element={<AdminItemFormPage />} />
+                    <Route path="produtos/:id/editar" element={<AdminItemFormPage />} />
                     </Route>
                     <Route path="*" element={<NaoEncontradaPage />} />
                   </Route>

@@ -2,40 +2,50 @@ import { LogOut } from 'lucide-react'
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import Button from '../atoms/Button'
 import PageHead from '../molecules/PageHead'
+import { Badge } from '@/components/ui/badge'
 import useAuth from '../../hooks/useAuth'
+import usePedidosNovos from '../../hooks/usePedidosNovos'
 import useTituloPagina from '../../hooks/useTituloPagina'
 import useToast from '../../hooks/useToast'
 import { ROTAS } from '../../utils/rotas'
 
 const ABAS = [
-  { to: ROTAS.admin, rotulo: 'Resumo', end: true },
-  { to: ROTAS.adminProdutos, rotulo: 'Produtos' },
+  { id: 'resumo', to: ROTAS.admin, rotulo: 'Resumo', end: true },
+  { id: 'catalogo', to: ROTAS.adminProdutos, rotulo: 'Peixes e produtos' },
+  { id: 'pedidos', to: ROTAS.adminPedidos, rotulo: 'Pedidos' },
 ]
 
 // Área do administrador. Esta tela só esconde o painel de quem não é admin:
 // quem protege os dados de verdade é o servidor (autenticar + exigirAdmin).
 export default function AdminLayout() {
-  const { usuario, sair } = useAuth()
+  const { usuario } = useAuth()
   const { pathname } = useLocation()
-  const navigate = useNavigate()
-  const { toast } = useToast()
   useTituloPagina('Painel do administrador')
 
   if (!usuario) return <Navigate to={`${ROTAS.entrar}?voltar=${encodeURIComponent(pathname)}`} replace />
   if (usuario.papel !== 'admin') return <Navigate to={ROTAS.inicio} replace />
+  return <PainelAdmin usuario={usuario} />
+}
+
+// Separado para a conferência de pedidos só rodar para quem é administrador
+function PainelAdmin({ usuario }) {
+  const { sair } = useAuth()
+  const navigate = useNavigate()
+  const { toast } = useToast()
+  const { novos } = usePedidosNovos()
 
   return (
     <>
       <PageHead
         titulo="Painel do administrador"
-        descricao={`Olá, ${usuario.nome.split(' ')[0]}! Aqui você cuida dos produtos da loja.`}
+        descricao={`Olá, ${usuario.nome.split(' ')[0]}! Aqui você cuida dos pedidos e do que a loja vende.`}
         trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Administração' }]}
       >
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
           <nav aria-label="Seções do painel">
             <ul className="flex flex-wrap gap-2">
               {ABAS.map((aba) => (
-                <li key={aba.to}>
+                <li key={aba.id}>
                   <NavLink
                     to={aba.to}
                     end={aba.end}
@@ -44,6 +54,14 @@ export default function AdminLayout() {
                     }
                   >
                     {aba.rotulo}
+                    {aba.id === 'pedidos' && novos > 0 && (
+                      <>
+                        <Badge variant="destructive" className="ml-2 px-1.5">
+                          {novos}
+                        </Badge>
+                        <span className="sr-only"> pedidos novos</span>
+                      </>
+                    )}
                   </NavLink>
                 </li>
               ))}

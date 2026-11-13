@@ -1,6 +1,8 @@
 export const ROTAS = {
   admin: '/admin',
+  adminPedidos: '/admin/pedidos',
   adminProdutos: '/admin/produtos',
+  adminNovoItem: '/admin/produtos/novo',
   inicio: '/',
   loja: '/loja',
   peixes: '/peixes',
@@ -45,3 +47,5 @@ export const urlItem = (item) => (item.tipo === 'peixe' && item.ficha ? urlPeixe
 export const urlPolitica = (tipo) => `${ROTAS.politicas}/${tipo}`
 export const urlCompra = (id) => `${ROTAS.minhaConta}/compras/${id}`
 export const urlEtapaCheckout = (etapa) => `${ROTAS.checkout}/${etapa}`
+export const urlEditarItem = (id) => `${ROTAS.adminProdutos}/${id}/editar`
+export const urlPedidoAdmin = (id) => `${ROTAS.adminPedidos}/${id}`

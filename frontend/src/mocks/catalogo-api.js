@@ -82,8 +82,10 @@ const PRODUTOS = [
 
 const BASE = PRODUTOS.map(([id, slug, nome, preco, estoque, descricao, dados]) => ({
   id, categoriaId: idCategoria(slug), categoria: slug, nome, descricao, marca: 'Demonstração', preco, imagemUrl: null,
-  emEstoque: estoque > 0, estoque, ficha: { tipo: slug, dados },
+  emEstoque: estoque > 0, estoque, ativo: true, ficha: { tipo: slug, dados },
 }))
+// A loja pública só enxerga itens ativos (como a API)
+const publicos = () => BASE.filter((p) => p.ativo)
 
 // a listagem de /produtos não traz ficha (só o detalhe), como a API real
 const semFicha = (p) => Object.fromEntries(Object.entries(p).filter(([campo]) => campo !== 'ficha'))
@@ -117,18 +119,70 @@ function filtrar(itens, parametros) {
 }
 
 /** Mesma assinatura de consultarApi (services/api-publica.js). */
+/** Mesma assinatura de consultarApi (services/api-publica.js). */
 export async function consultarMock(caminho, parametros = {}) {
   await simularRede(250)
   const [, recurso, id] = caminho.split('/')
   if (recurso === 'categorias') return paginar(CATEGORIAS, parametros)
   if (recurso === 'produtos') {
-    if (id) return structuredClone(BASE.find((p) => p.id === Number(id)) ?? naoEncontrado())
-    return paginar(filtrar(BASE, parametros).map(semFicha), parametros)
+    if (id) return structuredClone(publicos().find((p) => p.id === Number(id)) ?? naoEncontrado())
+    return paginar(filtrar(publicos(), parametros).map(semFicha), parametros)
   }
   if (recurso === 'peixes') {
-    const peixes = BASE.filter((p) => p.categoria === 'peixes')
+    const peixes = publicos().filter((p) => p.categoria === 'peixes')
     if (id) return structuredClone(peixes.find((p) => p.id === Number(id)) ?? naoEncontrado())
     return structuredClone(paginar(filtrar(peixes, parametros), parametros))
   }
   throw new ErroApi('Não foi possível consultar o catálogo.', {}, 404)
+}
+// ===== ADMIN (demonstração): mexe só em memória; ao recarregar a página, volta ao original =====
+let proximoId = 9001
+const itemAdmin = (id) => BASE.find((p) => p.id === Number(id)) ?? naoEncontrado()
+
+export const adminMock = {
+  async listar({ ativo, ...parametros }) {
+    await simularRede(250)
+    let lista = filtrar(BASE, parametros)
+    if (ativo) lista = lista.filter((p) => String(p.ativo) === ativo)
+    return paginar(lista.map(semFicha), parametros)
+  },
+  async obter(id) {
+    await simularRede(200)
+    return structuredClone(itemAdmin(id))
+  },
+  async criar(dados) {
+    await simularRede(350)
+    const categoria = CATEGORIAS.find((c) => c.id === dados.categoriaId)
+    if (!categoria) throw new ErroApi('Dados inválidos.', { categoria: 'Escolha a categoria.' }, 400)
+    const novo = {
+      id: proximoId++, categoriaId: categoria.id, categoria: categoria.slug, nome: dados.nome,
+      descricao: dados.descricao ?? null, marca: dados.marca ?? null, preco: dados.preco,
+      imagemUrl: dados.imagemUrl ?? null, emEstoque: false, estoque: 0, ativo: true, ficha: dados.ficha ?? null,
+    }
+    BASE.push(novo)
+    return structuredClone(novo)
+  },
+  async editar(id, dados) {
+    await simularRede(350)
+    const item = itemAdmin(id)
+    if (!item.ativo) naoEncontrado() // como na API: editar item fora da loja dá 404
+    for (const campo of ['nome', 'descricao', 'marca', 'preco', 'imagemUrl']) {
+      if (campo in dados) item[campo] = dados[campo]
+    }
+    if (dados.ficha) item.ficha = dados.ficha
+    return structuredClone(item)
+  },
+  async desativar(id) {
+    await simularRede(250)
+    const item = itemAdmin(id)
+    if (!item.ativo) naoEncontrado()
+    item.ativo = false
+    return null
+  },
+  async reativar(id) {
+    await simularRede(250)
+    const item = itemAdmin(id)
+    item.ativo = true
+    return structuredClone(item)
+  },
 }
