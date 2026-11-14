@@ -254,8 +254,17 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
     })
 
     it('regressão: as rotas /me continuam do cliente e a guarda continua valendo', async () => {
-      assert.equal((await pedir('/clientes/me', ana)).corpo.id, ana.id)
-      assert.equal((await pedir('/clientes/me/enderecos', ana)).status, 200)
+      // Lote 14a (R-02): antes só o id e só o status 200; agora o corpo inteiro
+      const eu = await pedir('/clientes/me', ana)
+      const banco = (await c.query('SELECT nome, email, telefone, papel, ativo FROM clientes WHERE id = $1', [ana.id])).rows[0]
+      assert.deepEqual(Object.keys(eu.corpo).sort(), ['ativo', 'atualizadoEm', 'criadoEm', 'email', 'id', 'nome', 'papel', 'telefone'])
+      assert.deepEqual({ ...eu.corpo, criadoEm: undefined, atualizadoEm: undefined }, { id: ana.id, ...banco, criadoEm: undefined, atualizadoEm: undefined })
+      assert.equal(/senha|hash/i.test(eu.texto), false, 'nada da senha na resposta')
+      const meus = await pedir('/clientes/me/enderecos', ana)
+      assert.equal(meus.status, 200)
+      const daAna = (await c.query('SELECT id FROM enderecos_cliente WHERE cliente_id = $1 ORDER BY principal DESC, criado_em DESC, id DESC', [ana.id])).rows
+      assert.deepEqual(meus.corpo.map((e) => e.id), daAna.map((e) => e.id))
+      assert.ok(meus.corpo.every((e) => e.clienteId === ana.id), 'só os endereços da própria conta')
       assert.equal((await pedir('/clientes', ana)).status, 403)
       assert.equal((await pedir(`/clientes/${bia.id}`, ana)).status, 403)
       // Admin em /me/vendas vê só as compras da própria conta (nenhuma)
