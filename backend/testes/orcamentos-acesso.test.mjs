@@ -142,10 +142,12 @@ describe('Orçamentos — criação pública e consulta administrativa HTTP', ()
 
   for (const [method, caminho] of [['GET', '/api/orcamentos/um-id'], ['DELETE', '/api/orcamentos/um-id']]) {
     it(`${method} ${caminho} está protegido e permanece incompleto para admin`, async () => {
-      sessao(); await negar(await requisitar(method, caminho, ''), 401)
-      mock.restoreAll(); sessao('cliente'); await negar(await requisitar(method, caminho), 403)
+      // Lote 14a (R-06): a escrita leva Origin, que agora é conferido ANTES da guarda (sem ele, 403 de origem)
+      const comOrigem = method === 'GET' ? {} : { Origin: env.corsOrigin }
+      sessao(); await negar(await requisitar(method, caminho, '', comOrigem), 401)
+      mock.restoreAll(); sessao('cliente'); await negar(await requisitar(method, caminho, `sid=${token}`, comOrigem), 403)
       mock.restoreAll(); sessao()
-      const resposta = await requisitar(method, caminho)
+      const resposta = await requisitar(method, caminho, `sid=${token}`, comOrigem)
       assert.equal(resposta.status, 404)
       const corpo = await resposta.json()
       for (const valor of Object.values(fixture)) assert.equal(JSON.stringify(corpo).includes(valor), false)
@@ -158,8 +160,9 @@ describe('Orçamentos — criação pública e consulta administrativa HTTP', ()
   }
   it('PATCH /api/orcamentos/um-id está protegido e, para admin, exige Origin e id numérico', async () => {
     const caminho = '/api/orcamentos/um-id'
-    sessao(); await negar(await requisitar('PATCH', caminho, ''), 401)
-    mock.restoreAll(); sessao('cliente'); await negar(await requisitar('PATCH', caminho), 403)
+    // Lote 14a (R-06): com Origin, porque ele agora é conferido ANTES da guarda (o caso sem Origin vem logo abaixo)
+    sessao(); await negar(await requisitar('PATCH', caminho, '', { Origin: env.corsOrigin }), 401)
+    mock.restoreAll(); sessao('cliente'); await negar(await requisitar('PATCH', caminho, `sid=${token}`, { Origin: env.corsOrigin }), 403)
     mock.restoreAll(); sessao()
     const semOrigem = await requisitar('PATCH', caminho)
     assert.equal(semOrigem.status, 403)

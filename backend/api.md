@@ -2145,10 +2145,10 @@ clienteRoutes.get('/', autenticar, exigirAdmin, clienteController.listar)       
 - Preço e total são sempre calculados a partir de `produtos.preco`.
 - Nunca devolver `senha_hash` nem dados de pagamento; nunca logar senha, cookie ou token.
 - `POST`/`PATCH`/`DELETE` (exceto o webhook) exigem header `Origin` igual a `CORS_ORIGIN` (proteção CSRF), e o
-  `exigirOrigem` é o **primeiro** middleware. Nas escritas de admin de `/api/clientes` e `/api/vendas`, ele roda numa
+  `exigirOrigem` é o **primeiro** middleware. Nas escritas de admin de `/api/clientes`, `/api/vendas` e `/api/orcamentos`, ele roda numa
   guarda de escrita (`origemNasEscritas`) **antes** da guarda D-41, então um pedido de outro site é recusado sem
-  consultar a sessão (Lote 14a, R-06). Exceções: `PATCH /api/orcamentos/:id` (o `exigirOrigem` ainda vem depois da
-  guarda; adiado) e `POST /api/pagamentos/:id/simular` (a trava da demonstração vem antes, de propósito).
+  consultar a sessão (Lote 14a, R-06). O mesmo vale para `/api/orcamentos`. Exceção: `POST /api/pagamentos/:id/simular`
+  (a trava da demonstração vem antes, de propósito).
 - O frontend faz proxy de `/api` para o backend, então o navegador enxerga uma única origem e o cookie
   `sameSite=lax` funciona sem domínio próprio. Em produção (D-53), o próprio backend serve o site: frontend e API
   no MESMO endereço (`https://DOMINIO` e `https://DOMINIO/api`).

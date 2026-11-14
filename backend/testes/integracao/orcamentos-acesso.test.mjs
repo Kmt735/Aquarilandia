@@ -60,6 +60,8 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
   function requisitar(sessao = null, method = 'GET', caminho = '/api/orcamentos') {
     const headers = {}
     if (sessao) headers.Cookie = `sid=${tokens.get(sessao) ?? sessao}`
+    // Lote 14a (R-06): a escrita leva Origin, que agora é conferido ANTES da guarda (o caso sem Origin é o do PATCH)
+    if (method !== 'GET') headers.Origin = origemCors
     return fetch(`${origem}${caminho}`, { method, headers })
   }
   async function negar(resposta, status) {
