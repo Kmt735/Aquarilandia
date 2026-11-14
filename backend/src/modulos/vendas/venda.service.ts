@@ -14,18 +14,23 @@ import type { ResultadoFrete } from './frete.service.js'
 import { vendaRepository } from './venda.repository.js'
 import { podeTransicionar } from './venda.transicoes.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
-import { listaStatusVenda } from './venda.types.js'
+import { listaStatusVenda, listaTiposEntrega } from './venda.types.js'
 import type {
   DetalheVenda,
+  DetalheVendaAdmin,
+  EtapaHistoricoAdmin,
   FiltroVendas,
+  FiltrosVendaAdmin,
   ItemPedido,
   LinhaPagamento,
   NovoItemVenda,
   PagamentoDaVenda,
   PagamentoEscolhido,
   PaginaVendas,
+  PaginaVendasAdmin,
   ResultadoCriacaoVenda,
   StatusVenda,
+  TipoEntrega,
   VendaCriada,
 } from './venda.types.js'
 import {
@@ -208,6 +213,83 @@ function validarFiltroVendas(query: Record<string, unknown>): FiltroVendas {
   return { status, ...pagina }
 }
 
+// AAAA-MM-DD de um dia que existe (2026-02-30 não passa: o Date.UTC rola para março e a volta não bate)
+function ehData(valor: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) return false
+  const [ano, mes, dia] = valor.split('-').map(Number)
+  const data = new Date(Date.UTC(ano, mes - 1, dia))
+  return data.getUTCFullYear() === ano && data.getUTCMonth() === mes - 1 && data.getUTCDate() === dia
+}
+
+// #39: ?clienteId, ?status, ?tipoEntrega, ?de, ?ate, ?problemaPagamento e a paginação. Os erros saem todos juntos
+// num 400. Repetido (?status=a&status=b) chega como array e é inválido. Outros parâmetros são ignorados, como na
+// /me/vendas
+function validarFiltrosVendaAdmin(query: Record<string, unknown>): FiltrosVendaAdmin {
+  const erros: Record<string, string> = {}
+  const texto = (nome: string): string | null | undefined => {
+    const valor = query[nome]
+    if (valor === undefined) return null
+    return typeof valor === 'string' ? valor : undefined
+  }
+
+  let clienteId: number | null = null
+  const id = texto('clienteId')
+  if (id !== null) {
+    if (id !== undefined && /^[1-9][0-9]{0,9}$/.test(id) && Number(id) <= 2147483647) clienteId = Number(id)
+    else erros.clienteId = 'Cliente inválido.'
+  }
+
+  let status: StatusVenda | null = null
+  const valorStatus = texto('status')
+  if (valorStatus !== null) {
+    if (valorStatus !== undefined && (listaStatusVenda as readonly string[]).includes(valorStatus)) {
+      status = valorStatus as StatusVenda
+    } else {
+      erros.status = 'Status inválido.'
+    }
+  }
+
+  let tipoEntrega: TipoEntrega | null = null
+  const valorTipo = texto('tipoEntrega')
+  if (valorTipo !== null) {
+    if (valorTipo !== undefined && (listaTiposEntrega as readonly string[]).includes(valorTipo)) {
+      tipoEntrega = valorTipo as TipoEntrega
+    } else {
+      erros.tipoEntrega = 'Tipo de entrega inválido.'
+    }
+  }
+
+  const datas: { de: string | null; ate: string | null } = { de: null, ate: null }
+  for (const nome of ['de', 'ate'] as const) {
+    const valor = texto(nome)
+    if (valor === null) continue
+    if (valor !== undefined && ehData(valor)) datas[nome] = valor
+    else erros[nome] = 'Informe a data no formato AAAA-MM-DD.'
+  }
+  // Texto AAAA-MM-DD compara na ordem das datas
+  if (datas.de !== null && datas.ate !== null && datas.de > datas.ate) {
+    erros.ate = 'A data final precisa ser igual ou depois da inicial.'
+  }
+
+  let problemaPagamento = false
+  const problema = texto('problemaPagamento')
+  if (problema !== null) {
+    if (problema === 'true' || problema === 'false') problemaPagamento = problema === 'true'
+    else erros.problemaPagamento = 'Use true ou false.'
+  }
+
+  let pagina: { pagina: number; limite: number } = { pagina: 1, limite: 20 }
+  try {
+    pagina = paginacao(query)
+  } catch (err) {
+    if (!(err instanceof AppError)) throw err
+    Object.assign(erros, err.detalhes)
+  }
+
+  if (Object.keys(erros).length) throw new AppError('Parâmetros inválidos', 400, erros)
+  return { clienteId, status, tipoEntrega, ...datas, problemaPagamento, ...pagina }
+}
+
 async function listarVendas(clienteId: number, filtro: FiltroVendas): Promise<PaginaVendas> {
   const { linhas, total } = await vendaRepository.listarDoCliente(clienteId, filtro)
   const dados = linhas.map(({ primeiroItem, ...linha }) => ({
@@ -281,7 +363,7 @@ export const vendaService = {
   //     de estorno, com o motivo obrigatório: ele confirma que devolveu pelo painel da AbacatePay; o pagamento vira
   //     estornado ('estorno manual'), a venda cancelada (ator admin) e o estoque volta, numa transação só.
   //   enviada, entregue, cancelada → 409.
-  async cancelar(usuario: UsuarioLogado, vendaId: number, body: unknown): Promise<DetalheVenda> {
+  async cancelar(usuario: UsuarioLogado, vendaId: number, body: unknown): Promise<DetalheVenda | DetalheVendaAdmin> {
     const motivo = validarMotivo(body)
     const ehAdmin = usuario.papel === 'admin'
 
@@ -348,17 +430,43 @@ export const vendaService = {
     return ehAdmin ? vendaService.buscarParaAdmin(vendaId) : vendaService.buscarDoCliente(vendaId, usuario.id)
   },
 
-  // O detalhe de uma venda para o admin (#35; o completo, com cliente e pagamentos, é da #40)
-  async buscarParaAdmin(vendaId: number): Promise<DetalheVenda> {
+  // GET /api/vendas (#39, admin): paginada, com os filtros conferidos antes do banco
+  async listarParaAdmin(query: Record<string, unknown>): Promise<PaginaVendasAdmin> {
+    const filtro = validarFiltrosVendaAdmin(query)
+    const { linhas, total } = await vendaRepository.listarParaAdmin(filtro, pagamentoService.maxTentativasEstorno)
+    return { dados: linhas, total, pagina: filtro.pagina, limite: filtro.limite }
+  },
+
+  // GET /api/vendas/:id (#40, admin; também a resposta do #35 e do #41 para o admin): o detalhe do cliente (a venda,
+  // o rastreio, o histórico simples e o pagamento escolhido com a mensagem) mais a conta e TODOS os pagamentos, com o
+  // id da cobrança cortado. Sem reconsulta no gateway: a leitura do admin não muda nada
+  async buscarParaAdmin(vendaId: number): Promise<DetalheVendaAdmin> {
     const venda = await vendaRepository.buscarCompletaParaAdmin(vendaId)
     if (!venda) throw new AppError('Venda não encontrada.', 404)
-    const { clienteId: _dono, ...semDono } = venda
-    const [codigoRastreio, historico, pagamentos] = await Promise.all([
+    const { clienteId, ...semDono } = venda
+    const [codigoRastreio, historico, pagamentos, todos, conta] = await Promise.all([
       vendaRepository.buscarCodigoRastreio(vendaId),
       vendaRepository.listarHistorico(vendaId),
       pagamentoService.listarDaVenda(vendaId),
+      pagamentoService.listarParaAdmin(vendaId),
+      clienteRepository.buscarParaAdmin(clienteId),
     ])
-    return { ...semDono, codigoRastreio, historico, pagamento: pagamentoDaVenda(pagamentos, venda.status) }
+    // A venda tem FK para clientes e a conta nunca é apagada (D-23, anonimizada): não tem como faltar
+    if (!conta) throw new Error('Cliente da venda não encontrado.')
+    return {
+      ...semDono,
+      codigoRastreio,
+      historico,
+      pagamento: pagamentoDaVenda(pagamentos, venda.status),
+      cliente: { id: conta.id, nome: conta.nome, email: conta.email, telefone: conta.telefone },
+      pagamentos: todos,
+    }
+  },
+
+  // GET /api/vendas/:id/historico (#40, admin): com origem, quem mudou e a observação
+  async listarHistoricoParaAdmin(vendaId: number): Promise<EtapaHistoricoAdmin[]> {
+    if (!(await vendaRepository.existe(vendaId))) throw new AppError('Venda não encontrada.', 404)
+    return vendaRepository.listarHistoricoParaAdmin(vendaId)
   },
 
   async temCompraEmAndamento(clienteId: number, executor: Queryable): Promise<boolean> {

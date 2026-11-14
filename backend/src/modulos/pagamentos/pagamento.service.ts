@@ -5,7 +5,7 @@ import { clienteRepository } from '../clientes/cliente.repository.js'
 import { estoqueService } from '../estoque/estoque.service.js'
 import { vendaRepository } from '../vendas/venda.repository.js'
 import { podeTransicionar } from '../vendas/venda.transicoes.js'
-import type { LinhaPagamento, PixGerado, StatusVenda } from '../vendas/venda.types.js'
+import type { LinhaPagamento, PagamentoAdmin, PixGerado, StatusVenda } from '../vendas/venda.types.js'
 import { gatewayPix } from './gateway.js'
 import type { ConsultaCobranca } from './gateway.js'
 import { detalheIndevido, pagamentoRepository } from './pagamento.repository.js'
@@ -431,6 +431,11 @@ export const pagamentoService = {
 
   async marcarEstornoManual(pagamentoId: number, client: Queryable): Promise<void> {
     await pagamentoRepository.marcarEstornoManual(pagamentoId, null, client)
+  },
+
+  // #40: os pagamentos para o admin, com o id da cobrança cortado
+  async listarParaAdmin(vendaId: number): Promise<PagamentoAdmin[]> {
+    return pagamentoRepository.listarParaAdmin(vendaId)
   },
 
   // Expiração: a cobrança do pagamento pendente da venda, se já foi gravada (sem cobrança não há o que consultar)

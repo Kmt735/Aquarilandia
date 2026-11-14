@@ -1,6 +1,6 @@
 import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
-import type { LinhaPagamento, StatusPagamento } from '../vendas/venda.types.js'
+import type { LinhaPagamento, PagamentoAdmin, StatusPagamento } from '../vendas/venda.types.js'
 
 // A marca do pagamento indevido no status_detalhe (a mesma constante do pagamento.service)
 export const detalheIndevido = 'pagamento indevido'
@@ -51,6 +51,24 @@ export const pagamentoRepository = {
          FROM pagamentos
         WHERE venda_id = $1
         ORDER BY criado_em DESC, id DESC`,
+      [vendaId],
+    )
+    return rows
+  },
+
+  // #40, admin: todos os pagamentos da venda, do mais antigo ao mais novo. O id da cobrança sai daqui CORTADO (o
+  // prefixo pix_char_ e mais 6 caracteres, o bastante para achar no painel da AbacatePay): o inteiro nunca sai
+  async listarParaAdmin(vendaId: number): Promise<PagamentoAdmin[]> {
+    const { rows } = await db.query<PagamentoAdmin>(
+      `SELECT id, status, metodo, valor,
+              CASE WHEN gateway_cobranca_id IS NULL THEN NULL
+                   WHEN gateway_cobranca_id LIKE 'pix\_char\_%' THEN left(gateway_cobranca_id, 15) || '…'
+                   ELSE left(gateway_cobranca_id, 6) || '…' END AS "cobrancaInicio",
+              estorno_solicitado_em AS "estornoSolicitadoEm", estorno_tentativas AS "estornoTentativas",
+              estorno_ultimo_erro AS "estornoUltimoErro", status_detalhe AS "statusDetalhe", criado_em AS "criadoEm"
+         FROM pagamentos
+        WHERE venda_id = $1
+        ORDER BY criado_em, id`,
       [vendaId],
     )
     return rows

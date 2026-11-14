@@ -3,10 +3,13 @@ import type { Queryable } from '../../utils/transacao.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
 import type {
   EtapaHistorico,
+  EtapaHistoricoAdmin,
   FiltroVendas,
+  FiltrosVendaAdmin,
   LinhaResumoVenda,
   NovaVenda,
   NovoItemVenda,
+  ResumoVendaAdmin,
   StatusVenda,
   TipoEntrega,
   VendaCriada,
@@ -351,4 +354,85 @@ export const vendaRepository = {
   },
 
   // Os pagamentos da venda saíram daqui no Lote 11: estão no pagamentoRepository.listarPorVenda (seção 8)
+
+  // ---------- #39 e #40 admin de vendas ----------
+
+  // Uma consulta para a página inteira, sem N+1: o JOIN traz o nome do cliente e o LATERAL conta os itens. A contagem
+  // usa o MESMO WHERE. Tudo entra como parâmetro (inclusive o LIMIT e o OFFSET); a direção da ordem é um de dois
+  // textos fixos. As datas são dias inteiros no fuso da loja (America/Sao_Paulo), comparadas com criado_em.
+  // problemaPagamento: algum pagamento com o estorno automático esgotado (aprovado, estorno pedido, 5 tentativas), em
+  // disputa, ou com o valor divergente (pagamentos é do mesmo dono; o EXISTS evita uma consulta por venda)
+  async listarParaAdmin(
+    filtro: FiltrosVendaAdmin,
+    maxTentativasEstorno: number,
+  ): Promise<{ linhas: ResumoVendaAdmin[]; total: number }> {
+    const valores: unknown[] = []
+    const condicoes: string[] = []
+    const parametro = (valor: unknown): string => {
+      valores.push(valor)
+      return `$${valores.length}`
+    }
+    if (filtro.clienteId !== null) condicoes.push(`v.cliente_id = ${parametro(filtro.clienteId)}`)
+    if (filtro.status !== null) condicoes.push(`v.status = ${parametro(filtro.status)}`)
+    if (filtro.tipoEntrega !== null) condicoes.push(`v.tipo_entrega = ${parametro(filtro.tipoEntrega)}`)
+    if (filtro.de !== null) {
+      condicoes.push(`v.criado_em >= (${parametro(filtro.de)}::date::timestamp AT TIME ZONE 'America/Sao_Paulo')`)
+    }
+    if (filtro.ate !== null) {
+      condicoes.push(`v.criado_em < ((${parametro(filtro.ate)}::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')`)
+    }
+    if (filtro.problemaPagamento) {
+      condicoes.push(`EXISTS (
+        SELECT 1 FROM pagamentos p
+         WHERE p.venda_id = v.id
+           AND ((p.status = 'aprovado' AND p.estorno_solicitado_em IS NOT NULL
+                 AND p.estorno_tentativas >= ${parametro(maxTentativasEstorno)})
+                OR p.status = 'em_disputa'
+                OR p.status_detalhe = 'valor divergente'))`)
+    }
+    const where = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : ''
+    // Fila de separação: com status=paga, as mais antigas primeiro (a que espera há mais tempo)
+    const direcao = filtro.status === 'paga' ? 'ASC' : 'DESC'
+
+    const { rows: contagem } = await db.query<{ total: number }>(
+      `SELECT count(*)::int AS total FROM vendas v ${where}`,
+      valores,
+    )
+    const { rows } = await db.query<ResumoVendaAdmin>(
+      `SELECT v.id, v.status, v.tipo_entrega AS "tipoEntrega", v.total, c.nome AS "clienteNome",
+              i.quantidade AS "quantidadeItens", v.criado_em AS "criadoEm"
+         FROM vendas v
+         JOIN clientes c ON c.id = v.cliente_id
+        CROSS JOIN LATERAL (SELECT count(*)::int AS quantidade FROM itens_venda iv WHERE iv.venda_id = v.id) i
+        ${where}
+        ORDER BY v.criado_em ${direcao}, v.id ${direcao}
+        LIMIT $${valores.length + 1} OFFSET $${valores.length + 2}`,
+      [...valores, filtro.limite, (filtro.pagina - 1) * filtro.limite],
+    )
+    return { linhas: rows, total: contagem[0].total }
+  },
+
+  // O histórico com a autoria: origem, o nome de quem mudou (cliente ou admin; NULL no sistema e no gateway) e a
+  // observação. Ordem cronológica, desempate pelo id
+  async listarHistoricoParaAdmin(vendaId: number): Promise<EtapaHistoricoAdmin[]> {
+    type Linha = Omit<EtapaHistoricoAdmin, 'alteradoPor'> & { autorId: number | null; autorNome: string | null }
+    const { rows } = await db.query<Linha>(
+      `SELECT h.status_anterior AS "statusAnterior", h.status_novo AS status, h.origem, h.alterado_por_id AS "autorId",
+              c.nome AS "autorNome", h.observacao, h.criado_em AS data
+         FROM historico_status_venda h
+         LEFT JOIN clientes c ON c.id = h.alterado_por_id
+        WHERE h.venda_id = $1
+        ORDER BY h.criado_em, h.id`,
+      [vendaId],
+    )
+    return rows.map(({ autorId, autorNome, ...etapa }) => ({
+      ...etapa,
+      alteradoPor: autorId === null ? null : { id: autorId, nome: autorNome ?? '' },
+    }))
+  },
+
+  async existe(vendaId: number): Promise<boolean> {
+    const { rows } = await db.query('SELECT 1 FROM vendas WHERE id = $1', [vendaId])
+    return rows.length > 0
+  },
 }

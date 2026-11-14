@@ -24,6 +24,30 @@ export const vendaController = {
     res.status(200).json(venda)
   },
 
+  // ---------- admin (a rota passa antes pela guarda autenticar + exigirAdmin do vendaRoutes) ----------
+  // no-store em todas: endereço, e-mail, telefone e pagamentos são dados pessoais
+
+  // GET /api/vendas (#39)
+  async listarParaAdmin(req: Request, res: Response): Promise<void> {
+    const pagina = await vendaService.listarParaAdmin(req.query as Record<string, unknown>)
+    res.set('Cache-Control', 'no-store')
+    res.json(pagina)
+  },
+
+  // GET /api/vendas/:id (#40)
+  async buscarParaAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const venda = await vendaService.buscarParaAdmin(idParam(req.params.id))
+    res.set('Cache-Control', 'no-store')
+    res.json(venda)
+  },
+
+  // GET /api/vendas/:id/historico (#40)
+  async listarHistoricoParaAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const historico = await vendaService.listarHistoricoParaAdmin(idParam(req.params.id))
+    res.set('Cache-Control', 'no-store')
+    res.json(historico)
+  },
+
   // POST /api/vendas/:id/pagamentos (#44). Nenhum campo do body é lido: valor, vencimento e dono vêm do banco.
   // no-store: a resposta tem o código Pix, que não pode ficar em cache
   async gerarPix(req: Request<{ id: string }>, res: Response): Promise<void> {

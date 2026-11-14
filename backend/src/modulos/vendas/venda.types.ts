@@ -133,6 +133,77 @@ export interface PaginaVendas {
   limite: number
 }
 
+// ---------- Admin de vendas (#39, #40) ----------
+
+export const listaTiposEntrega = ['correios', 'propria', 'retirada'] as const
+
+// ?clienteId, ?status, ?tipoEntrega, ?de, ?ate (AAAA-MM-DD, no fuso da loja), ?problemaPagamento e a paginação
+export interface FiltrosVendaAdmin {
+  clienteId: number | null
+  status: StatusVenda | null
+  tipoEntrega: TipoEntrega | null
+  de: string | null
+  ate: string | null
+  problemaPagamento: boolean
+  pagina: number
+  limite: number
+}
+
+export interface ResumoVendaAdmin {
+  id: number
+  status: StatusVenda
+  tipoEntrega: TipoEntrega
+  total: number
+  clienteNome: string
+  quantidadeItens: number
+  criadoEm: Date
+}
+
+export interface PaginaVendasAdmin {
+  dados: ResumoVendaAdmin[]
+  total: number
+  pagina: number
+  limite: number
+}
+
+// Todos os pagamentos da venda, para o admin. cobrancaInicio = o começo do id da cobrança (para achar no painel da
+// AbacatePay), NUNCA o id inteiro
+export interface PagamentoAdmin {
+  id: number
+  status: StatusPagamento
+  metodo: string | null
+  valor: number
+  cobrancaInicio: string | null
+  estornoSolicitadoEm: Date | null
+  estornoTentativas: number
+  estornoUltimoErro: string | null
+  statusDetalhe: string | null
+  criadoEm: Date
+}
+
+export interface ClienteDaVenda {
+  id: number
+  nome: string
+  email: string | null
+  telefone: string | null
+}
+
+// GET /api/vendas/:id (#40): o detalhe do cliente mais a conta e todos os pagamentos
+export interface DetalheVendaAdmin extends DetalheVenda {
+  cliente: ClienteDaVenda
+  pagamentos: PagamentoAdmin[]
+}
+
+// GET /api/vendas/:id/historico: com a autoria (origem, quem e a observação), que o cliente não vê
+export interface EtapaHistoricoAdmin {
+  statusAnterior: StatusVenda | null
+  status: StatusVenda
+  origem: 'cliente' | 'admin' | 'sistema' | 'gateway'
+  alteradoPor: { id: number; nome: string } | null
+  observacao: string | null
+  data: Date
+}
+
 // Os mesmos valores do CHECK de pagamentos.status (db/init/20_vendas.sql)
 export type StatusPagamento = 'pendente' | 'aprovado' | 'recusado' | 'estornado' | 'cancelado' | 'em_disputa'
 
