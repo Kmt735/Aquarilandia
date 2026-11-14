@@ -49,6 +49,9 @@ const statusEmAndamento: readonly StatusVenda[] = [
   'cancelamento_solicitado',
 ]
 
+// #35: a venda paga que o cliente (ou o admin) ainda pode cancelar: antes de sair da loja (D-17)
+const statusCancelaComEstorno: readonly StatusVenda[] = ['paga', 'em_separacao', 'pronta_retirada']
+
 // Vendas que contam no total gasto: pagamento confirmado e sem cancelamento. cancelamento_solicitado fica fora
 // porque o estorno já está em andamento (o dinheiro vai voltar), e aguardando_pagamento ainda não foi pago.
 const statusPagos: readonly StatusVenda[] = [
@@ -126,10 +129,13 @@ export function mensagemDoPagamento(pagamento: PagamentoEscolhido, statusVenda: 
     case 'pendente':
       return 'Aguardando o pagamento do Pix.'
     case 'aprovado':
-      // Só chega aqui um aprovado com devolução pedida quando não há outro aprovado: a compra foi cancelada
-      return statusVenda === 'cancelada' || statusVenda === 'cancelamento_solicitado'
-        ? 'Pagamento recebido. A devolução está em andamento.'
-        : 'Pagamento confirmado.'
+      // Só chega aqui um aprovado com devolução pedida quando não há outro aprovado: a compra está sendo cancelada
+      // (pedido do cliente ou do admin, #35) ou foi cancelada antes de o Pix ser pago
+      if (statusVenda === 'cancelamento_solicitado') {
+        return 'Cancelamento registrado. A devolução do pagamento está em andamento.'
+      }
+      if (statusVenda === 'cancelada') return 'Pagamento recebido. A devolução está em andamento.'
+      return 'Pagamento confirmado.'
     case 'cancelado':
       return statusVenda === 'aguardando_pagamento'
         ? 'O código Pix expirou. Gere um novo código para pagar.'
@@ -260,12 +266,18 @@ export const vendaService = {
   // POST /api/vendas/:id/cancelar (#35), do cliente (só a própria venda) ou do admin (qualquer uma). O status é lido
   // com a venda TRAVADA, e o que acontece depende dele:
   //   aguardando_pagamento → cancelada, o estoque volta e o Pix pendente vira cancelado, tudo na mesma transação.
-  //   enviada, entregue, cancelada (e os outros, por enquanto) → 409.
+  //   paga, em_separacao, pronta_retirada → o estorno em três passos (D-22):
+  //     1) numa transação: venda → cancelamento_solicitado e estorno pedido no pagamento que a confirmou;
+  //     2) FORA da transação: uma tentativa de estorno no gateway (pagamentoService.tentarEstornoPendente);
+  //     3) a resposta mostra o estado final: estorno aprovado → a venda já está cancelada (o tentarEstornoPendente
+  //        conclui); falhou → continua cancelamento_solicitado, e a tarefa de 5 em 5 minutos tenta de novo.
+  //   cancelamento_solicitado → 409 (o cancelamento já está em andamento).
+  //   enviada, entregue, cancelada → 409.
   async cancelar(usuario: UsuarioLogado, vendaId: number, body: unknown): Promise<DetalheVenda> {
     const motivo = validarMotivo(body)
     const ehAdmin = usuario.papel === 'admin'
 
-    await comTransacao(async (client) => {
+    const estornar = await comTransacao(async (client): Promise<number | null> => {
       // A venda do cliente é procurada por id E cliente_id: a de outro cai no mesmo 404 da inexistente
       const status = await vendaRepository.travarParaCancelar(vendaId, ehAdmin ? null : usuario.id, client)
       if (!status) throw new AppError(ehAdmin ? 'Venda não encontrada.' : 'Compra não encontrada.', 404)
@@ -277,10 +289,38 @@ export const vendaService = {
         await estoqueService.estornarVenda(vendaId, client)
         // Ordem venda → pagamento, a mesma do webhook
         await pagamentoService.cancelarPendentes(vendaId, client)
-        return
+        return null
+      }
+
+      if (statusCancelaComEstorno.includes(status)) {
+        exigirTransicao(status, 'cancelamento_solicitado', usuario.papel)
+        // Passo 1. Sem pagamento aprovado (ex.: estornado pelo painel da AbacatePay) não há o que devolver
+        // automaticamente: a loja precisa olhar
+        const pagamentoId = await pagamentoService.pedirEstornoDoCancelamento(vendaId, client)
+        if (pagamentoId === null) {
+          console.error(`[cancelamento] venda ${vendaId} em ${status} sem pagamento aprovado`)
+          throw new AppError('Não foi possível cancelar agora. Fale com a loja.', 409)
+        }
+        await vendaRepository.mudarStatus(vendaId, status, 'cancelamento_solicitado', autoria(usuario, motivo), client)
+        return pagamentoId
+      }
+
+      if (status === 'cancelamento_solicitado') {
+        if (!ehAdmin) throw new AppError('O cancelamento desta compra já está em andamento.', 409)
+        throw new AppError('O estorno ainda está sendo tentado automaticamente.', 409)
       }
       throw new AppError('Esta compra não pode mais ser cancelada.', 409)
     })
+
+    // Passo 2, fora da transação: nenhuma chamada de rede segura a trava da venda. Um erro aqui não desfaz o pedido
+    // de cancelamento (já gravado): a tarefa de 5 em 5 minutos tenta de novo
+    if (estornar !== null) {
+      try {
+        await pagamentoService.tentarEstornoPendente(estornar)
+      } catch (err) {
+        console.error(`[cancelamento] venda ${vendaId}: estorno não tentado (${pagamentoService.codigoDoErro(err)})`)
+      }
+    }
 
     return ehAdmin ? vendaService.buscarParaAdmin(vendaId) : vendaService.buscarDoCliente(vendaId, usuario.id)
   },

@@ -23,7 +23,7 @@ describe('mensagemDoPagamento (#48)', () => {
     ['aprovado', 'paga', 'Pagamento confirmado.'],
     ['aprovado', 'entregue', 'Pagamento confirmado.'],
     ['aprovado', 'cancelada', 'Pagamento recebido. A devolução está em andamento.'],
-    ['aprovado', 'cancelamento_solicitado', 'Pagamento recebido. A devolução está em andamento.'],
+    ['aprovado', 'cancelamento_solicitado', 'Cancelamento registrado. A devolução do pagamento está em andamento.'],
     ['cancelado', 'aguardando_pagamento', 'O código Pix expirou. Gere um novo código para pagar.'],
     ['cancelado', 'cancelada', 'Pagamento não concluído.'],
     ['cancelado', 'paga', 'Pagamento não concluído.'],

@@ -169,6 +169,27 @@ export const pagamentoRepository = {
     return rowCount ?? 0
   },
 
+  // Venda paga cancelada: o pagamento que confirmou a venda é o aprovado SEM estorno pedido (um pagamento em dobro já
+  // nasce com o estorno pedido). Quem chama já travou a venda; este trava o pagamento (ordem venda → pagamento)
+  async travarConfirmador(vendaId: number, client: Queryable): Promise<number | null> {
+    const { rows } = await client.query<{ id: number }>(
+      `SELECT id FROM pagamentos
+        WHERE venda_id = $1 AND status = 'aprovado' AND estorno_solicitado_em IS NULL
+        ORDER BY id
+        LIMIT 1
+          FOR UPDATE`,
+      [vendaId],
+    )
+    return rows[0]?.id ?? null
+  },
+
+  async pedirEstorno(pagamentoId: number, client: Queryable): Promise<void> {
+    await client.query(
+      'UPDATE pagamentos SET estorno_solicitado_em = now(), atualizado_em = now() WHERE id = $1',
+      [pagamentoId],
+    )
+  },
+
   // ---------- rede de proteção (reconsulta) ----------
 
   // Expiração: a cobrança do pagamento pendente mais recente da venda, se já foi gravada

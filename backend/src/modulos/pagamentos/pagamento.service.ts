@@ -317,6 +317,7 @@ async function reconsultarPendente(vendaId: number): Promise<boolean> {
 }
 
 export const pagamentoService = {
+  codigoDoErro,
   gerarPix,
   processarCobranca,
   processarAviso,
@@ -331,6 +332,15 @@ export const pagamentoService = {
   // #35, dentro da transação do vendaService.cancelar (a venda já travada): o Pix pendente vira cancelado
   async cancelarPendentes(vendaId: number, client: Queryable): Promise<number> {
     return pagamentoRepository.cancelarPendentes(vendaId, client)
+  },
+
+  // #35, passo 1 do cancelamento da venda paga (dentro da transação, a venda já travada): trava o pagamento que
+  // confirmou a venda e pede o estorno. null = não há pagamento aprovado (quem chama responde 409)
+  async pedirEstornoDoCancelamento(vendaId: number, client: Queryable): Promise<number | null> {
+    const pagamentoId = await pagamentoRepository.travarConfirmador(vendaId, client)
+    if (pagamentoId === null) return null
+    await pagamentoRepository.pedirEstorno(pagamentoId, client)
+    return pagamentoId
   },
 
   // Expiração: a cobrança do pagamento pendente da venda, se já foi gravada (sem cobrança não há o que consultar)
