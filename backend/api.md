@@ -187,8 +187,8 @@ POST   /api/vendas                              (cliente — cria venda + itens 
 POST   /api/vendas/:id/status                   (admin — avança o status: { status, observacao, codigoRastreio? })
 POST   /api/vendas/:id/cancelar                 (cliente, dono, antes do envio; ou admin — estorna estoque e, se paga, o pagamento)
 
-POST   /api/vendas/:id/pagamentos               (cliente, dono — cria a cobrança no gateway e devolve o link)
-POST   /api/pagamentos/webhook                  (gateway — validado por assinatura)
+POST   /api/vendas/:id/pagamentos               (cliente, dono, rate limit — gera o Pix: código e QR code; ver seção 6)
+POST   /api/pagamentos/webhook                  (gateway — validado por segredo e assinatura, processado pela reconsulta; ver seção 6)
 
 GET    /api/orcamentos                          ?status=&pagina=&limite=   (admin — paginado, ver seção 4)
 POST   /api/orcamentos                          (público, rate limit: 5 por hora por IP, contando os que deram certo)
@@ -1368,8 +1368,9 @@ a venda (D-12).
   diferente, `409` com o total novo em reais e **nada** é criado; o carrinho mostra o valor novo e o cliente confirma
   numa nova tentativa (com o `totalEsperado` novo). A cotação não lê `totalEsperado`.
 - **Limite da #31:** no máximo 5 vendas `aguardando_pagamento` com `expira_em` no futuro por cliente. As vencidas
-  (que a tarefa da #32 ainda vai cancelar) não contam. A contagem é feita depois da trava do cliente, então dois
-  pedidos ao mesmo tempo não passam juntos do limite.
+  não contam: a tarefa de expiração (#32, ligada desde o Lote 10 e com a reconsulta do Pix desde o Lote 11) as cancela
+  em até 5 minutos depois da folga, ou as confirma se o Pix tiver sido pago. A contagem é feita depois da trava do
+  cliente, então dois pedidos ao mesmo tempo não passam juntos do limite.
 - **409 do estoque:** `baixarParaVenda` responde por `produtoId` (`itens.<produtoId>.quantidade` e
   `itensIndisponiveis`, D-50/D-51). A venda traduz cada `produtoId` para o primeiro índice do item no body antes de
   responder; o `produtoId` não aparece na resposta. Produto inativo nunca chega a esse 409: ele é recusado antes, com
@@ -1410,10 +1411,15 @@ Sem login → `401` `'Faça login para continuar.'`.
 - `codigoRastreio`: o código dos Correios, ou `null`;
 - `historico`: `[{ status, data }]` em ordem cronológica (desempate pelo `id`). **Sem** `origem`, quem mudou
   (`alterado_por_id`) nem `observacao`: são dados internos da loja;
-- `pagamento`: **um** pagamento, ou `null` se a compra não tiver nenhum. É o `aprovado` mais recente; sem aprovado, o
-  mais recente de qualquer status (desempate pelo `id`). Só `{ status, metodo, criadoEm }`: nunca ids do gateway, código
-  Pix, valor, `status_detalhe` ou dados de estorno. A mensagem amigável por status fica para a #48. Quando a #35 criar
-  o `estorno_solicitado_em`, a regra passa a ser "aprovado e sem estorno marcado" (anotado para a #47).
+- `pagamento`: **um** pagamento, ou `null` se a compra não tiver nenhum. É o `aprovado` mais recente **sem devolução
+  pedida** (`estorno_solicitado_em` vazio); sem um aprovado assim, o mais recente de qualquer status (desempate pelo
+  `id`). Um pagamento em dobro (devolvido ou com a devolução pedida) nunca aparece como o pagamento da compra.
+  `{ status, metodo, criadoEm, mensagem }`: nunca ids do gateway, código Pix, valor, `status_detalhe` ou dados de
+  estorno. A `mensagem` (#48) está na tabela de mensagens da seção "Pagamento Pix" abaixo.
+- **Rede de proteção (Lote 11):** se a compra está `aguardando_pagamento` e tem um pagamento `pendente` com cobrança
+  cuja última atualização tem mais de 20 s, o detalhe reconsulta a cobrança no gateway **antes** de responder (no
+  máximo 1 consulta a cada 20 s por pagamento, mesmo com o frontend perguntando sem parar). Pago → a resposta já vem
+  com `status: 'paga'`. Gateway fora → a resposta mostra o que o banco tem (`200`).
 
 | Status | Quando | Resposta |
 |---|---|---|
@@ -1439,8 +1445,15 @@ uma conta anonimizada continua visível para a loja). A query é conferida antes
   no mesmo processo; os timers não seguram o processo vivo (`unref`).
 - Cada rodada pega até **100** vendas `aguardando_pagamento` com `expira_em` vencido há **mais de 5 minutos** (as mais
   antigas primeiro; o resto fica para a rodada seguinte). A folga existe porque o Pix vence junto com a venda, mas o
-  aviso da AbacatePay pode chegar com atraso: sem ela, uma venda paga no último segundo seria cancelada. A reconsulta do
-  pagamento no gateway antes de cancelar entra na #47.
+  aviso da AbacatePay pode chegar com atraso: sem ela, uma venda paga no último segundo seria cancelada.
+- **Reconsulta antes de cancelar (Lote 11):** se a venda tem um pagamento `pendente` com cobrança, a tarefa chama o
+  mesmo `processarCobranca` do webhook antes de cancelar. Pago → a venda vira `paga` e não é cancelada; Pix expirado →
+  o pagamento vira `cancelado` e a venda é cancelada. Gateway fora → a venda **não** é cancelada nesta rodada (conta
+  como erro e fica para a próxima), a não ser que tenha vencido há **mais de 1 hora**: aí é cancelada, e se o Pix tiver
+  sido pago o webhook ou a próxima reconsulta faz a devolução.
+- **Devolução de pagamento indevido (Lote 11):** depois da expiração e das limpezas, com uma trava própria, a mesma
+  rodada tenta de novo até **50** pagamentos `aprovado` com `estorno_solicitado_em` e menos de 5 tentativas, cada um
+  isolado (o erro num não para os outros). Ver "Pagamento Pix" abaixo.
 - Cada venda tem a **sua** transação: `aguardando_pagamento → cancelada` pelo `mudarStatus` (histórico com origem
   `sistema` e a observação `'Pagamento não recebido no prazo.'`) e `estoqueService.estornarVenda` na mesma transação —
   cancelada e estoque devolvido juntos, ou nenhum dos dois. A trava otimista (`WHERE status = 'aguardando_pagamento'`)
@@ -1455,6 +1468,104 @@ uma conta anonimizada continua visível para a loja). A query é conferida antes
   linhas de `sessoes` e de `tokens_recuperacao_senha` com `expira_em` no passado. Elas já não valiam (as consultas
   conferem `expira_em > now()`); apagar só impede que as tabelas cresçam para sempre. A tarefa chama o service do auth,
   nunca os repositories (seção 8).
+
+
+### Pagamento Pix — `POST /api/vendas/:id/pagamentos` (#44), webhook (#46, #47), rede de proteção e mensagens (#48) — implementados em 14/11/2026
+
+Tudo no módulo `pagamentos` (`pagamento.service.ts` e `pagamento.repository.ts`). Duas regras valem para todo o fluxo:
+o gateway (`gatewayPix`) **nunca** é chamado dentro de `comTransacao`, e quem decide se um pagamento existe, quanto
+vale e em que status está é a **consulta** ao gateway, nunca o corpo do aviso.
+
+**`POST /api/vendas/:id/pagamentos`** (cliente, dono) — `exigirOrigem`, `autenticar`, `limitePagamento` (20 pedidos
+por IP em 10 minutos, contando todos → `429`). Nenhum campo do body é lido. Três etapas:
+
+1. **Transação curta, sem rede:** trava o cliente (`travarParaAlteracao`, primeiro, como no `POST /api/vendas`) e a
+   venda (`FOR UPDATE`, por `id` **e** `cliente_id`). Se já existe um pagamento `pendente` da venda, reaproveita
+   (o mesmo `pagamentoId`); senão, cria um (`gateway 'abacatepay'`, `metodo 'pix'`, `valor` = `vendas.total`,
+   `status 'pendente'`, sem cobrança). Depois de um `recusado` ou `cancelado`, nasce um novo. Dois pedidos ao mesmo
+   tempo passam um de cada vez pela trava da venda: um pagamento só.
+2. **Fora da transação:** `gatewayPix.criarCobrancaPix({ pagamentoId, vendaId, valor, expiraEm: vendas.expira_em })`.
+   A AbacatePay é idempotente pelo `externalId 'pagamento-<id>'`: o mesmo `pagamentoId` devolve a **mesma** cobrança e
+   o mesmo código. Falhou → `502`, o pagamento fica pendente sem cobrança, e o próximo pedido reaproveita o mesmo id.
+3. **Grava a cobrança** só se o pagamento ainda não tem uma (ou já tem esta). Já tinha **outra** → `502` e log, sem
+   sobrescrever. Se a cobrança reaproveitada já não está aberta no gateway, a consulta atualiza o banco e a resposta é
+   `409` (paga) ou `502` (expirada/cancelada: o pagamento vira `cancelado` e o próximo pedido cria outro).
+
+`201` com `Cache-Control: no-store`:
+
+```json
+{ "pagamentoId": 7, "codigoPix": "00020126...", "qrCodeImagem": "data:image/png;base64,...", "expiraEm": "2026-11-14T15:30:00.000Z" }
+```
+
+O código Pix e a imagem **não são gravados** no banco (pedir de novo com o mesmo pagamento devolve os mesmos). O Pix
+vence junto com a venda (`expiraEm` = `vendas.expira_em`).
+
+| Status | Quando | `erro` |
+|---|---|---|
+| `201` | Pix gerado (ou o mesmo de antes) | — |
+| `400` | `:id` que não é inteiro positivo | `'Id inválido.'` |
+| `401` | Sem login, ou conta desativada/anonimizada | `'Faça login para continuar.'` |
+| `403` | Sem `Origin` | `'Origem da requisição não permitida.'` |
+| `404` | Compra inexistente **ou de outro cliente** | `'Compra não encontrada.'` |
+| `409` | Compra que não está `aguardando_pagamento`, ou que vence em menos de 60 s (ou já venceu) | `'Esta compra não pode mais ser paga.'` |
+| `422` | Total abaixo de R$ 1,00 (mínimo do Pix) | `'O valor mínimo para pagar com Pix é R$ 1,00.'` |
+| `429` | 21º pedido do IP em 10 minutos | `'Muitas tentativas. Tente de novo em alguns minutos. '` |
+| `502` | Gateway indisponível, ou cobrança diferente da gravada | `'Não foi possível falar com o pagamento agora. Tente de novo em instantes.'` |
+
+**Webhook (#46, #47)** — depois da validação (segredo e assinatura, `401` se inválidos), só `transparent.completed` e
+`transparent.refunded` são processados; os outros eventos são confirmados com `200`. Do corpo, só são lidos o `id` do
+aviso (`log_...`) e `data.transparent.id` (`pix_char_...`). Faltou um, ou fora do formato → `200` e ignora (log curto,
+sem os ids).
+
+1. **Idempotência (#46):** `INSERT INTO eventos_webhook ... ON CONFLICT DO NOTHING` com `payload` = **só**
+   `{ cobrancaId }` (o corpo traz nome, e-mail e CPF mascarado do pagador: nada disso é gravado). Já existia e foi
+   processado → `200` e para; já existia sem `processado_em` (falhou antes) → reprocessa.
+2. **`processarCobranca(cobrancaId)` (#47)**, a mesma função da rede de proteção:
+   - consulta a cobrança no gateway, **fora** de transação (falhou → `500`, a AbacatePay reenvia);
+   - acha o pagamento pelo `gateway_cobranca_id`. Não achou: aceita só o caso da etapa 3 do `POST` que não chegou a
+     gravar (o metadata da **consulta** aponta um pagamento sem cobrança, da mesma venda e do mesmo valor). Senão,
+     `[pagamento] cobrança desconhecida` no log e o evento fica processado (para não ser reenviado para sempre);
+   - numa transação, trava a **venda** e depois o **pagamento** (`FOR UPDATE`, sempre nesta ordem; ver a D-21) e aplica:
+
+| Consulta | O que acontece |
+|---|---|
+| `aprovado`, valor ≠ `pagamentos.valor` | Não confirma: `status_detalhe 'valor divergente'` e log |
+| `aprovado`, pagamento já aprovado | Nada (idempotente) |
+| `aprovado`, venda `aguardando_pagamento` (mesmo vencida, se a tarefa ainda não cancelou) | Pagamento `aprovado` (`gateway_pagamento_id` = id da cobrança); venda → `paga` (histórico com origem `gateway`). O estoque não muda |
+| `aprovado`, venda cancelada ou já paga por outro pagamento | Pagamento `aprovado` + `estorno_solicitado_em`: vira **devolução** (abaixo). A venda nunca é reaberta |
+| `estornado` | Pagamento `estornado` (se estava aprovado ou pendente) |
+| `cancelado` / `recusado` | O pagamento pendente vira esse status; a venda não muda |
+| `em_disputa` | Pagamento `em_disputa` e log |
+| `pendente` | Nada |
+
+3. Sucesso → `processado_em = now()` e `200`. Falha nossa ou do gateway → `tentativas + 1`, `ultimo_erro` com um
+   código curto (`P0001`, `GATEWAY_INDISPONIVEL`, ...) e `500` genérico.
+
+**Devolução de pagamento indevido (#49, parte mínima)** — logo depois do COMMIT que pediu a devolução, uma tentativa:
+`gatewayPix.estornar(cobrança, 'Pagamento recebido para compra já cancelada ou paga.')`. Aprovado ou "já reembolsada"
+→ pagamento `estornado`; senão `estorno_tentativas + 1` e `estorno_ultimo_erro` com o código curto (ex.:
+`INSUFFICIENT_FUNDS`). A tarefa de 5 em 5 minutos tenta de novo (até 50 por rodada). Com **5** tentativas, para e
+registra `[estorno] pagamento <id> precisa de ação do admin`; a tela do admin entra no Lote 12.
+
+**Rede de proteção (reconsulta)** — se um aviso da AbacatePay se perder, o pagamento é confirmado mesmo assim:
+na **expiração** (antes de cancelar cada venda vencida com Pix pendente) e no **detalhe da compra** (no máximo 1
+consulta a cada 20 s por pagamento). Detalhes nas duas seções acima.
+
+**Mensagens do pagamento (#48, item 9 do PDF)** — campo `mensagem` do `pagamento` no detalhe da compra:
+
+| `pagamento.status` | Status da venda | `mensagem` |
+|---|---|---|
+| `pendente` | — | `'Aguardando o pagamento do Pix.'` |
+| `aprovado` | qualquer, menos os dois abaixo | `'Pagamento confirmado.'` |
+| `aprovado` | `cancelada` ou `cancelamento_solicitado` (só aparece um aprovado com devolução pedida) | `'Pagamento recebido. A devolução está em andamento.'` |
+| `cancelado` | `aguardando_pagamento` | `'O código Pix expirou. Gere um novo código para pagar.'` |
+| `cancelado` | as outras | `'Pagamento não concluído.'` |
+| `recusado` | — | `'O pagamento não foi aprovado. Gere um novo código Pix.'` |
+| `estornado` | — | `'Pagamento devolvido.'` |
+| `em_disputa` | — | `'Pagamento em análise.'` |
+
+**Logs:** só ids nossos (pagamento, venda, evento) e códigos curtos. Nunca o id da cobrança, o código Pix, o token,
+o segredo nem dado do pagador.
 
 ---
 
@@ -1484,6 +1595,7 @@ O Postgres executa `db/init/*.sql` em ordem alfabética, então a numeração de
 | `10_clientes.sql` | Celio | clientes, enderecos_cliente, sessoes, tokens_recuperacao_senha |
 | `20_vendas.sql` | Celio | domain status_venda, vendas, itens_venda, historico_status_venda, pagamentos, eventos_webhook |
 | `21_vendas_idempotencia.sql` | Celio | `vendas.chave_idempotencia` e `vendas.hash_requisicao` (Idempotency-Key do `POST /api/vendas`); em banco existente, aplicar com o comando do topo do arquivo, sem `db:reset` |
+| `22_pagamentos_estorno.sql` | Celio | `pagamentos.estorno_solicitado_em`, `gateway_cobranca_id` anulável e único, `gateway_pagamento_id` VARCHAR(100), um pendente por venda e o índice dos estornos pendentes (Lote 11); em banco existente, aplicar com o comando do topo do arquivo, sem `db:reset` |
 | `30_estoque.sql` | Dev 2 | movimentacoes_estoque (pode ter FK para vendas) |
 | `31_estoque_vendas.sql` | Backend 1 | evolução002 de operações/movimentos vinculados a vendas; sem alterar schema comercial |
 | `90_seed.sql` | ambos (só `INSERT`) | dados de exemplo |
@@ -1666,22 +1778,37 @@ gateway e sem sair do site. A cobrança vai sem dados do cliente (D-31). Cartão
 Todo o código do gateway fica isolado em `modulos/pagamentos/gateway.ts` (D-20), e o banco usa nomes genéricos
 (`gateway_*`), para que a escolha afete só esse arquivo. Variáveis: `GATEWAY_ACCESS_TOKEN` e `GATEWAY_WEBHOOK_SECRET`.
 
-**Contrato proposto, implementado na #44:** `POST /api/vendas/:id/pagamentos` responde
+**Implementado na #44 (Lote 11, 14/11/2026):** `POST /api/vendas/:id/pagamentos` responde
 `{ pagamentoId, codigoPix, qrCodeImagem, expiraEm }`. `codigoPix` é o copia e cola; `qrCodeImagem` é um data URL
-(`data:image/png;base64,...`) para usar direto num `<img>`; `expiraEm` em ISO 8601.
+(`data:image/png;base64,...`) para usar direto num `<img>`; `expiraEm` em ISO 8601. Contrato completo na seção 6
+("Pagamento Pix").
+
+**`gatewayPix` (Lote 11):** o `gateway.ts` exporta também `gatewayPix = { criarCobrancaPix, consultarCobranca,
+estornar }`. O `pagamento.service.ts` chama **sempre** `gatewayPix.xxx`, nunca o import direto: um import de ES module
+não pode ser trocado depois de carregado, mas a propriedade de um objeto pode, e os testes de integração trocam as três
+funções por falsas (nenhum teste fala com a AbacatePay de verdade).
+
+**Exceção à regra desta seção (Lote 11):** `pagamentos` e `vendas` são do mesmo dono, e o `pagamento.service.ts` usa
+o `vendaRepository` (travar a venda e `mudarStatus` para `paga`), o `podeTransicionar` e o
+`clienteRepository.travarParaAlteracao`, como o `venda.service.ts` já usa o `clienteRepository` e o
+`enderecoRepository`. Usar o `vendaService` criaria um import circular (o `venda.service.ts` chama o
+`pagamentoService` no detalhe da compra). No sentido contrário vale a regra: `vendas` só chama o `pagamentoService`
+(os pagamentos do detalhe saíram do `venda.repository.ts` para o `pagamento.repository.ts`).
 
 **Webhook:** `POST /api/pagamentos/webhook?webhookSecret=<segredo>` (gateway). Sem `autenticar`, sem `exigirOrigem`
 e sem rate limit, porque quem chama é a AbacatePay, que não manda Origin nem cookie. Valida o `webhookSecret` e a
 assinatura `X-Webhook-Signature` sobre o corpo cru (D-21): inválido → `401` `{ erro: 'Não autorizado.' }`;
-válido → `200` `{ recebido: true }`. Gravar o evento, reconsultar a cobrança e marcar a venda como paga é da #46
-e da #47.
+válido → `200` `{ recebido: true }`. Desde o Lote 11 (#46/#47) grava o evento e processa a cobrança pela reconsulta:
+seção 6, "Pagamento Pix".
 
 ### Venda não paga, pagamento e cancelamento
 - Uma tarefa agendada do módulo `vendas` cancela vendas `'aguardando_pagamento'` vencidas e chama
   `estoqueService.estornarVenda`.
 - O webhook só confirma o pagamento (venda → `'paga'`); não mexe em estoque. Sempre valida a
   assinatura e reconsulta o pagamento na API do gateway antes de confirmar.
-- Pagamento aprovado de venda já cancelada ou expirada → o módulo `vendas` solicita o estorno.
+- Pagamento aprovado de venda já cancelada ou expirada, ou de venda já paga por outro pagamento (em dobro) → o
+  pagamento fica `aprovado` com `estorno_solicitado_em` e é devolvido pelo gateway (uma tentativa logo depois do
+  aviso e as outras pela tarefa, até 5; Lote 11). A venda nunca é reaberta e o estoque não muda.
 - Cancelar venda paga: estorno **automático** do valor total pela API do gateway; depois `estornarVenda`.
   Se o gateway falhar, a venda fica `'cancelamento_solicitado'` e o estorno é tentado de novo.
 - O estorno é tentado até 5 vezes pela tarefa agendada (contador em `pagamentos.estorno_tentativas`);

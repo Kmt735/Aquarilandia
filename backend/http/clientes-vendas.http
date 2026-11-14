@@ -1432,3 +1432,40 @@ Cookie: sid={{sessaoAdmin}}
 # banco de dev, depois de uma rodada:
 #   SELECT id, status, expira_em FROM vendas WHERE id = <id>;
 #   SELECT status_novo, origem, observacao FROM historico_status_venda WHERE venda_id = <id> ORDER BY id;
+
+# ===== PAGAMENTO PIX (Lote 11) =====
+# POST /api/vendas/:id/pagamentos (#44): gera o Pix de uma compra 'aguardando_pagamento' do cliente logado. Exige Origin.
+# ATENÇÃO: chama a AbacatePay de verdade (Dev mode, com o GATEWAY_ACCESS_TOKEN do .env). Use só uma compra de teste.
+# RATE LIMIT: 20 pedidos por IP em 10 minutos, contando todos (o 21º → 429).
+# O código Pix e a imagem só aparecem nesta resposta (não ficam no banco). Pedir de novo devolve o MESMO pagamento e o
+# MESMO código. Para testar o gateway em Dev mode: npx tsx --env-file-if-exists=.env scripts/gateway-dev.ts.
+
+# 201 - { pagamentoId, codigoPix, qrCodeImagem, expiraEm } com Cache-Control: no-store
+###
+POST {{api}}/vendas/{{idVenda}}/pagamentos
+Origin: {{origem}}
+Cookie: sid={{sessaoCliente}}
+
+# 409 - compra paga, cancelada ou vencendo em menos de 60 s: 'Esta compra não pode mais ser paga.'
+# 404 - compra de outro cliente ou inexistente: 'Compra não encontrada.'
+###
+POST {{api}}/vendas/2147483647/pagamentos
+Origin: {{origem}}
+Cookie: sid={{sessaoCliente}}
+
+# 403 - sem Origin
+###
+POST {{api}}/vendas/{{idVenda}}/pagamentos
+Cookie: sid={{sessaoCliente}}
+
+# Depois de pagar: o detalhe já mostra a compra paga mesmo sem o aviso da AbacatePay (reconsulta, no máximo 1 a cada
+# 20 s por pagamento). O pagamento vem com a mensagem: 'Aguardando o pagamento do Pix.', 'Pagamento confirmado.' etc.
+###
+GET {{api}}/clientes/me/vendas/{{idVenda}}
+Cookie: sid={{sessaoCliente}}
+
+# Webhook (POST /api/pagamentos/webhook): quem chama é a AbacatePay, com ?webhookSecret= e o header
+# X-Webhook-Signature (HMAC do corpo cru). Sem os dois certos → 401. Não dá para montar à mão aqui: use o Dev mode.
+# Para conferir no banco de dev depois de um pagamento:
+#   SELECT id, status, estorno_solicitado_em, estorno_tentativas FROM pagamentos WHERE venda_id = <id>;
+#   SELECT gateway_notificacao_id, tipo, payload, processado_em, tentativas, ultimo_erro FROM eventos_webhook ORDER BY id DESC LIMIT 5;

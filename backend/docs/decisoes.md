@@ -535,12 +535,20 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** vendas (Celio), catálogo e estoque (Dev 2).
 
 ### D-16 — Estoque baixado na criação; venda não paga expira em 30 minutos
-- **Data:** 15/10/2026 (aplicação do contrato interno em 04/11/2026, D-50)
+- **Data:** 15/10/2026 (aplicação do contrato interno em 04/11/2026, D-50; tarefa ligada em 09/11/2026, #32;
+  reconsulta do Pix antes de cancelar em 14/11/2026, Lote 11)
 - **Decisão:** o estoque é baixado quando a venda é criada. Venda em `aguardando_pagamento` vence em 30 minutos
   (`vendas.expira_em`, default `now() + interval '30 minutes'`): uma tarefa agendada do módulo `vendas` cancela a
   venda e chama `estoqueService.estornarVenda`.
-- **Integração:** job do Backend 2 a cada cinco minutos; cancelar e devolver na mesma transação. Sem reserva
-  separada. Helpers B1 implementados, job/criação/cancelamento ainda não conectados.
+- **Integração:** a tarefa **já está ligada** (`venda.tarefas.ts`, iniciada pelo `server.ts`): a cada 5 minutos, com
+  folga de 5 minutos depois do vencimento, cancela e devolve o estoque na mesma transação, venda por venda. Sem
+  reserva separada. Desde o Lote 11, antes de cancelar uma venda com Pix pendente ela **reconsulta** a cobrança no
+  gateway (o mesmo `processarCobranca` do webhook): pago → a venda vira `paga` em vez de cancelada. Gateway fora → não
+  cancela nesta rodada, a não ser que a venda tenha vencido há mais de 1 hora (aí cancela, e um Pix pago depois vira
+  devolução, D-21).
+- **Motivo da folga e da reconsulta:** o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar atrasado
+  ou se perder; sem elas, uma venda paga no último minuto seria cancelada. O limite de 1 hora impede que um gateway
+  fora do ar segure o estoque para sempre.
 - **Motivo:** o cliente não paga por um produto que acabou enquanto estava no checkout; o estoque preso volta sozinho.
 - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
 
@@ -656,12 +664,31 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   - **Códigos de resposta:** `401` para segredo ou assinatura inválidos (a AbacatePay não reenvia 4xx, e o pedido
     não ficaria certo numa nova tentativa); `5xx` para falha nossa (ela reenvia até 7 vezes em cerca de 18 h);
     `200` para evento aceito ou ignorado. Nunca `410`, que desativa o webhook na AbacatePay.
+  - **Processamento (14/11/2026, Lote 11, #46 e #47):**
+    - Do corpo, só o id do aviso (`log_...`) e o id da cobrança (`data.transparent.id`, `pix_char_...`). Status, valor
+      e dados do pagador são ignorados; o que vale é a reconsulta (`gatewayPix.consultarCobranca`).
+    - **Idempotência:** `eventos_webhook` com `ON CONFLICT DO NOTHING` pelo id do aviso; o `payload` guarda **só**
+      `{ cobrancaId }` (nunca o corpo, que traz nome, e-mail e CPF mascarado). Processado → `200` e para; gravado sem
+      `processado_em` → reprocessa. Falha → `tentativas + 1`, `ultimo_erro` com um código curto e `500`.
+    - O pagamento é achado no **nosso** banco pelo `gateway_cobranca_id`. Única exceção: o pagamento que ficou sem a
+      cobrança gravada (a etapa 3 do #44 falhou), aceito só se o metadata da consulta apontar esse pagamento, sem
+      cobrança, da mesma venda e com o mesmo valor. Cobrança desconhecida → log e o evento fica processado.
+    - O valor da consulta é comparado com `pagamentos.valor` antes de confirmar; diferente → não confirma
+      (`status_detalhe 'valor divergente'`).
+    - **Ordem das travas:** a venda (`FOR UPDATE`) e depois o pagamento (`FOR UPDATE`). O #44 trava cliente → venda e a
+      expiração trava a venda (e depois itens e produtos, no `estornarVenda`): ninguém trava o pagamento antes da
+      venda, então não há deadlock. A chamada ao gateway fica sempre **fora** da transação.
+    - **Pagamento indevido:** aprovado de venda cancelada, ou de venda já paga por outro pagamento (em dobro) → fica
+      `aprovado` com `estorno_solicitado_em` e é devolvido (D-22). A venda nunca é reaberta e o estoque não muda.
+    - **Rede de proteção:** a mesma função de processamento roda na expiração (D-16) e no detalhe da compra (no
+      máximo 1 consulta a cada 20 s por pagamento), então um aviso perdido não deixa uma venda paga sem confirmação.
 - **Motivo:** o corpo do webhook pode ser forjado ou repetido; o estoque já foi resolvido na criação/cancelamento.
-- **Impacto:** módulo `pagamentos`.
+  A reconsulta fora da transação não segura trava de venda nem conexão do pool durante a chamada de rede.
+- **Impacto:** módulos `pagamentos` e `vendas` (tarefa de expiração e detalhe da compra); `db/init/22_pagamentos_estorno.sql`.
 
 ### D-22 — Estorno automático no cancelamento de venda paga
 - **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10;
-  atualizada em 02/11/2026 no Lote 7, com a AbacatePay)
+  atualizada em 02/11/2026 no Lote 7, com a AbacatePay; devolução de pagamento indevido em 14/11/2026, Lote 11)
 - **Decisão:**
   - Cancelar venda paga dispara estorno automático pela API do gateway, sempre do valor total.
   - A AbacatePay **não tem chave de idempotência** no estorno e só faz **estorno total**. Repetir é seguro: o
@@ -670,7 +697,8 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
     Pix ainda não estiver disponível, o estorno falha com "Saldo insuficiente para realizar o reembolso.". O modelo
     da #35 cobre isso: a venda fica em `cancelamento_solicitado` e a #49 tenta de novo; depois de 5 tentativas, o
     admin conclui à mão. A loja precisa saber que estornos dependem de manter saldo na conta.
-  - O estorno é controlado por pagamento, pela coluna `pagamentos.estorno_solicitado_em` (entra na #35), em três
+  - O estorno é controlado por pagamento, pela coluna `pagamentos.estorno_solicitado_em` (criada no Lote 11,
+    `22_pagamentos_estorno.sql`), em três
     etapas: **travar** (numa transação, a venda vai para `cancelamento_solicitado` e o pagamento é marcado com
     `estorno_solicitado_em`), **estornar** (chamada ao gateway, fora da transação) e **concluir** (numa nova
     transação, a venda vai para `cancelada`, registrada como `sistema`).
@@ -678,6 +706,14 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
     de novo, até 5 vezes. Contador em `pagamentos.estorno_tentativas` e último erro em
     `pagamentos.estorno_ultimo_erro`. Esgotadas as tentativas, a venda continua em `cancelamento_solicitado` e o
     admin resolve manualmente (só então o admin pode concluir para `cancelada`).
+  - **Devolução de pagamento indevido (14/11/2026, Lote 11, parte mínima da #49):** um pagamento aprovado de venda já
+    cancelada, ou o segundo pagamento de uma venda já paga, fica `aprovado` com `estorno_solicitado_em`. Logo depois
+    do COMMIT do webhook, uma tentativa de `estornar` (fora da transação); aprovado ou "já reembolsada" → `estornado`;
+    falhou → `estorno_tentativas + 1` e `estorno_ultimo_erro` com o código curto (ex.: `INSUFFICIENT_FUNDS`). A tarefa
+    de 5 em 5 minutos tenta de novo até 50 por rodada, cada um isolado, até **5 tentativas** (o `CHECK` de
+    `estorno_tentativas` vai até 5). Com 5, para e registra `[estorno] pagamento <id> precisa de ação do admin`; a
+    tela do admin entra no Lote 12. Esse fluxo não muda a venda: ela continua cancelada (ou paga, pelo outro
+    pagamento). O cancelamento de venda paga pelo cliente (#35, com `cancelamento_solicitado`) continua para depois.
 - **Motivo:** o cliente não depende de ação manual para receber de volta; a recusa do segundo estorno pela AbacatePay
   evita estorno em dobro na nova tentativa; o limite de tentativas evita insistir num erro que não se resolve sozinho.
 - **Impacto:** pagamentos, vendas.
