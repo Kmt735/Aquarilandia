@@ -57,6 +57,11 @@ const statusEmAndamento: readonly StatusVenda[] = [
 // #35: a venda paga que o cliente (ou o admin) ainda pode cancelar: antes de sair da loja (D-17)
 const statusCancelaComEstorno: readonly StatusVenda[] = ['paga', 'em_separacao', 'pronta_retirada']
 
+// #41: os status que o admin escolhe pela rota. paga vem do gateway; cancelamento_solicitado e cancelada, do #35
+const statusDoAdmin: readonly StatusVenda[] = ['em_separacao', 'enviada', 'pronta_retirada', 'entregue']
+// Código dos Correios (2 letras, 9 números, 2 letras), depois do trim e das maiúsculas
+const padraoRastreio = /^[A-Z]{2}[0-9]{9}[A-Z]{2}$/
+
 // Vendas que contam no total gasto: pagamento confirmado e sem cancelamento. cancelamento_solicitado fica fora
 // porque o estorno já está em andamento (o dinheiro vai voltar), e aguardando_pagamento ainda não foi pago.
 const statusPagos: readonly StatusVenda[] = [
@@ -211,6 +216,42 @@ function validarFiltroVendas(query: Record<string, unknown>): FiltroVendas {
 
   if (Object.keys(erros).length) throw new AppError('Parâmetros inválidos', 400, erros)
   return { status, ...pagina }
+}
+
+// #41: { status, observacao?, codigoRastreio? }. Os erros de formato saem juntos num 422; os que dependem da venda
+// (transição, tipo de entrega, rastreio obrigatório) vêm depois, com a venda travada
+function validarMudancaStatus(body: unknown): {
+  status: StatusVenda
+  observacao: string | null
+  codigoRastreio: string | null
+} {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new AppError('Dados inválidos', 422, { body: 'Formato de dados inválido.' })
+  }
+  const dados = body as Record<string, unknown>
+  const erros: Record<string, string> = {}
+
+  const status = typeof dados.status === 'string' && statusDoAdmin.includes(dados.status as StatusVenda)
+    ? dados.status as StatusVenda
+    : null
+  if (!status) erros.status = 'Escolha em_separacao, enviada, pronta_retirada ou entregue.'
+
+  let observacao: string | null = null
+  if (dados.observacao !== undefined && dados.observacao !== null) {
+    if (typeof dados.observacao !== 'string') erros.observacao = 'Informe a observação em texto.'
+    else if (dados.observacao.trim().length > 300) erros.observacao = 'A observação pode ter até 300 caracteres.'
+    else observacao = dados.observacao.trim() || null
+  }
+
+  let codigoRastreio: string | null = null
+  if (dados.codigoRastreio !== undefined && dados.codigoRastreio !== null) {
+    const codigo = typeof dados.codigoRastreio === 'string' ? dados.codigoRastreio.trim().toUpperCase() : ''
+    if (padraoRastreio.test(codigo)) codigoRastreio = codigo
+    else erros.codigoRastreio = 'Informe o código de rastreio dos Correios no formato AA123456789BR.'
+  }
+
+  if (Object.keys(erros).length || !status) throw new AppError('Dados inválidos', 422, erros)
+  return { status, observacao, codigoRastreio }
 }
 
 // AAAA-MM-DD de um dia que existe (2026-02-30 não passa: o Date.UTC rola para março e a volta não bate)
@@ -461,6 +502,47 @@ export const vendaService = {
       cliente: { id: conta.id, nome: conta.nome, email: conta.email, telefone: conta.telefone },
       pagamentos: todos,
     }
+  },
+
+  // POST /api/vendas/:id/status (#41, admin): avança a venda pela tabela de transições, com a venda travada. Segue os
+  // CHECKs do 20_vendas.sql: enviada só para correios/propria, pronta_retirada só para retirada, e o rastreio só
+  // existe nos correios, obrigatório ao enviar (gravado junto, na mesma transação)
+  async mudarStatusPeloAdmin(admin: UsuarioLogado, vendaId: number, body: unknown): Promise<DetalheVendaAdmin> {
+    const pedido = validarMudancaStatus(body)
+    const novo = pedido.status
+
+    await comTransacao(async (client) => {
+      const venda = await vendaRepository.travarParaStatus(vendaId, client)
+      if (!venda) throw new AppError('Venda não encontrada.', 404)
+      const { status: atual, tipoEntrega } = venda
+      if (!podeTransicionar(atual, novo, 'admin')) {
+        throw new AppError(`Não é possível mudar de ${atual} para ${novo}.`, 409)
+      }
+      if (novo === 'enviada' && tipoEntrega === 'retirada') {
+        throw new AppError('Uma compra para retirada na loja não é enviada.', 409)
+      }
+      if (novo === 'pronta_retirada' && tipoEntrega !== 'retirada') {
+        throw new AppError('Só compras para retirada na loja ficam prontas para retirada.', 409)
+      }
+
+      const enviaPelosCorreios = novo === 'enviada' && tipoEntrega === 'correios'
+      if (pedido.codigoRastreio !== null && !enviaPelosCorreios) {
+        throw new AppError('Dados inválidos', 422, {
+          codigoRastreio: tipoEntrega === 'correios'
+            ? 'O código de rastreio é informado quando a compra é enviada.'
+            : 'Só compras enviadas pelos Correios têm código de rastreio.',
+        })
+      }
+      if (enviaPelosCorreios && pedido.codigoRastreio === null) {
+        throw new AppError('Dados inválidos', 422, { codigoRastreio: 'Informe o código de rastreio dos Correios.' })
+      }
+
+      if (pedido.codigoRastreio !== null) await vendaRepository.definirRastreio(vendaId, pedido.codigoRastreio, client)
+      // A venda está travada desde a leitura do status: o mudarStatus sempre casa
+      await vendaRepository.mudarStatus(vendaId, atual, novo, autoria(admin, pedido.observacao), client)
+    })
+
+    return vendaService.buscarParaAdmin(vendaId)
   },
 
   // GET /api/vendas/:id/historico (#40, admin): com origem, quem mudou e a observação

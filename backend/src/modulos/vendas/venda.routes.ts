@@ -21,3 +21,5 @@ vendaRoutes.use(autenticar, exigirAdmin)
 vendaRoutes.get('/', vendaController.listarParaAdmin)
 vendaRoutes.get('/:id', vendaController.buscarParaAdmin)
 vendaRoutes.get('/:id/historico', vendaController.listarHistoricoParaAdmin)
+// Escrita de admin: exigirOrigem (CSRF) depois da guarda, como no clienteRoutes
+vendaRoutes.post('/:id/status', exigirOrigem, vendaController.mudarStatusPeloAdmin)

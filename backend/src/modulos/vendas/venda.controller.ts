@@ -48,6 +48,13 @@ export const vendaController = {
     res.json(historico)
   },
 
+  // POST /api/vendas/:id/status (#41): a rota tem exigirOrigem (escrita de admin)
+  async mudarStatusPeloAdmin(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const venda = await vendaService.mudarStatusPeloAdmin(req.usuario!, idParam(req.params.id), req.body)
+    res.set('Cache-Control', 'no-store')
+    res.json(venda)
+  },
+
   // POST /api/vendas/:id/pagamentos (#44). Nenhum campo do body é lido: valor, vencimento e dono vêm do banco.
   // no-store: a resposta tem o código Pix, que não pode ficar em cache
   async gerarPix(req: Request<{ id: string }>, res: Response): Promise<void> {

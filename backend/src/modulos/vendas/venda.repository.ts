@@ -287,6 +287,27 @@ export const vendaRepository = {
     return rows[0]?.status ?? null
   },
 
+  // #41: o status e o tipo de entrega, com a venda travada (a regra de enviada/pronta_retirada depende do tipo)
+  async travarParaStatus(
+    vendaId: number,
+    client: Queryable,
+  ): Promise<{ status: StatusVenda; tipoEntrega: TipoEntrega } | null> {
+    const { rows } = await client.query<{ status: StatusVenda; tipoEntrega: TipoEntrega }>(
+      'SELECT status, tipo_entrega AS "tipoEntrega" FROM vendas WHERE id = $1 FOR UPDATE',
+      [vendaId],
+    )
+    return rows[0] ?? null
+  },
+
+  // Gravado ANTES do mudarStatus para 'enviada': o CHECK ck_vendas_rastreio_obrigatorio é conferido a cada comando,
+  // e a venda enviada pelos Correios sem rastreio seria recusada no meio do caminho
+  async definirRastreio(vendaId: number, codigoRastreio: string, client: Queryable): Promise<void> {
+    await client.query(
+      'UPDATE vendas SET codigo_rastreio = $2, atualizado_em = now() WHERE id = $1',
+      [vendaId, codigoRastreio],
+    )
+  },
+
   async travarParaPagamento(vendaId: number, client: Queryable): Promise<StatusVenda | null> {
     const { rows } = await client.query<{ status: StatusVenda }>(
       'SELECT status FROM vendas WHERE id = $1 FOR UPDATE',
