@@ -180,15 +180,17 @@ GET    /api/clientes/:id/vendas                 ?status=&pagina=&limite=   (admi
 
 POST   /api/frete/calcular                      (público, rate limit)
 
-GET    /api/vendas                              ?clienteId=&status=&tipoEntrega=&de=&ate=&pagina=&limite=   (admin)
-GET    /api/vendas/:id                          (admin — inclui itens)
-GET    /api/vendas/:id/historico                (admin)
 POST   /api/vendas                              (cliente — cria venda + itens + baixa estoque, numa transação)
-POST   /api/vendas/:id/status                   (admin — avança o status: { status, observacao, codigoRastreio? })
-POST   /api/vendas/:id/cancelar                 (cliente, dono, antes do envio; ou admin — estorna estoque e, se paga, o pagamento)
+POST   /api/vendas/:id/pagamentos               (cliente, dono, rate limit — gera o Pix; ver seção 6)
+POST   /api/vendas/:id/cancelar                 { motivo? }   (cliente, dono, antes do envio; ou admin — ver seção 6, Lote 12)
+  ↓ guarda única vendaRoutes.use(autenticar, exigirAdmin) (D-41): rota de cliente nova fica ACIMA desta linha
+GET    /api/vendas                              ?clienteId=&status=&tipoEntrega=&de=&ate=&problemaPagamento=&pagina=&limite=   (admin)
+GET    /api/vendas/:id                          (admin — o detalhe do cliente + a conta e todos os pagamentos)
+GET    /api/vendas/:id/historico                (admin — com origem, quem mudou e a observação)
+POST   /api/vendas/:id/status                   { status, observacao?, codigoRastreio? }   (admin)
 
-POST   /api/vendas/:id/pagamentos               (cliente, dono, rate limit — gera o Pix: código e QR code; ver seção 6)
 POST   /api/pagamentos/webhook                  (gateway — validado por segredo e assinatura, processado pela reconsulta; ver seção 6)
+POST   /api/pagamentos/:id/concluir-estorno     { motivo }   (admin — devolução manual do pagamento indevido, depois de 5 tentativas)
 
 GET    /api/orcamentos                          ?status=&pagina=&limite=   (admin — paginado, ver seção 4)
 POST   /api/orcamentos                          (público, rate limit: 5 por hora por IP, contando os que deram certo)
@@ -1567,6 +1569,99 @@ consulta a cada 20 s por pagamento). Detalhes nas duas seções acima.
 **Logs:** só ids nossos (pagamento, venda, evento) e códigos curtos. Nunca o id da cobrança, o código Pix, o token,
 o segredo nem dado do pagador.
 
+
+### Cancelamento (#35), admin de vendas (#39, #40, #41) e e-mails de status — implementados em 14/11/2026 (Lote 12)
+
+**`POST /api/vendas/:id/cancelar`** — `exigirOrigem`, `autenticar`; **acima** da guarda de admin do `vendaRoutes`.
+O cliente só cancela a própria venda (outra ou inexistente → `404 'Compra não encontrada.'`); o admin, qualquer uma
+(`404 'Venda não encontrada.'`). Body opcional `{ motivo }` (texto até 300 caracteres depois do `trim`; vai para a
+observação do histórico; as outras chaves são ignoradas). O que acontece depende do status **atual**, lido com a venda
+travada (`FOR UPDATE`), e toda mudança passa antes pelo `podeTransicionar`:
+
+| Status atual | O que acontece |
+|---|---|
+| `aguardando_pagamento` | Numa transação: `cancelada` (ator cliente ou admin), `estornarVenda` (o estoque volta) e o Pix `pendente` vira `cancelado` (o gateway não é chamado: o Pix vence sozinho; se for pago mesmo assim, o webhook devolve) |
+| `paga`, `em_separacao`, `pronta_retirada` | Em **três passos**: (1) numa transação, trava o pagamento que confirmou a venda (`aprovado` sem `estorno_solicitado_em`), a venda vai para `cancelamento_solicitado` e o pagamento ganha `estorno_solicitado_em`; (2) **fora** da transação, uma tentativa de estorno no gateway; (3) a resposta mostra o estado final: estorno aprovado → a venda já está `cancelada` (o passo 2 conclui); falhou → continua `cancelamento_solicitado` e a tarefa de 5 em 5 minutos tenta de novo. Sem pagamento aprovado → `409 'Não foi possível cancelar agora. Fale com a loja.'` |
+| `cancelamento_solicitado` | Cliente → `409 'O cancelamento desta compra já está em andamento.'`. Admin → só com as **5** tentativas automáticas esgotadas (senão `409 'O estorno ainda está sendo tentado automaticamente.'`) e com o motivo (senão `422 { motivo: 'Descreva como o estorno foi feito.' }`): ele confirma que devolveu pelo painel da AbacatePay; numa transação, o pagamento vira `estornado` (`status_detalhe 'estorno manual'`), a venda `cancelada` (ator admin, observação = motivo) e o estoque volta |
+| `enviada`, `entregue`, `cancelada` | `409 'Esta compra não pode mais ser cancelada.'` |
+
+Resposta `200` (`Cache-Control: no-store`): para o cliente, o mesmo formato do `GET /api/clientes/me/vendas/:id`;
+para o admin, o do `GET /api/vendas/:id`. Com o estorno pendente, `pagamento.mensagem` é `'Cancelamento registrado.
+A devolução do pagamento está em andamento.'`. Outros erros: `401` sem login, `403` sem `Origin`, `422` motivo que
+não é texto ou com mais de 300 caracteres.
+
+**Conclusão automática:** quando o estorno é aprovado (na primeira tentativa ou numa da tarefa de 5 em 5 minutos), o
+`tentarEstornoPendente` trava a venda e o pagamento (venda → pagamento), marca o pagamento `estornado` e, se a venda
+está em `cancelamento_solicitado` e este é o pagamento que a confirmou, conclui: `cancelada` (ator `sistema`, observação
+`'Pagamento devolvido.'`) e `estornarVenda`. O pagamento **indevido** (em dobro, ou de venda já cancelada; marcado pelo
+webhook com `status_detalhe 'pagamento indevido'`) só muda o próprio status.
+
+**`POST /api/pagamentos/:id/concluir-estorno`** (admin; `exigirOrigem`, `autenticar`, `exigirAdmin`) — a conclusão
+manual de um pagamento indevido cujo estorno falhou 5 vezes. Body `{ motivo }` obrigatório (até 300) → senão `422`.
+Só se o pagamento está `aprovado`, com `estorno_solicitado_em` e 5 tentativas (senão `409 'Este pagamento não está
+esperando uma devolução manual.'`); o pagamento da compra de uma venda em `cancelamento_solicitado` → `409 'Este é o
+pagamento da compra: conclua pelo cancelamento da venda.'`. Inexistente → `404 'Pagamento não encontrado.'`. `200`
+`{ id, vendaId, status: 'estornado', statusDetalhe: 'estorno manual' }`; o motivo fica em `estorno_ultimo_erro` (o
+pagamento em dobro não tem histórico de venda). A venda não muda.
+
+**Rotas de admin** — abaixo da guarda única `vendaRoutes.use(autenticar, exigirAdmin)` (D-41): sem login `401`,
+cliente `403`, também em caminho desconhecido. Todas com `Cache-Control: no-store`.
+
+- **`GET /api/vendas`** (#39) — paginada (seção 4). Query, conferida antes do banco (inválido → `400 'Parâmetros
+  inválidos'`, com todos os erros juntos; repetido é inválido; outros parâmetros são ignorados):
+
+| Query | Regra |
+|---|---|
+| `clienteId` | inteiro de 1 a 2147483647 |
+| `status` | um dos valores do DOMAIN `status_venda` |
+| `tipoEntrega` | `correios`, `propria` ou `retirada` |
+| `de`, `ate` | `AAAA-MM-DD`, uma data que existe, `de <= ate`; dias inteiros no fuso da loja (`America/Sao_Paulo`), sobre `criado_em` |
+| `problemaPagamento` | `true` ou `false`; `true` = vendas com algum pagamento `aprovado` com o estorno pedido e 5 tentativas, ou `em_disputa`, ou `status_detalhe 'valor divergente'` |
+| `pagina`, `limite` | seção 4 |
+
+  Ordem: mais recentes primeiro; com `status=paga`, as **mais antigas** primeiro (a fila de separação). Cada item:
+  `{ id, status, tipoEntrega, total, clienteNome, quantidadeItens, criadoEm }`. Uma consulta por página (sem N+1) e
+  uma de contagem com o mesmo `WHERE`.
+- **`GET /api/vendas/:id`** (#40) — o detalhe do cliente (itens, entrega, `codigoRastreio`, `historico`, `pagamento`
+  com a mensagem) mais `cliente: { id, nome, email, telefone }` e `pagamentos`: todos, do mais antigo ao mais novo,
+  `{ id, status, metodo, valor, cobrancaInicio, estornoSolicitadoEm, estornoTentativas, estornoUltimoErro,
+  statusDetalhe, criadoEm }`. `cobrancaInicio` = o começo do id da cobrança (`pix_char_` + 6 caracteres + `…`), para o
+  admin achar no painel da AbacatePay: o id inteiro **nunca** sai. Sem reconsulta no gateway. `404 'Venda não
+  encontrada.'`.
+- **`GET /api/vendas/:id/historico`** (#40) — `[{ statusAnterior, status, origem, alteradoPor: { id, nome } | null,
+  observacao, data }]`, em ordem cronológica. `404 'Venda não encontrada.'`.
+- **`POST /api/vendas/:id/status`** (#41, `exigirOrigem`) — body `{ status, observacao?, codigoRastreio? }`, com a venda
+  travada e o `mudarStatus` (ator admin, observação até 300). Responde o detalhe de admin.
+
+| Situação | Status | Resposta |
+|---|---|---|
+| `status` fora de `em_separacao`, `enviada`, `pronta_retirada`, `entregue` (inclusive `paga` e `cancelada`) | `422` | `{ status: 'Escolha em_separacao, enviada, pronta_retirada ou entregue.' }` |
+| `observacao` que não é texto ou com mais de 300 | `422` | `{ observacao: ... }` |
+| `codigoRastreio` fora do formato dos Correios (`/^[A-Z]{2}\d{9}[A-Z]{2}$/` depois do `trim` e das maiúsculas) | `422` | `{ codigoRastreio: 'Informe o código de rastreio dos Correios no formato AA123456789BR.' }` |
+| Venda inexistente | `404` | `'Venda não encontrada.'` |
+| Transição que a tabela não permite ao admin (ex.: pular etapas) | `409` | `'Não é possível mudar de <atual> para <novo>.'` |
+| `enviada` numa venda de retirada / `pronta_retirada` numa venda com entrega | `409` | `'Uma compra para retirada na loja não é enviada.'` / `'Só compras para retirada na loja ficam prontas para retirada.'` |
+| `enviada` pelos Correios sem rastreio | `422` | `{ codigoRastreio: 'Informe o código de rastreio dos Correios.' }` |
+| Rastreio em `propria` ou `retirada` / em outro status que não `enviada` | `422` | `{ codigoRastreio: ... }` (os CHECKs do `20_vendas.sql`) |
+
+  O rastreio é gravado antes do `mudarStatus`, na mesma transação (o CHECK de rastreio obrigatório é conferido a cada
+  comando).
+
+**E-mails de mudança de status (item 1 do PDF)** — `modulos/vendas/vendaNotificacoes.ts`, uma função só
+(`notificarMudancaStatus`), chamada **depois do COMMIT** e sem esperar (falha → log curto, sem dados):
+
+| A venda virou | Quem chama | Assunto |
+|---|---|---|
+| `paga` | webhook, reconsulta (expiração e detalhe) | `'Pagamento confirmado — pedido #<id>'` |
+| `enviada` | #41 (com o código de rastreio, quando há) | `'Seu pedido #<id> foi enviado'` |
+| `pronta_retirada` | #41 (com um texto fixo sobre a retirada na loja) | `'Seu pedido está pronto para retirada — pedido #<id>'` |
+| `entregue` | #41 | `'Pedido entregue — pedido #<id>'` |
+| `cancelada` | #35 e a conclusão do estorno (`'O valor foi devolvido.'` quando havia pagamento) | `'Compra cancelada — pedido #<id>'` |
+
+A expiração **não** manda e-mail. Conta anonimizada (sem e-mail) não recebe. Texto simples, sem link, sem código Pix e
+sem dado do gateway. O envio passa por `canalEmail.enviar` (o "seam" dos testes, como o `gatewayPix`); em
+desenvolvimento sem `EMAIL_API_KEY`, o `utils/email.ts` imprime o e-mail no terminal.
+
 ---
 
 ## 7. Banco de dados
@@ -1788,12 +1883,16 @@ estornar }`. O `pagamento.service.ts` chama **sempre** `gatewayPix.xxx`, nunca o
 não pode ser trocado depois de carregado, mas a propriedade de um objeto pode, e os testes de integração trocam as três
 funções por falsas (nenhum teste fala com a AbacatePay de verdade).
 
-**Exceção à regra desta seção (Lote 11):** `pagamentos` e `vendas` são do mesmo dono, e o `pagamento.service.ts` usa
+**Exceção à regra desta seção (Lotes 11 e 12):** `pagamentos` e `vendas` são do mesmo dono, e o `pagamento.service.ts` usa
 o `vendaRepository` (travar a venda e `mudarStatus` para `paga`), o `podeTransicionar` e o
 `clienteRepository.travarParaAlteracao`, como o `venda.service.ts` já usa o `clienteRepository` e o
 `enderecoRepository`. Usar o `vendaService` criaria um import circular (o `venda.service.ts` chama o
 `pagamentoService` no detalhe da compra). No sentido contrário vale a regra: `vendas` só chama o `pagamentoService`
-(os pagamentos do detalhe saíram do `venda.repository.ts` para o `pagamento.repository.ts`).
+(os pagamentos do detalhe saíram do `venda.repository.ts` para o `pagamento.repository.ts`). No Lote 12, o
+`pagamento.service.ts` passou a usar também o `estoqueService.estornarVenda` (conclusão do cancelamento) e o
+`vendaNotificacoes.ts` (e-mail de pagamento confirmado e de cancelamento); o `venda.repository.ts` lê `clientes` (o
+nome na listagem e no histórico do admin) e `pagamentos` (o filtro `problemaPagamento` e o "valor devolvido" do e-mail)
+num JOIN/EXISTS da mesma consulta, para não fazer uma consulta por venda. Os três módulos são do mesmo dono.
 
 **Webhook:** `POST /api/pagamentos/webhook?webhookSecret=<segredo>` (gateway). Sem `autenticar`, sem `exigirOrigem`
 e sem rate limit, porque quem chama é a AbacatePay, que não manda Origin nem cookie. Valida o `webhookSecret` e a
@@ -1810,7 +1909,8 @@ seção 6, "Pagamento Pix".
   pagamento fica `aprovado` com `estorno_solicitado_em` e é devolvido pelo gateway (uma tentativa logo depois do
   aviso e as outras pela tarefa, até 5; Lote 11). A venda nunca é reaberta e o estoque não muda.
 - Cancelar venda paga: estorno **automático** do valor total pela API do gateway; depois `estornarVenda`.
-  Se o gateway falhar, a venda fica `'cancelamento_solicitado'` e o estorno é tentado de novo.
+  Se o gateway falhar, a venda fica `'cancelamento_solicitado'` e o estorno é tentado de novo. Implementado no Lote 12
+  (seção 6, "Cancelamento").
 - O estorno é tentado até 5 vezes pela tarefa agendada (contador em `pagamentos.estorno_tentativas`);
   depois disso a venda continua em `'cancelamento_solicitado'` e o admin resolve manualmente.
   A AbacatePay não tem chave de idempotência no estorno (D-22). Repetir é seguro mesmo assim: o segundo pedido é

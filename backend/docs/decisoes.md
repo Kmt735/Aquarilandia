@@ -553,13 +553,20 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
 
 ### D-17 — Cancelamento direto pelo cliente até antes do envio
-- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10;
+  implementada em 14/11/2026 no Lote 12, #35)
 - **Decisão:** o cliente cancela a própria venda em `POST /api/vendas/:id/cancelar` enquanto ela não foi enviada,
   com estorno automático se já estiver paga (D-22). Não existe "solicitar cancelamento" para o admin aprovar.
   O status `cancelamento_solicitado` significa "estorno em andamento ou pendente" (não só "o gateway falhou"):
   toda venda paga cancelada passa por ele. Enquanto a venda está nele, nenhuma outra transição é permitida, só a
   conclusão para `cancelada`, que é sempre registrada como `sistema` (ou `admin`, só depois de 5 tentativas de
   estorno, D-22).
+- **Implementação (14/11/2026, Lote 12):** a mesma rota serve o cliente (só a própria venda; outra → 404) e o admin
+  (qualquer venda), com `{ motivo }` opcional para o histórico. `aguardando_pagamento` → `cancelada` na hora (o
+  estoque volta e o Pix pendente vira cancelado); `paga`, `em_separacao` e `pronta_retirada` → os três passos da D-22;
+  `enviada`, `entregue` e `cancelada` → 409. Em `cancelamento_solicitado`, o cliente recebe 409 e o admin só conclui
+  depois das 5 tentativas, com o motivo. O status é lido com a venda travada, e toda mudança passa pelo
+  `podeTransicionar`. Depois do COMMIT, o cliente recebe o e-mail de compra cancelada.
 - **Motivo:** depois de enviada, o produto já saiu da loja; com o estorno automático, não há pedido para o admin
   aprovar.
 - **Impacto:** rotas de vendas; tela de "minhas compras" no frontend; pagamentos.
@@ -688,7 +695,8 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ### D-22 — Estorno automático no cancelamento de venda paga
 - **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10;
-  atualizada em 02/11/2026 no Lote 7, com a AbacatePay; devolução de pagamento indevido em 14/11/2026, Lote 11)
+  atualizada em 02/11/2026 no Lote 7, com a AbacatePay; devolução de pagamento indevido em 14/11/2026, Lote 11;
+  cancelamento com estorno, conclusão automática e manual em 14/11/2026, Lote 12)
 - **Decisão:**
   - Cancelar venda paga dispara estorno automático pela API do gateway, sempre do valor total.
   - A AbacatePay **não tem chave de idempotência** no estorno e só faz **estorno total**. Repetir é seguro: o
@@ -714,6 +722,24 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
     `estorno_tentativas` vai até 5). Com 5, para e registra `[estorno] pagamento <id> precisa de ação do admin`; a
     tela do admin entra no Lote 12. Esse fluxo não muda a venda: ela continua cancelada (ou paga, pelo outro
     pagamento). O cancelamento de venda paga pelo cliente (#35, com `cancelamento_solicitado`) continua para depois.
+  - **Implementado (14/11/2026, Lote 12):**
+    1. **Travar** (`vendaService.cancelar`): numa transação, a venda (`FOR UPDATE`) e o pagamento que a confirmou
+       (`aprovado` sem `estorno_solicitado_em`, `FOR UPDATE`), nesta ordem; a venda vai para `cancelamento_solicitado`
+       (ator cliente ou admin) e o pagamento ganha `estorno_solicitado_em`.
+    2. **Estornar**: fora da transação, `pagamentoService.tentarEstornoPendente` (uma tentativa já).
+    3. **Concluir** (no próprio `tentarEstornoPendente`, quando o gateway aprova ou responde "já reembolsada"): numa
+       nova transação, venda → pagamento; o pagamento vira `estornado` e, se a venda está em `cancelamento_solicitado`
+       e este é o pagamento que a confirmou, ela vai para `cancelada` (ator `sistema`, `'Pagamento devolvido.'`) com o
+       `estornarVenda`. Por isso a tarefa de 5 em 5 minutos, que já tentava os estornos pendentes, **conclui sozinha**
+       os cancelamentos cujo estorno falhou da primeira vez.
+    - **Qual é o pagamento da compra:** o banco não liga a venda ao pagamento que a confirmou. O webhook marca o
+      pagamento indevido (em dobro, ou de venda já cancelada) com `status_detalhe 'pagamento indevido'` quando pede a
+      devolução; o estorno dele nunca conclui o cancelamento da venda.
+    - **Conclusão manual (admin):** só com as **5 tentativas** esgotadas e com um **motivo**. Venda em
+      `cancelamento_solicitado`: o próprio `POST /api/vendas/:id/cancelar` (pagamento `estornado` com `status_detalhe
+      'estorno manual'`, venda `cancelada` com ator admin e o motivo no histórico, estoque de volta). Pagamento
+      indevido de venda não cancelada: `POST /api/pagamentos/:id/concluir-estorno` (só o pagamento muda; o motivo fica
+      em `estorno_ultimo_erro`). O admin vê esses casos no `GET /api/vendas?problemaPagamento=true`.
 - **Motivo:** o cliente não depende de ação manual para receber de volta; a recusa do segundo estorno pela AbacatePay
   evita estorno em dobro na nova tentativa; o limite de tentativas evita insistir num erro que não se resolve sozinho.
 - **Impacto:** pagamentos, vendas.

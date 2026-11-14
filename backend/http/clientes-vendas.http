@@ -1469,3 +1469,73 @@ Cookie: sid={{sessaoCliente}}
 # Para conferir no banco de dev depois de um pagamento:
 #   SELECT id, status, estorno_solicitado_em, estorno_tentativas FROM pagamentos WHERE venda_id = <id>;
 #   SELECT gateway_notificacao_id, tipo, payload, processado_em, tentativas, ultimo_erro FROM eventos_webhook ORDER BY id DESC LIMIT 5;
+
+# ===== CANCELAMENTO E ADMIN DE VENDAS (Lote 12) =====
+# POST /api/vendas/:id/cancelar (#35): cliente (só a própria venda) ou admin. Exige Origin. { motivo? } até 300.
+# Venda paga: estorno de verdade na AbacatePay (Dev mode). Use só compras de teste.
+
+# 200 - cancelada (não paga) ou, paga, cancelada com o estorno aprovado / cancelamento_solicitado se o estorno falhou
+###
+POST {{api}}/vendas/{{idVenda}}/cancelar
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoCliente}}
+
+{ "motivo": "Comprei errado" }
+
+# 409 - enviada, entregue ou cancelada: 'Esta compra não pode mais ser cancelada.'
+# Admin em cancelamento_solicitado com 5 tentativas: o motivo é obrigatório (422 sem ele)
+###
+POST {{api}}/vendas/{{idVenda}}/cancelar
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoAdmin}}
+
+{ "motivo": "Devolvido pelo painel da AbacatePay" }
+
+# 200 - admin: a listagem com filtros (fila de separação: status=paga, as mais antigas primeiro)
+###
+GET {{api}}/vendas?status=paga&tipoEntrega=retirada&de=2026-11-01&ate=2026-11-30&pagina=1&limite=20
+Cookie: sid={{sessaoAdmin}}
+
+# 200 - admin: vendas com problema no pagamento (estorno esgotado, em disputa, valor divergente)
+###
+GET {{api}}/vendas?problemaPagamento=true
+Cookie: sid={{sessaoAdmin}}
+
+# 400 - data inválida e de > ate (os erros juntos)
+###
+GET {{api}}/vendas?de=2026-02-30&tipoEntrega=drone
+Cookie: sid={{sessaoAdmin}}
+
+# 200 - admin: detalhe (cliente e todos os pagamentos, com o id da cobrança cortado) e histórico com a autoria
+###
+GET {{api}}/vendas/{{idVenda}}
+Cookie: sid={{sessaoAdmin}}
+
+###
+GET {{api}}/vendas/{{idVenda}}/historico
+Cookie: sid={{sessaoAdmin}}
+
+# 200 - #41: paga → em_separacao → enviada (correios: codigoRastreio obrigatório) → entregue
+###
+POST {{api}}/vendas/{{idVenda}}/status
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoAdmin}}
+
+{ "status": "enviada", "codigoRastreio": "BR123456789BR", "observacao": "Postado na agência central" }
+
+# 403 - cliente nas rotas de admin
+###
+GET {{api}}/vendas
+Cookie: sid={{sessaoCliente}}
+
+# 200 - admin: devolução manual de um pagamento indevido (em dobro) depois das 5 tentativas; motivo obrigatório
+###
+POST {{api}}/pagamentos/SUBSTITUA_PELO_ID_DO_PAGAMENTO/concluir-estorno
+Content-Type: application/json
+Origin: {{origem}}
+Cookie: sid={{sessaoAdmin}}
+
+{ "motivo": "Devolvido pelo painel da AbacatePay" }
