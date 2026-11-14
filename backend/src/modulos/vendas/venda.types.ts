@@ -170,6 +170,13 @@ export interface VendaParaPix {
   podePagar: boolean
 }
 
+// Venda vencida para a tarefa de expiração. vencidaHaMaisDeUmaHora decide se um gateway fora do ar ainda adia o
+// cancelamento (PASSO 6 do Lote 11)
+export interface VendaVencida {
+  id: number
+  vencidaHaMaisDeUmaHora: boolean
+}
+
 // Histórico como o cliente vê: sem origem nem alterado_por_id (quem mudou é dado interno da loja)
 export interface EtapaHistorico {
   status: StatusVenda

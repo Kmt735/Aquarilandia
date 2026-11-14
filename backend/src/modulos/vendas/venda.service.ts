@@ -183,8 +183,16 @@ export const vendaService = {
   // GET /api/clientes/me/vendas/:id (#34). O buscarCompleta filtra por id E cliente_id: venda de outro cliente cai no
   // mesmo 404 da inexistente, sem confirmar que ela existe (D-08). Só depois disso as outras leituras, pela venda
   async buscarDoCliente(id: number, clienteId: number): Promise<DetalheVenda> {
-    const venda = await vendaRepository.buscarCompleta(id, clienteId)
+    let venda = await vendaRepository.buscarCompleta(id, clienteId)
     if (!venda) throw new AppError('Compra não encontrada.', 404)
+
+    // Rede de proteção (Lote 11): a compra ainda espera o Pix e tem uma cobrança pendente → reconsulta no gateway
+    // ANTES de responder (no máximo 1 vez a cada 20 s por pagamento). Assim, mesmo se um aviso da AbacatePay se
+    // perder, a página de "aguardando pagamento" do cliente confirma a venda sozinha. Gateway fora → mostra o banco
+    if (venda.status === 'aguardando_pagamento' && (await pagamentoService.reconsultarPendente(id))) {
+      venda = (await vendaRepository.buscarCompleta(id, clienteId)) ?? venda
+    }
+
     const [codigoRastreio, historico, pagamentos] = await Promise.all([
       vendaRepository.buscarCodigoRastreio(id),
       vendaRepository.listarHistorico(id),

@@ -8,7 +8,7 @@ import { vendaRepository } from './venda.repository.js'
 import { podeTransicionar } from './venda.transicoes.js'
 
 // Tarefas agendadas do módulo vendas (#32, D-16): a cada 5 minutos, cancela as vendas não pagas vencidas e devolve o
-// estoque, apaga as sessões e os links de recuperação de senha vencidos e tenta
+// estoque (reconsultando o Pix antes, Lote 11), apaga as sessões e os links de recuperação de senha vencidos e tenta
 // de novo a devolução dos pagamentos indevidos.
 
 const intervaloMs = 5 * 60 * 1000
@@ -67,19 +67,43 @@ async function expirarVenda(vendaId: number): Promise<boolean> {
   })
 }
 
+// Rede de proteção (Lote 11): antes de cancelar, se a venda tem um Pix pendente com cobrança, reconsulta no gateway
+// (o mesmo pagamentoService.processarCobranca do webhook). Pago → a venda vira paga ali mesmo, e o mudarStatus do
+// expirarVenda deixa de casar (não cancela). true = pode seguir para o cancelamento.
+// Gateway fora do ar: não cancela nesta rodada (o aviso pode estar a caminho), a não ser que a venda tenha vencido há
+// mais de 1 hora. Aí cancela: se o Pix tiver sido pago, o webhook ou a próxima reconsulta devolve o dinheiro (o
+// pagamento aprovado de venda cancelada vira devolução, no processarCobranca)
+async function reconsultarAntesDeExpirar(venda: { id: number; vencidaHaMaisDeUmaHora: boolean }): Promise<boolean> {
+  const cobrancaId = await pagamentoService.buscarCobrancaPendente(venda.id)
+  if (!cobrancaId) return true
+  try {
+    await pagamentoService.processarCobranca(cobrancaId)
+    return true
+  } catch (err) {
+    if (venda.vencidaHaMaisDeUmaHora) {
+      const codigo = descreverErro(err)
+      console.error(`[expiracao] venda ${venda.id}: reconsulta do Pix falhou (${codigo}); vencida há mais de 1 h, cancelando`)
+      return true
+    }
+    throw err
+  }
+}
+
 // Exportada para os testes. Cada venda tem a sua transação: o erro numa não desfaz nem impede as outras.
 export async function executarExpiracao(): Promise<{ canceladas: number; erros: number }> {
   // Folga de 5 minutos: o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar com atraso; a folga evita
-  // cancelar uma venda paga no último segundo. A reconsulta do pagamento no gateway antes de cancelar entra na #47.
-  const ids = await vendaRepository.buscarVencidas(vendasPorRodada)
+  // cancelar uma venda paga no último segundo. Além dela, a reconsulta acima confere o Pix antes de cancelar.
+  const vencidas = await vendaRepository.buscarVencidas(vendasPorRodada)
   let canceladas = 0
   let erros = 0
-  for (const id of ids) {
+  for (const venda of vencidas) {
     try {
-      if (await expirarVenda(id)) canceladas++
+      // Reconsulta que falhou (gateway fora, venda vencida há menos de 1 h) conta como erro: a venda fica para a
+      // próxima rodada
+      if ((await reconsultarAntesDeExpirar(venda)) && (await expirarVenda(venda.id))) canceladas++
     } catch (err) {
       erros++
-      console.error(`[expiracao] venda ${id}: ${descreverErro(err)}`)
+      console.error(`[expiracao] venda ${venda.id}: ${descreverErro(err)}`)
     }
   }
   return { canceladas, erros }

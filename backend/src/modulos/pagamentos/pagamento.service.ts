@@ -299,15 +299,38 @@ async function tentarEstornoPendente(pagamentoId: number): Promise<ResultadoEsto
   return 'falhou'
 }
 
+// ---------- rede de proteção (reconsulta) ----------
+
+// Detalhe da compra: no máximo 1 consulta a cada 20 s por pagamento (reservarReconsulta), mesmo com o frontend
+// perguntando sem parar. Erro aqui (gateway fora, por exemplo) não impede o detalhe: mostra o que o banco tem.
+// true = a consulta mudou alguma coisa (quem chama relê a venda)
+async function reconsultarPendente(vendaId: number): Promise<boolean> {
+  const cobrancaId = await pagamentoRepository.reservarReconsulta(vendaId)
+  if (!cobrancaId) return false
+  try {
+    const resultado = await processarCobranca(cobrancaId)
+    return resultado !== 'sem_mudanca' && resultado !== 'desconhecida'
+  } catch (err) {
+    console.error(`[pagamento] reconsulta da venda ${vendaId} falhou (${codigoDoErro(err)})`)
+    return false
+  }
+}
+
 export const pagamentoService = {
   gerarPix,
   processarCobranca,
   processarAviso,
   tentarEstornoPendente,
+  reconsultarPendente,
 
   // Detalhe da compra (#34): o venda.service chama por aqui, não pelo repository (seção 8)
   async listarDaVenda(vendaId: number): Promise<LinhaPagamento[]> {
     return pagamentoRepository.listarPorVenda(vendaId)
+  },
+
+  // Expiração: a cobrança do pagamento pendente da venda, se já foi gravada (sem cobrança não há o que consultar)
+  async buscarCobrancaPendente(vendaId: number): Promise<string | null> {
+    return pagamentoRepository.buscarCobrancaPendente(vendaId)
   },
 
   async listarEstornosPendentes(limite: number): Promise<number[]> {

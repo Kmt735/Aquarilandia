@@ -11,6 +11,7 @@ import type {
   TipoEntrega,
   VendaCriada,
   VendaParaPix,
+  VendaVencida,
 } from './venda.types.js'
 
 // Linha de vendas lida pelo buscarCompleta: os entrega_* de endereço são NULL na retirada
@@ -224,16 +225,17 @@ export const vendaRepository = {
   // ---------- #32 expiração ----------
 
   // Até `limite` vendas aguardando pagamento vencidas há mais de 5 minutos, as mais antigas primeiro (usa o índice
-  // parcial idx_vendas_expira_em). A folga de 5 minutos está explicada no venda.tarefas.ts
-  async buscarVencidas(limite: number): Promise<number[]> {
-    const { rows } = await db.query<{ id: number }>(
-      `SELECT id FROM vendas
+  // parcial idx_vendas_expira_em). A folga de 5 minutos e a de 1 hora estão explicadas no venda.tarefas.ts
+  async buscarVencidas(limite: number): Promise<VendaVencida[]> {
+    const { rows } = await db.query<VendaVencida>(
+      `SELECT id, expira_em < now() - interval '1 hour' AS "vencidaHaMaisDeUmaHora"
+         FROM vendas
         WHERE status = 'aguardando_pagamento' AND expira_em < now() - interval '5 minutes'
         ORDER BY expira_em, id
         LIMIT $1`,
       [limite],
     )
-    return rows.map((linha) => linha.id)
+    return rows
   },
 
   // ---------- #44 e #47 pagamento ----------
