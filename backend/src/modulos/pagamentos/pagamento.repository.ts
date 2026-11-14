@@ -2,6 +2,9 @@ import { db } from '../../config/db.js'
 import type { Queryable } from '../../utils/transacao.js'
 import type { LinhaPagamento, StatusPagamento } from '../vendas/venda.types.js'
 
+// A marca do pagamento indevido no status_detalhe (a mesma constante do pagamento.service)
+export const detalheIndevido = 'pagamento indevido'
+
 // Todo o SQL de pagamentos e eventos_webhook (db/init/20_vendas.sql e 22_pagamentos_estorno.sql).
 // Os ids do gateway (gateway_cobranca_id, gateway_pagamento_id) só saem daqui para o pagamento.service, que os
 // usa para falar com o gateway; nunca vão para a resposta do cliente nem para o log.
@@ -197,6 +200,43 @@ export const pagamentoRepository = {
     await client.query(
       'UPDATE pagamentos SET estorno_solicitado_em = now(), atualizado_em = now() WHERE id = $1',
       [pagamentoId],
+    )
+  },
+
+  // Conclusão manual (#35, admin): o pagamento que confirmou a venda em cancelamento_solicitado, com o estorno pedido.
+  // O indevido (status_detalhe 'pagamento indevido') fica de fora: ele não é o pagamento da compra
+  async travarConfirmadorEmEstorno(vendaId: number, client: Queryable): Promise<PagamentoTravado | null> {
+    const { rows } = await client.query<PagamentoTravado>(
+      `SELECT id, status, valor, estorno_solicitado_em AS "estornoSolicitadoEm", status_detalhe AS "statusDetalhe",
+              estorno_tentativas AS tentativas
+         FROM pagamentos
+        WHERE venda_id = $1 AND status = 'aprovado' AND estorno_solicitado_em IS NOT NULL
+          AND status_detalhe IS DISTINCT FROM $2
+        ORDER BY id
+        LIMIT 1
+          FOR UPDATE`,
+      [vendaId, detalheIndevido],
+    )
+    return rows[0] ?? null
+  },
+
+  async buscarVendaDoPagamento(pagamentoId: number): Promise<number | null> {
+    const { rows } = await db.query<{ vendaId: number }>('SELECT venda_id AS "vendaId" FROM pagamentos WHERE id = $1', [
+      pagamentoId,
+    ])
+    return rows[0]?.vendaId ?? null
+  },
+
+  // O admin devolveu o dinheiro pelo painel da AbacatePay depois das 5 tentativas: status_detalhe 'estorno manual'.
+  // motivo (só no pagamento em dobro, que não tem histórico de venda) fica em estorno_ultimo_erro, o campo de
+  // registro do estorno que o admin vê no detalhe; null mantém o último erro automático
+  async marcarEstornoManual(pagamentoId: number, motivo: string | null, client: Queryable): Promise<void> {
+    await client.query(
+      `UPDATE pagamentos
+          SET status = 'estornado', status_detalhe = 'estorno manual',
+              estorno_ultimo_erro = COALESCE($2, estorno_ultimo_erro), atualizado_em = now()
+        WHERE id = $1`,
+      [pagamentoId, motivo],
     )
   },
 

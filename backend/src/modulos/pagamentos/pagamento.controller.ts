@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import { idParam } from '../../utils/validacao.js'
 import { pagamentoService } from './pagamento.service.js'
 import { verificarWebhook } from './webhook.js'
 
@@ -20,6 +21,13 @@ function lerCobrancaId(data: unknown): string | null {
 }
 
 export const pagamentoController = {
+  // POST /api/pagamentos/:id/concluir-estorno (admin; a rota passa antes pelo autenticar e pelo exigirAdmin)
+  async concluirEstorno(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const resultado = await pagamentoService.concluirEstornoManual(req.usuario!.id, idParam(req.params.id), req.body)
+    res.set('Cache-Control', 'no-store')
+    res.status(200).json(resultado)
+  },
+
   async receberWebhook(req: Request, res: Response): Promise<void> {
     // 401 e não 5xx: a AbacatePay não reenvia 4xx, e um pedido com segredo ou assinatura errados não vai ficar
     // certo numa nova tentativa. Nada do payload vai para o log.

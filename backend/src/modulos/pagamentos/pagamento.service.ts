@@ -8,7 +8,7 @@ import { podeTransicionar } from '../vendas/venda.transicoes.js'
 import type { LinhaPagamento, PixGerado, StatusVenda } from '../vendas/venda.types.js'
 import { gatewayPix } from './gateway.js'
 import type { ConsultaCobranca } from './gateway.js'
-import { pagamentoRepository } from './pagamento.repository.js'
+import { detalheIndevido, pagamentoRepository } from './pagamento.repository.js'
 import type { PagamentoDaCobranca, PagamentoTravado } from './pagamento.repository.js'
 
 // Pagamento Pix (Lote 11): #44 gerar o Pix, #46/#47 processar o webhook, a rede de proteção (reconsulta) e a
@@ -35,9 +35,9 @@ const msgNaoPodePagar = 'Esta compra não pode mais ser paga.'
 const motivoEstorno = 'Pagamento recebido para compra já cancelada ou paga.'
 // O CHECK de pagamentos.estorno_tentativas vai até 5 (D-22); depois disso o admin resolve (tela no Lote 12)
 const maxTentativasEstorno = 5
-// Marca do pagamento indevido (status_detalhe): separa o pagamento em dobro (ou o de venda já cancelada) do pagamento
-// que confirmou a venda. Só o que confirmou a venda conclui o cancelamento dela quando é estornado (Lote 12)
-const detalheIndevido = 'pagamento indevido'
+// A marca do pagamento indevido (detalheIndevido, no status_detalhe) separa o pagamento em dobro (ou o de venda já
+// cancelada) do pagamento que confirmou a venda. Só o que confirmou a venda conclui o cancelamento dela quando é
+// estornado (Lote 12)
 // Menos de 60 s até vencer: o Pix não daria tempo de pagar (e a AbacatePay exige expiresIn >= 60)
 const folgaMinimaMs = 60 * 1000
 
@@ -343,6 +343,41 @@ async function tentarEstornoPendente(pagamentoId: number): Promise<ResultadoEsto
   return 'falhou'
 }
 
+// POST /api/pagamentos/:id/concluir-estorno (admin): o pagamento indevido (em dobro, ou de venda já cancelada) cujo
+// estorno automático falhou 5 vezes. O admin devolveu pelo painel da AbacatePay e registra aqui, com o motivo
+// obrigatório. Nunca antes das 5 tentativas. O pagamento que confirmou uma venda em cancelamento_solicitado é
+// concluído pelo POST /api/vendas/:id/cancelar, que também cancela a venda e devolve o estoque
+async function concluirEstornoManual(
+  adminId: number,
+  pagamentoId: number,
+  body: unknown,
+): Promise<{ id: number; vendaId: number; status: 'estornado'; statusDetalhe: 'estorno manual' }> {
+  const motivo = typeof body === 'object' && body !== null ? (body as Record<string, unknown>).motivo : undefined
+  const texto = typeof motivo === 'string' ? motivo.trim() : ''
+  if (texto === '') throw new AppError('Dados inválidos', 422, { motivo: 'Descreva como o estorno foi feito.' })
+  if (texto.length > 300) {
+    throw new AppError('Dados inválidos', 422, { motivo: 'O motivo pode ter até 300 caracteres.' })
+  }
+
+  const vendaId = await pagamentoRepository.buscarVendaDoPagamento(pagamentoId)
+  if (vendaId === null) throw new AppError('Pagamento não encontrado.', 404)
+  await comTransacao(async (client) => {
+    // Ordem venda → pagamento, a de todo o sistema
+    const statusVenda = await vendaRepository.travarParaPagamento(vendaId, client)
+    const travado = await pagamentoRepository.travar(pagamentoId, client)
+    if (!statusVenda || !travado) throw new AppError('Pagamento não encontrado.', 404)
+    if (travado.status !== 'aprovado' || !travado.estornoSolicitadoEm || travado.tentativas < maxTentativasEstorno) {
+      throw new AppError('Este pagamento não está esperando uma devolução manual.', 409)
+    }
+    if (statusVenda === 'cancelamento_solicitado' && travado.statusDetalhe !== detalheIndevido) {
+      throw new AppError('Este é o pagamento da compra: conclua pelo cancelamento da venda.', 409)
+    }
+    await pagamentoRepository.marcarEstornoManual(pagamentoId, texto, client)
+  })
+  console.error(`[estorno] pagamento ${pagamentoId} concluído manualmente pelo admin ${adminId}`)
+  return { id: pagamentoId, vendaId, status: 'estornado', statusDetalhe: 'estorno manual' }
+}
+
 // ---------- rede de proteção (reconsulta) ----------
 
 // Detalhe da compra: no máximo 1 consulta a cada 20 s por pagamento (reservarReconsulta), mesmo com o frontend
@@ -367,6 +402,8 @@ export const pagamentoService = {
   processarAviso,
   tentarEstornoPendente,
   reconsultarPendente,
+  concluirEstornoManual,
+  maxTentativasEstorno,
 
   // Detalhe da compra (#34): o venda.service chama por aqui, não pelo repository (seção 8)
   async listarDaVenda(vendaId: number): Promise<LinhaPagamento[]> {
@@ -385,6 +422,15 @@ export const pagamentoService = {
     if (pagamentoId === null) return null
     await pagamentoRepository.pedirEstorno(pagamentoId, client)
     return pagamentoId
+  },
+
+  // #35, conclusão manual pelo admin (dentro da transação, a venda já travada): o pagamento da compra em estorno
+  async travarConfirmadorEmEstorno(vendaId: number, client: Queryable): Promise<PagamentoTravado | null> {
+    return pagamentoRepository.travarConfirmadorEmEstorno(vendaId, client)
+  },
+
+  async marcarEstornoManual(pagamentoId: number, client: Queryable): Promise<void> {
+    await pagamentoRepository.marcarEstornoManual(pagamentoId, null, client)
   },
 
   // Expiração: a cobrança do pagamento pendente da venda, se já foi gravada (sem cobrança não há o que consultar)

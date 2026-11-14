@@ -171,6 +171,12 @@ function autoria(usuario: UsuarioLogado, observacao: string | null): AutoriaVend
   return { ator: usuario.papel, clienteId: usuario.id, observacao }
 }
 
+// 409 do estornarVenda (Dev 2) para venda sem baixa (dado inconsistente, ex.: inserida à mão): não havia estoque
+// baixado para devolver, então o cancelamento fica (o mesmo tratamento da expiração)
+function semBaixaDeEstoque(err: unknown): boolean {
+  return err instanceof AppError && err.statusCode === 409 && err.message === 'Venda sem baixa original de estoque'
+}
+
 // Sempre a tabela de transições antes de mudar: a regra não depende só de quem escreveu o fluxo
 function exigirTransicao(de: StatusVenda, para: StatusVenda, ator: AutoriaVenda['ator']): void {
   if (!podeTransicionar(de, para, ator)) throw new Error(`Transição ${de} → ${para} proibida para ${ator}.`)
@@ -271,7 +277,9 @@ export const vendaService = {
   //     2) FORA da transação: uma tentativa de estorno no gateway (pagamentoService.tentarEstornoPendente);
   //     3) a resposta mostra o estado final: estorno aprovado → a venda já está cancelada (o tentarEstornoPendente
   //        conclui); falhou → continua cancelamento_solicitado, e a tarefa de 5 em 5 minutos tenta de novo.
-  //   cancelamento_solicitado → 409 (o cancelamento já está em andamento).
+  //   cancelamento_solicitado → cliente: 409 (já está em andamento). Admin: só depois das 5 tentativas automáticas
+  //     de estorno, com o motivo obrigatório: ele confirma que devolveu pelo painel da AbacatePay; o pagamento vira
+  //     estornado ('estorno manual'), a venda cancelada (ator admin) e o estoque volta, numa transação só.
   //   enviada, entregue, cancelada → 409.
   async cancelar(usuario: UsuarioLogado, vendaId: number, body: unknown): Promise<DetalheVenda> {
     const motivo = validarMotivo(body)
@@ -307,7 +315,22 @@ export const vendaService = {
 
       if (status === 'cancelamento_solicitado') {
         if (!ehAdmin) throw new AppError('O cancelamento desta compra já está em andamento.', 409)
-        throw new AppError('O estorno ainda está sendo tentado automaticamente.', 409)
+        const pagamento = await pagamentoService.travarConfirmadorEmEstorno(vendaId, client)
+        if (!pagamento || pagamento.tentativas < pagamentoService.maxTentativasEstorno) {
+          throw new AppError('O estorno ainda está sendo tentado automaticamente.', 409)
+        }
+        if (!motivo) throw new AppError('Dados inválidos', 422, { motivo: 'Descreva como o estorno foi feito.' })
+        exigirTransicao(status, 'cancelada', usuario.papel)
+        await pagamentoService.marcarEstornoManual(pagamento.id, client)
+        await vendaRepository.mudarStatus(vendaId, status, 'cancelada', autoria(usuario, motivo), client)
+        try {
+          await estoqueService.estornarVenda(vendaId, client)
+        } catch (err) {
+          if (!semBaixaDeEstoque(err)) throw err
+          console.error(`[cancelamento] venda ${vendaId} sem baixa de estoque`)
+        }
+        console.error(`[estorno] pagamento ${pagamento.id} concluído manualmente pelo admin ${usuario.id}`)
+        return null
       }
       throw new AppError('Esta compra não pode mais ser cancelada.', 409)
     })
