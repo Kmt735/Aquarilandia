@@ -109,6 +109,18 @@ function lerPermitirSimulacaoPix(): boolean {
 
 const permitirSimulacaoPix = lerPermitirSimulacaoPix()
 
+// E-mail (Lote 14a, D-54): o envio é pelo Resend (utils/email.ts). Em produção, EMAIL_API_KEY e EMAIL_REMETENTE são
+// obrigatórias: sem elas a recuperação de senha e os avisos de compra não saem, e isso tem que aparecer na subida, não
+// no dia em que um cliente pedir o link. Fora de produção são opcionais (sem a chave, o e-mail aparece no terminal);
+// com a chave, o remetente passa a ser obrigatório também. O remetente é "email@dominio" ou "Nome <email@dominio>",
+// sem quebra de linha. Nenhuma mensagem repete o valor
+const emailApiKey = obrigatoriaEmProducao('EMAIL_API_KEY')
+const emailRemetente = emailApiKey === undefined ? opcional('EMAIL_REMETENTE') : obrigatoria('EMAIL_REMETENTE')
+const padraoRemetente = /^(?:[^<>\r\n]{1,80} <[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+>|[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+)$/
+if (emailRemetente !== undefined && !padraoRemetente.test(emailRemetente.trim())) {
+  throw new Error('Variável de ambiente inválida: EMAIL_REMETENTE precisa ser um e-mail (email@dominio ou Nome <email@dominio>). Veja o .env.example.')
+}
+
 export const env = {
   nodeEnv,
   databaseUrl,
@@ -121,9 +133,9 @@ export const env = {
   // Sem token, o gateway.ts recusa a chamada ('sem chave'); sem segredo, o webhook.ts recusa toda notificação
   gatewayAccessToken,
   gatewayWebhookSecret,
-  // Opcional também em produção: o email.ts avisa no log e recusa enviar sem a chave
-  emailApiKey: opcional('EMAIL_API_KEY'),
-  emailRemetente: opcional('EMAIL_REMETENTE'),
+  // Obrigatórias em produção (D-54); fora dela, sem a chave o email.ts imprime o e-mail no terminal
+  emailApiKey,
+  emailRemetente: emailRemetente?.trim(),
   // Caminho absoluto da pasta do build do frontend, ou undefined (o site não é servido pelo backend)
   frontendDist,
   permitirSimulacaoPix,

@@ -24,6 +24,9 @@ const producao = {
   API_URL: 'https://api-sentinela.example',
   GATEWAY_ACCESS_TOKEN: 'token-sentinela-do-gateway',
   GATEWAY_WEBHOOK_SECRET: 'segredo-sentinela-do-webhook-com-mais-de-32-caracteres',
+  // Lote 14a (D-54): obrigatórias em produção
+  EMAIL_API_KEY: 'chave-sentinela-do-resend',
+  EMAIL_REMETENTE: 'Loja Sentinela <loja@remetente-sentinela.example>',
 }
 
 function sem(base, ...nomes) {
@@ -98,10 +101,24 @@ describe('env.ts — falhar cedo (D-52)', { concurrency: true }, () => {
       naoSobe({ ...producao, [nome]: 'http://endereco-sentinela.example' }, `${nome} precisa começar com https:// em produção`))
   }
 
-  it('em produção sem EMAIL_API_KEY o env carrega (o email.ts é quem avisa e recusa enviar)', async () => {
-    const r = await carregarEnv(producao)
-    assert.equal(r.codigo, 0, r.saida)
-    assert.deepEqual(JSON.parse(r.saida), { nodeEnv: 'production', port: 0, corsOrigin: producao.CORS_ORIGIN })
+  // Lote 14a: antes, "em produção sem EMAIL_API_KEY o env carrega (o email.ts é quem avisa e recusa enviar)".
+  // Agora EMAIL_API_KEY e EMAIL_REMETENTE são obrigatórias em produção (D-54)
+  for (const nome of ['EMAIL_API_KEY', 'EMAIL_REMETENTE']) {
+    it(`em produção sem ${nome} não sobe e não repete os valores`, () =>
+      naoSobe(sem(producao, nome), `Variável de ambiente obrigatória ausente: ${nome}. Veja o .env.example.`))
+  }
+  for (const remetente of ['remetente-sentinela-sem-arroba', 'Loja <loja@remetente-sentinela>', 'Loja\nBcc: x@outro-sentinela.example <loja@r.example>']) {
+    it(`em produção com EMAIL_REMETENTE inválido (${JSON.stringify(remetente).slice(0, 30)}…) não sobe`, () =>
+      naoSobe({ ...producao, EMAIL_REMETENTE: remetente }, 'EMAIL_REMETENTE precisa ser um e-mail'))
+  }
+  it('fora de produção, com EMAIL_API_KEY e sem EMAIL_REMETENTE não sobe', () =>
+    naoSobe({ ...desenvolvimento, EMAIL_API_KEY: 'chave-sentinela-do-resend-dev' }, 'Variável de ambiente obrigatória ausente: EMAIL_REMETENTE.'))
+  it('em produção com EMAIL_* (remetente simples ou com nome) o env carrega', async () => {
+    for (const remetente of [producao.EMAIL_REMETENTE, 'loja@remetente-sentinela.example']) {
+      const r = await carregarEnv({ ...producao, EMAIL_REMETENTE: remetente })
+      assert.equal(r.codigo, 0, r.saida)
+      assert.deepEqual(JSON.parse(r.saida), { nodeEnv: 'production', port: 0, corsOrigin: producao.CORS_ORIGIN })
+    }
   })
 
   it('em produção o segredo com exatamente 32 caracteres é aceito', async () => {
