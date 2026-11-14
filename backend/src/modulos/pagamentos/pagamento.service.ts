@@ -1,10 +1,14 @@
 import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
+import type { Queryable } from '../../utils/transacao.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
 import { vendaRepository } from '../vendas/venda.repository.js'
-import type { LinhaPagamento, PixGerado } from '../vendas/venda.types.js'
+import { podeTransicionar } from '../vendas/venda.transicoes.js'
+import type { LinhaPagamento, PixGerado, StatusVenda } from '../vendas/venda.types.js'
 import { gatewayPix } from './gateway.js'
+import type { ConsultaCobranca } from './gateway.js'
 import { pagamentoRepository } from './pagamento.repository.js'
+import type { PagamentoDaCobranca, PagamentoTravado } from './pagamento.repository.js'
 
 // Pagamento Pix (Lote 11): #44 gerar o Pix, #46/#47 processar o webhook, a rede de proteção (reconsulta) e a
 // devolução de pagamento indevido (parte mínima da #49).
@@ -29,6 +33,25 @@ const msgIndisponivel = 'Não foi possível falar com o pagamento agora. Tente d
 const msgNaoPodePagar = 'Esta compra não pode mais ser paga.'
 // Menos de 60 s até vencer: o Pix não daria tempo de pagar (e a AbacatePay exige expiresIn >= 60)
 const folgaMinimaMs = 60 * 1000
+
+export type ResultadoCobranca =
+  | 'confirmado' // a venda virou paga
+  | 'devolucao' // pagamento aprovado de venda cancelada ou já paga: estorno pedido
+  | 'atualizado' // só o pagamento mudou (estornado, cancelado, recusado, em disputa)
+  | 'sem_mudanca'
+  | 'valor_divergente'
+  | 'desconhecida' // nenhuma cobrança nossa com esse id
+
+// Código curto para o log e para eventos_webhook.ultimo_erro: o SQLSTATE do PostgreSQL, GATEWAY_INDISPONIVEL para o
+// 502 do gateway ou ERRO_INESPERADO. Nunca a mensagem crua, que pode trazer dados da linha ou da resposta
+export function codigoDoErro(err: unknown): string {
+  if (err instanceof AppError) return err.statusCode === 502 ? 'GATEWAY_INDISPONIVEL' : `HTTP_${err.statusCode}`
+  if (typeof err === 'object' && err !== null) {
+    const { code } = err as { code?: unknown }
+    if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code
+  }
+  return 'ERRO_INESPERADO'
+}
 
 // 23505 no uq_pagamentos_gateway_cobranca: a cobrança já pertence a OUTRO pagamento
 function cobrancaDeOutroPagamento(err: unknown): boolean {
@@ -82,12 +105,164 @@ async function gerarPix(clienteId: number, vendaId: number): Promise<PixGerado> 
     throw new AppError(msgIndisponivel, 502)
   }
 
+  // Reaproveitou um pagamento cuja cobrança já não está aberta (paga, expirada ou cancelada no painel): atualiza o
+  // banco pela consulta e não devolve um código que não vale mais. Se ela foi cancelada, o pagamento vira
+  // 'cancelado' e o próximo pedido cria um pagamento (e uma cobrança) novos
+  if (cobranca.status !== 'pendente') {
+    try {
+      await processarCobranca(cobranca.cobrancaId)
+    } catch (err) {
+      console.error(`[pagamento] pagamento ${pagamentoId}: reconsulta falhou (${codigoDoErro(err)})`)
+    }
+    if (cobranca.status === 'aprovado') throw new AppError(msgNaoPodePagar, 409)
+    throw new AppError(msgIndisponivel, 502)
+  }
+
   // O código Pix NÃO é gravado: só existe nesta resposta (e numa nova chamada com o mesmo pagamentoId)
   return { pagamentoId, codigoPix: cobranca.codigoPix, qrCodeImagem: cobranca.qrCodeImagem, expiraEm: cobranca.expiraEm }
 }
 
+// ---------- #46/#47 processar a cobrança (webhook e rede de proteção) ----------
+
+// O pagamento da cobrança no NOSSO banco. Se não acha, aceita um único caso: a etapa C do #44 não chegou a gravar a
+// cobrança. A consulta (autenticada, feita por nós) traz o pagamentoId e o vendaId do metadata; só vale se esse
+// pagamento existe SEM cobrança, é da mesma venda e tem o mesmo valor
+async function acharPagamento(cobrancaId: string, consulta: ConsultaCobranca): Promise<PagamentoDaCobranca | null> {
+  const gravado = await pagamentoRepository.buscarPorCobranca(cobrancaId)
+  if (gravado) return gravado
+  if (consulta.pagamentoId === null || consulta.vendaId === null) return null
+  return pagamentoRepository.vincularCobranca(consulta.pagamentoId, consulta.vendaId, consulta.valor, cobrancaId)
+}
+
+// Aplica a consulta ao pagamento e à venda, já travados (venda → pagamento), dentro da transação de quem chama
+async function aplicarConsulta(
+  consulta: ConsultaCobranca,
+  vendaId: number,
+  statusVenda: StatusVenda,
+  pagamento: PagamentoTravado,
+  client: Queryable,
+): Promise<ResultadoCobranca> {
+  const { id } = pagamento
+  switch (consulta.status) {
+    case 'aprovado': {
+      // O valor que vale é o gravado no banco (vendas.total no #44). Diferente → não confirma: alguém precisa olhar
+      if (consulta.valor !== pagamento.valor) {
+        await pagamentoRepository.marcarDetalhe(id, 'valor divergente', client)
+        console.error(`[pagamento] pagamento ${id}: valor divergente`)
+        return 'valor_divergente'
+      }
+      // Já aprovado (outro aviso da mesma cobrança, ou a reconsulta chegou antes): nada a fazer
+      if (pagamento.status === 'aprovado') return 'sem_mudanca'
+      // Estornado ou em disputa é um estado posterior ao aprovado: um aviso velho não volta o pagamento para trás
+      if (pagamento.status === 'estornado' || pagamento.status === 'em_disputa') return 'sem_mudanca'
+
+      // A venda ainda espera o pagamento, mesmo vencida (se a tarefa ainda não a cancelou, o cliente pagou a tempo)
+      if (statusVenda === 'aguardando_pagamento') {
+        if (!podeTransicionar('aguardando_pagamento', 'paga', 'gateway')) {
+          throw new Error('Transição aguardando_pagamento → paga proibida para o gateway.')
+        }
+        await pagamentoRepository.marcarAprovado(id, consulta.cobrancaId, false, client)
+        const pagou = await vendaRepository.mudarStatus(vendaId, 'aguardando_pagamento', 'paga', {
+          ator: 'gateway',
+          clienteId: null,
+        }, client)
+        // A venda está travada desde a leitura do status: não tem como ter mudado
+        if (!pagou) throw new Error('A venda travada mudou de status.')
+        return 'confirmado'
+      }
+
+      // Venda cancelada, ou já paga por OUTRO pagamento (este ainda não estava aprovado): o dinheiro entrou, mas não
+      // tem compra para ele. Fica aprovado + estorno pedido, e a devolução é tentada depois do COMMIT. Nunca reabre a
+      // venda nem mexe no estoque
+      await pagamentoRepository.marcarAprovado(id, consulta.cobrancaId, true, client)
+      console.error(`[pagamento] pagamento ${id}: recebido com a venda ${vendaId} em ${statusVenda}; devolução pedida`)
+      return 'devolucao'
+    }
+    case 'estornado': {
+      const mudou = await pagamentoRepository.mudarStatus(id, ['aprovado', 'pendente'], 'estornado', client)
+      // Estornado sem pedido nosso (pelo painel da AbacatePay) numa venda paga: a venda não muda sozinha
+      if (mudou && pagamento.status === 'aprovado' && !pagamento.estornoSolicitadoEm && statusVenda !== 'cancelada') {
+        console.error(`[pagamento] pagamento ${id}: estornado no gateway com a venda ${vendaId} em ${statusVenda}`)
+      }
+      return mudou ? 'atualizado' : 'sem_mudanca'
+    }
+    case 'cancelado':
+    case 'recusado': {
+      // Só o pendente muda; a venda continua como está (o cliente pode gerar outro Pix)
+      const mudou = await pagamentoRepository.mudarStatus(id, ['pendente'], consulta.status, client)
+      return mudou ? 'atualizado' : 'sem_mudanca'
+    }
+    case 'em_disputa': {
+      const de = ['pendente', 'aprovado', 'estornado'] as const
+      const mudou = await pagamentoRepository.mudarStatus(id, de, 'em_disputa', client)
+      if (mudou) console.error(`[pagamento] pagamento ${id}: em disputa`)
+      return mudou ? 'atualizado' : 'sem_mudanca'
+    }
+    case 'pendente':
+      return 'sem_mudanca'
+  }
+}
+
+// A MESMA função para o webhook (#47), a expiração e o detalhe da compra (rede de proteção).
+// Lança se a consulta ao gateway falhar (quem chama decide: o webhook responde 500 e a AbacatePay reenvia).
+async function processarCobranca(cobrancaId: string): Promise<ResultadoCobranca> {
+  // a) Fora de transação
+  const consulta = await gatewayPix.consultarCobranca(cobrancaId)
+
+  // b) Cobrança que não é nossa: registra e para (o evento fica processado, para não ser reenviado para sempre)
+  const pagamento = await acharPagamento(cobrancaId, consulta)
+  if (!pagamento) {
+    console.error('[pagamento] cobrança desconhecida')
+    return 'desconhecida'
+  }
+
+  // c) Trava NESTA ORDEM: a venda e depois o pagamento. É a mesma ordem do #44 (cliente → venda) e da expiração
+  // (venda), então nenhuma delas espera pela outra em círculo: sem deadlock
+  const resultado = await comTransacao(async (client) => {
+    const statusVenda = await vendaRepository.travarParaPagamento(pagamento.vendaId, client)
+    const travado = await pagamentoRepository.travar(pagamento.id, client)
+    if (!statusVenda || !travado) throw new Error('Venda ou pagamento não encontrado durante o processamento.')
+    // d) Conforme a consulta
+    return aplicarConsulta(consulta, pagamento.vendaId, statusVenda, travado, client)
+  })
+  return resultado
+}
+
+// Webhook (#46): o aviso já passou pelo verificarWebhook e o controller já conferiu o formato dos dois ids.
+// O payload gravado é SÓ { cobrancaId }: o corpo do aviso traz nome, e-mail e CPF mascarado do pagador, e nada
+// disso é gravado. Lança (o controller responde 500) quando a falha é nossa ou do gateway, para a AbacatePay reenviar
+async function processarAviso(eventoId: string, tipo: string, cobrancaId: string): Promise<void> {
+  let evento = await pagamentoRepository.inserirEvento(eventoId, tipo, { cobrancaId })
+  let cobranca = cobrancaId
+  if (evento === null) {
+    // O mesmo aviso de novo: já processado → para; ainda não (falhou antes) → reprocessa com a cobrança gravada
+    const existente = await pagamentoRepository.buscarEvento(eventoId)
+    if (!existente) throw new Error('Evento do webhook sumiu depois do conflito.')
+    if (existente.processadoEm) return
+    evento = existente.id
+    cobranca = existente.cobrancaId ?? cobrancaId
+  }
+
+  try {
+    await processarCobranca(cobranca)
+  } catch (err) {
+    const codigo = codigoDoErro(err)
+    console.error(`[webhook] evento ${evento}: falhou (${codigo})`)
+    try {
+      await pagamentoRepository.registrarFalhaEvento(evento, codigo)
+    } catch (erroRegistro) {
+      console.error(`[webhook] evento ${evento}: falha ao registrar a tentativa (${codigoDoErro(erroRegistro)})`)
+    }
+    // Erro sem dados: o errorHandler responde o 500 genérico
+    throw new Error('Falha ao processar o aviso do gateway.')
+  }
+  await pagamentoRepository.marcarEventoProcessado(evento)
+}
+
 export const pagamentoService = {
   gerarPix,
+  processarCobranca,
+  processarAviso,
 
   // Detalhe da compra (#34): o venda.service chama por aqui, não pelo repository (seção 8)
   async listarDaVenda(vendaId: number): Promise<LinhaPagamento[]> {

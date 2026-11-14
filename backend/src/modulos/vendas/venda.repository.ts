@@ -236,9 +236,9 @@ export const vendaRepository = {
     return rows.map((linha) => linha.id)
   },
 
-  // ---------- #44 pagamento ----------
-  // Trava a linha da venda (FOR UPDATE) até o COMMIT de quem chama. A ordem das travas está no pagamento.service.ts:
-  // cliente → venda → pagamento
+  // ---------- #44 e #47 pagamento ----------
+  // As duas travam a linha da venda (FOR UPDATE) até o COMMIT de quem chama. A ordem das travas está no
+  // pagamento.service.ts: cliente → venda → pagamento no #44, venda → pagamento no webhook
 
   // Filtra por id E cliente_id: venda de outro cliente não é encontrada (quem chama responde 404)
   async travarDoCliente(vendaId: number, clienteId: number, client: Queryable): Promise<VendaParaPix | null> {
@@ -250,6 +250,14 @@ export const vendaRepository = {
       [vendaId, clienteId],
     )
     return rows[0] ?? null
+  },
+
+  async travarParaPagamento(vendaId: number, client: Queryable): Promise<StatusVenda | null> {
+    const { rows } = await client.query<{ status: StatusVenda }>(
+      'SELECT status FROM vendas WHERE id = $1 FOR UPDATE',
+      [vendaId],
+    )
+    return rows[0]?.status ?? null
   },
 
   // ---------- #33 e #37 compras do cliente ----------
