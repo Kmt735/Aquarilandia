@@ -154,6 +154,7 @@ padrão da D-41 em orçamentos: toda rota registrada abaixo dela já nasce só d
 
 **Celio — auth / clientes / vendas / pagamentos / orçamentos**
 ```
+GET    /api/health                              (público — { status, banco }; 503 se o banco não responde)
 POST   /api/auth/cadastro                       (público, rate limit)
 POST   /api/auth/login                          (público, rate limit — cria sessão, cookie "sid")
 POST   /api/auth/logout                         (logado)
@@ -1661,7 +1662,8 @@ cliente `403`, também em caminho desconhecido. Todas com `Cache-Control: no-sto
 
 A expiração **não** manda e-mail. Conta anonimizada (sem e-mail) não recebe. Texto simples, sem link, sem código Pix e
 sem dado do gateway. O envio passa por `canalEmail.enviar` (o "seam" dos testes, como o `gatewayPix`); em
-desenvolvimento sem `EMAIL_API_KEY`, o `utils/email.ts` imprime o e-mail no terminal.
+desenvolvimento sem `EMAIL_API_KEY`, o `utils/email.ts` imprime o e-mail no terminal. Em produção o envio é pelo
+Resend (D-54): só texto, timeout de 10 s, e uma falha do provedor nunca desfaz a mudança de status nem muda a resposta.
 
 ---
 
@@ -1931,10 +1933,11 @@ Envio de e-mail: `utils/email.ts` (dono: Celio) — serviço de envio de e-mail 
 - Mudança neles = **PR separado e pequeno**, com aviso no grupo antes.
 - Nova dependência no `package.json`: combinar antes (evita dois instalarem libs diferentes para a mesma coisa).
   Já combinadas: `argon2` (hash de senha), `express-rate-limit` (rate limit) e `helmet` (cabeçalhos de segurança,
-  versão exata 8.3.0, Lote 13). A combinar antes de instalar: SDK do provedor de e-mail (provedor a definir).
+  versão exata 8.3.0, Lote 13). O e-mail usa o Resend pela API HTTP com o `fetch` nativo, sem SDK (D-54).
 - Nova variável de ambiente: adicionar em `config/env.ts` **e** em `.env.example` no mesmo PR.
   Novas: `API_URL`, `FRONTEND_URL`, `GATEWAY_ACCESS_TOKEN`, `GATEWAY_WEBHOOK_SECRET`,
-  `EMAIL_API_KEY`, `EMAIL_REMETENTE`; no Lote 13, `FRONTEND_DIST` e `PERMITIR_SIMULACAO_PIX` (opcionais, D-53).
+  `EMAIL_API_KEY`, `EMAIL_REMETENTE` (obrigatórias em produção desde o Lote 14a, D-54); no Lote 13, `FRONTEND_DIST` e
+  `PERMITIR_SIMULACAO_PIX` (opcionais, D-53).
   - `FRONTEND_URL` = endereço público do frontend, usado **só** para montar links em e-mails.
   - `FRONTEND_DIST` = a pasta do build do frontend; definida, o backend serve o site no mesmo endereço da API.
   - `PERMITIR_SIMULACAO_PIX` = `true` liga a simulação de Pix da demonstração (só com a chave de teste).
@@ -2141,7 +2144,11 @@ clienteRoutes.get('/', autenticar, exigirAdmin, clienteController.listar)       
   transação, os endereços, as sessões e os tokens de recuperação de senha dele.
 - Preço e total são sempre calculados a partir de `produtos.preco`.
 - Nunca devolver `senha_hash` nem dados de pagamento; nunca logar senha, cookie ou token.
-- `POST`/`PATCH`/`DELETE` (exceto o webhook) exigem header `Origin` igual a `CORS_ORIGIN` (proteção CSRF).
+- `POST`/`PATCH`/`DELETE` (exceto o webhook) exigem header `Origin` igual a `CORS_ORIGIN` (proteção CSRF), e o
+  `exigirOrigem` é o **primeiro** middleware. Nas escritas de admin de `/api/clientes` e `/api/vendas`, ele roda numa
+  guarda de escrita (`origemNasEscritas`) **antes** da guarda D-41, então um pedido de outro site é recusado sem
+  consultar a sessão (Lote 14a, R-06). Exceções: `PATCH /api/orcamentos/:id` (o `exigirOrigem` ainda vem depois da
+  guarda; adiado) e `POST /api/pagamentos/:id/simular` (a trava da demonstração vem antes, de propósito).
 - O frontend faz proxy de `/api` para o backend, então o navegador enxerga uma única origem e o cookie
   `sameSite=lax` funciona sem domínio próprio. Em produção (D-53), o próprio backend serve o site: frontend e API
   no MESMO endereço (`https://DOMINIO` e `https://DOMINIO/api`).

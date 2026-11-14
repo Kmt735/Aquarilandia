@@ -8,6 +8,28 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-54 — E-mail em produção: Resend via HTTP, só texto, falha de e-mail nunca desfaz a operação
+- **Data:** 14/11/2026 (Lote 14a, R-01 da revisão de base)
+- **Decisão:**
+  - **Provedor: Resend**, pela API HTTP (`POST https://api.resend.com/emails`, `Authorization: Bearer EMAIL_API_KEY`)
+    com o `fetch` nativo: **nenhum pacote novo**. Corpo `{ from: EMAIL_REMETENTE, to: [destinatário], subject, text }`
+    e timeout de 10 s.
+  - **Só texto:** nenhum e-mail sai em HTML (o `enviarEmail` recusa `html`). O nome e o endereço de um cliente nunca
+    viram marcação dentro de um e-mail.
+  - **Variáveis:** `EMAIL_API_KEY` e `EMAIL_REMETENTE` são **obrigatórias em produção** (o servidor não sobe sem elas,
+    D-52), e o remetente precisa ser `email@dominio` ou `Nome <email@dominio>`. Fora de produção são opcionais: sem a
+    chave, o e-mail aparece no terminal (`[email:dev]`); com a chave, o remetente passa a ser obrigatório.
+  - **Erros:** rede, timeout ou HTTP fora de 2xx viram um `Error` curto com o status (ex.: `Provedor de e-mail recusou o
+    envio: HTTP 422.`), nunca com a chave, o destinatário, o texto nem o corpo da resposta.
+  - **Falha de e-mail nunca desfaz a operação:** todo ponto que envia (esqueci-senha, troca de e-mail, mudança de status
+    da venda) manda **depois do COMMIT e sem esperar** (`void enviarEmail(...).catch(...)`). A resposta da rota não muda
+    (o esqueci-senha continua com o mesmo `202` exista a conta ou não), e o log não leva o e-mail do cliente.
+  - **Remetente:** o domínio do `EMAIL_REMETENTE` precisa estar verificado no Resend (passo no `docs/deploy.md`).
+- **Motivo:** sem provedor, a recuperação de senha (D-09) e os avisos de status (item 1 do PDF) não funcionavam em
+  produção. O Resend tem plano gratuito, API HTTP simples (dispensa SDK) e aceita só texto.
+- **Impacto:** `utils/email.ts` e `config/env.ts` (compartilhados), `.env.example`, `.env.producao.example`,
+  `docs/deploy.md`. Fecha a pendência "Qual provedor de e-mail?".
+
 ### D-53 — Deploy: VPS + Docker + Caddy, mesmo endereço para site e API, simulação de Pix só em demonstração
 - **Data:** 14/11/2026 (Lote 13)
 - **Decisão:**
@@ -53,7 +75,8 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   - Continuam com padrão: `PORT` (3333, em qualquer ambiente; se vier, precisa ser um número de 0 a 65535) e
     `CORS_ORIGIN` (`http://localhost:5173`, só fora de produção). `FRONTEND_URL`, `API_URL` e `GATEWAY_*` são
     opcionais fora de produção (sem token o gateway recusa a chamada; sem segredo o webhook recusa tudo).
-    `EMAIL_API_KEY` e `EMAIL_REMETENTE` são opcionais também em produção: o `email.ts` avisa e recusa enviar.
+    `EMAIL_API_KEY` e `EMAIL_REMETENTE` eram opcionais também em produção; desde o Lote 14a (D-54) são obrigatórias em
+    produção.
   - Lote 13 (D-53): `FRONTEND_DIST` (opcional; definida, precisa ter o `index.html`) e `PERMITIR_SIMULACAO_PIX`
     (opcional; só `true` ou `false`, qualquer outro valor para o servidor na subida).
   - `npm test` e `npm run test:integration` definem `NODE_ENV=test` e uma `DATABASE_URL` que não aponta para
@@ -464,8 +487,8 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   - as travas seguem a ordem das outras operações da conta: primeiro o cliente, depois o token (sem deadlock);
   - sem `FRONTEND_URL`, nenhum token é criado (log `[esqueci-senha] FRONTEND_URL ausente`) e a resposta continua
     `202`;
-  - **sem provedor de e-mail** (pendente): em desenvolvimento o e-mail aparece no terminal (`[email:dev]`, com o
-    link e o token, só para testes locais); em produção o envio falha, nenhum e-mail sai e a resposta continua
+  - **provedor (D-54, desde 14/11/2026): Resend.** Sem a chave, em desenvolvimento, o e-mail aparece no terminal
+    (`[email:dev]`, com o link e o token, só para testes locais). Uma falha do provedor não muda a resposta: continua
     `202` (o token fica no banco até vencer ou até o próximo pedido);
   - sem limpeza periódica de tokens vencidos na entrega de 19/11: ficam até o cliente pedir outro link, redefinir
     a senha, trocar a senha ou o e-mail, ou ser anonimizado.
@@ -624,8 +647,9 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Data:** 19/10/2026
 - **Decisão:** responsabilidade do Dev 2 (catálogo/estoque). Para 19/11 o pedido de aviso é salvo e a loja vê a
   lista no painel; o e-mail automático entra depois. O serviço de e-mail (`utils/email.ts`) entra na entrega (D-09),
-  mas os e-mails de venda, de boas-vindas e o aviso de chegada ficam fora por decisão de escopo, não por falta de
-  infraestrutura.
+  mas os e-mails de boas-vindas e o aviso de chegada ficam fora por decisão de escopo, não por falta de
+  infraestrutura. **Atualizado em 14/11/2026:** os e-mails de mudança de status da venda entraram (Lote 12, D-24, D-54);
+  o aviso de chegada continua com o Dev 2 (achado R-05 da revisão de base: ainda não existe no backend).
 - **Motivo:** o aviso depende do estoque, e esses e-mails estão fora do escopo da entrega de 19/11 (D-24).
 - **Impacto:** catálogo e estoque (Dev 2); painel do admin no frontend.
 
@@ -821,9 +845,10 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ### D-24 — Fora da entrega
 - **Data:** 15/10/2026 (atualizado em 19/10/2026)
-- **Decisão:** ficam fora da entrega de 19/11/2026: e-mails automáticos de venda, integração com transportadora,
-  exportação dos dados do cliente, CI no GitHub Actions e logger estruturado. A recuperação de senha por e-mail
-  entra na entrega (D-09).
+- **Decisão:** ficam fora da entrega de 19/11/2026: integração com transportadora, exportação dos dados do cliente,
+  CI no GitHub Actions e logger estruturado. A recuperação de senha por e-mail entra na entrega (D-09).
+  **Atualizado em 14/11/2026:** os e-mails automáticos de mudança de status da venda **entraram** (Lote 12, item 1 do
+  PDF; envio pelo Resend, D-54). Continuam fora os e-mails de boas-vindas e o aviso de chegada por e-mail (D-28).
 - **Motivo:** prazo.
 - **Impacto:** D-28 (aviso de chegada sem e-mail).
 
@@ -833,11 +858,9 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 | Pergunta | Com quem | Prazo | O que trava |
 |---|---|---|---|
-| Qual provedor de e-mail? | grupo | 22/10/2026 (vencido) | envio real da recuperação de senha (#19a, passo 3, e #19b). Falta: escolher o provedor, combinar o SDK no `package.json`, a chave `EMAIL_API_KEY` e o remetente verificado `EMAIL_REMETENTE` |
 | Valores do frete | loja | a definir | valores definitivos do frete (#4). Falta: preço e prazo para o resto do Brasil, valor e prazo locais e frete grátis; só o `frete.config.ts` muda |
 
-Requisitos do provedor de e-mail: plano gratuito suficiente para testes, envio a partir de um remetente verificado
-sem exigir domínio próprio, SDK para Node.js.
+O provedor de e-mail foi escolhido em 14/11/2026: Resend (D-54).
 
 As regras de entrega já estão confirmadas; só os valores do frete são provisórios (ver D-29).
 

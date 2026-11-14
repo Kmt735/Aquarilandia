@@ -19,6 +19,7 @@ Você vai precisar de:
 - o VPS com Ubuntu 24.04, o IP dele e o acesso inicial;
 - o domínio comprado, com acesso ao painel de DNS;
 - a conta de **teste** da AbacatePay (Dev mode), com a chave que começa com `abc_dev_`;
+- uma conta no **Resend** (e-mails: recuperação de senha e avisos de compra; plano gratuito);
 - cerca de 1 hora.
 
 > **Nunca** mande senha, chave ou o conteúdo do `.env.producao` por chat, e-mail ou print. Tudo que é segredo é gerado
@@ -129,6 +130,22 @@ Só siga quando o `dig` responder o IP certo. Sem isso, o Caddy não consegue o 
 
 ---
 
+## 2b. Resend (e-mail)
+
+Sem e-mail configurado, o servidor **não sobe** em produção (D-54). No painel do Resend (resend.com):
+
+1. **Domains → Add Domain**: o mesmo domínio do site (ou um subdomínio, ex.: `mail.SEU_DOMINIO`).
+2. O Resend mostra os registros DNS (TXT de SPF e DKIM, e um MX): crie **cada um** no painel de DNS do domínio,
+   copiando nome e valor exatamente como aparecem.
+3. Espere e clique em **Verify**. Só siga quando o domínio aparecer como **Verified**: sem isso, o Resend recusa o envio
+   (`HTTP 403`) e nenhum e-mail sai.
+4. **API Keys → Create API Key**, com permissão **Sending access** (só envio), restrita a esse domínio. A chave começa
+   com `re_` e só aparece uma vez: cole direto no `.env.producao` do servidor (passo 3), nunca em chat.
+5. O remetente (`EMAIL_REMETENTE`) é um endereço **desse domínio verificado**, ex.:
+   `Aquarilândia <nao-responda@SEU_DOMINIO>`. Um endereço de outro domínio (ex.: um Gmail) é recusado pelo Resend.
+
+---
+
 ## 3. Código e variáveis
 
 **No servidor:**
@@ -165,6 +182,8 @@ Troque **todo** `TROQUE_*`:
 | `DATABASE_URL` | `postgres://aquarilandia:<a MESMA senha>@db:5432/aquarilandia` |
 | `GATEWAY_ACCESS_TOKEN` | a chave de **teste** da AbacatePay (`abc_dev_...`) |
 | `GATEWAY_WEBHOOK_SECRET` | o segundo `openssl rand -hex 32` |
+| `EMAIL_API_KEY` | a chave do Resend (`re_...`, passo 2b) |
+| `EMAIL_REMETENTE` | um endereço do domínio verificado, ex.: `Aquarilândia <nao-responda@SEU_DOMINIO>` |
 | `PERMITIR_SIMULACAO_PIX` | `true` **só** para a demonstração (com a chave de teste) |
 
 Confira que não sobrou nenhum placeholder (o comando não imprime os valores):
@@ -201,7 +220,7 @@ sudo docker compose --env-file .env.producao -f docker-compose.prod.yml logs --t
 ```
 
 - `Variável de ambiente obrigatória ausente: X` ou `inválida: X` → corrija o `X` no `.env.producao` e rode o `up -d` de
-  novo.
+  novo (com `EMAIL_API_KEY` ou `EMAIL_REMETENTE` ausentes ou inválidas, o servidor não sobe: passo 2b).
 - O Caddy reclama do certificado → o DNS ainda não propagou (passo 2) ou a porta 80 está fechada (passo 1.2).
 
 ---
@@ -264,6 +283,9 @@ sudo docker compose --env-file .env.producao -f docker-compose.prod.yml up -d
      psql -U aquarilandia -d aquarilandia -c "SELECT tipo, processado_em, tentativas FROM eventos_webhook ORDER BY id DESC LIMIT 3"
    ```
 5. **Cancelamento:** cancele uma compra paga pelo cliente; o estorno volta e a compra fica cancelada.
+   **E-mail:** o cliente de demonstração recebe os avisos (pagamento confirmado, compra cancelada). Peça também
+   "Esqueci a senha" com o e-mail dele: o link chega em segundos. Não chegou? Veja no painel do Resend (**Emails**) o
+   status do envio e se o domínio continua **Verified**; o log da app só diz `falha ao enviar`, sem o e-mail.
 6. **Admin:** com o admin, liste as vendas (`GET /api/vendas`) e avance uma para `em_separacao`.
 7. **Cabeçalhos** (no seu computador):
    ```bash

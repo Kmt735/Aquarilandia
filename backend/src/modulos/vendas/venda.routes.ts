@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import type { RequestHandler } from 'express'
 import { autenticar } from '../../middlewares/autenticar.js'
 import { exigirAdmin } from '../../middlewares/exigirAdmin.js'
 import { exigirOrigem } from '../../middlewares/exigirOrigem.js'
@@ -15,11 +16,21 @@ vendaRoutes.post('/:id/pagamentos', exigirOrigem, autenticar, limitePagamento, v
 // #35: cliente (só a própria venda) e admin (qualquer uma). Fica ACIMA de qualquer guarda de admin
 vendaRoutes.post('/:id/cancelar', exigirOrigem, autenticar, vendaController.cancelar)
 
-// Daqui para baixo, só admin; rota nova já nasce protegida (D-41, o mesmo padrão do clienteRoutes).
-// Por isso qualquer rota nova de CLIENTE em /api/vendas precisa ser registrada ACIMA desta linha.
-vendaRoutes.use(autenticar, exigirAdmin)
+// R-06 (Lote 14a): nas escritas de admin o exigirOrigem vem ANTES da guarda, como em toda escrita da API: um pedido de
+// outro site é recusado sem nem consultar a sessão no banco. As leituras de admin continuam sem Origin
+const origemNasEscritas: RequestHandler = (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    next()
+    return
+  }
+  exigirOrigem(req, res, next)
+}
+
+// Daqui para baixo, só admin; rota nova já nasce protegida (D-41, o mesmo padrão do clienteRoutes), e escrita nova já
+// nasce com o exigirOrigem. Por isso qualquer rota nova de CLIENTE em /api/vendas precisa ficar ACIMA desta linha.
+vendaRoutes.use(origemNasEscritas, autenticar, exigirAdmin)
 vendaRoutes.get('/', vendaController.listarParaAdmin)
 vendaRoutes.get('/:id', vendaController.buscarParaAdmin)
 vendaRoutes.get('/:id/historico', vendaController.listarHistoricoParaAdmin)
-// Escrita de admin: exigirOrigem (CSRF) depois da guarda, como no clienteRoutes
-vendaRoutes.post('/:id/status', exigirOrigem, vendaController.mudarStatusPeloAdmin)
+// Escrita de admin: o exigirOrigem (CSRF) já rodou na guarda acima (origemNasEscritas)
+vendaRoutes.post('/:id/status', vendaController.mudarStatusPeloAdmin)
