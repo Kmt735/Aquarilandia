@@ -1,0 +1,78 @@
+# Produção (Lote 13, D-53): o Caddy (HTTPS automático) na frente da app (site + API no mesmo endereço) e o Postgres.
+# O docker-compose.yml de desenvolvimento NÃO muda e não é usado aqui.
+#
+# Sempre com o arquivo de variáveis (os ${...} abaixo vêm dele), de dentro de backend/:
+#   docker compose --env-file .env.producao -f docker-compose.prod.yml up -d --build
+# O .env.producao nunca vai para o Git (modelo: .env.producao.example).
+#
+# Portas: SÓ o Caddy publica (80 e 443). A app e o Postgres não publicam porta nenhuma: o Docker escreve regras de
+# firewall próprias para porta publicada (passa por cima do ufw), então o que não pode ser alcançado de fora
+# simplesmente não publica. O Postgres fica numa rede interna (sem saída para a internet e sem porta no host).
+name: aquarilandia-prod
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?Defina DB_USER no .env.producao}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no .env.producao}
+      POSTGRES_DB: ${DB_NAME:?Defina DB_NAME no .env.producao}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Rodam só na primeira subida (volume vazio), em ordem alfabética
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    networks: [interna]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    # Todas as variáveis da app (NODE_ENV=production, DATABASE_URL com o host db, GATEWAY_*...). ENV_PRODUCAO só
+    # existe para o teste local apontar para outro arquivo; no servidor fica o padrão
+    env_file: ${ENV_PRODUCAO:-.env.producao}
+    depends_on:
+      db:
+        condition: service_healthy
+    # interna: fala com o Postgres; borda: fala com o Caddy e com a internet (AbacatePay, e-mail)
+    networks: [interna, borda]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      # O Caddy recebe SÓ o domínio, nenhum segredo da app
+      DOMINIO: ${DOMINIO:?Defina DOMINIO no .env.producao}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificados (Let's Encrypt): sem o volume, cada subida pediria um novo e o limite de emissão acabaria
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [borda]
+
+networks:
+  # Só a app e o Postgres. internal: sem saída para a internet. gateway_mode isolated (Docker 28+): o próprio host
+  # nem ganha endereço nesta rede, então nem quem está logado no servidor alcança o Postgres por fora dos containers
+  interna:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  borda: {}
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

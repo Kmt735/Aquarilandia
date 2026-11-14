@@ -1,0 +1,21 @@
+# Caddy de produção (Lote 13): HTTPS automático (Let's Encrypt; com DOMINIO=localhost, um certificado local) e proxy
+# para a app, que serve o site e a API no mesmo endereço. O HTTP (80) só redireciona para o HTTPS.
+{$DOMINIO} {
+	# Sem "Server: Caddy" nas respostas
+	header -Server
+
+	reverse_proxy app:3333
+
+	# Log de acesso em JSON no stdout (docker compose logs caddy). A query string NUNCA é gravada: o webhook da
+	# AbacatePay traz o webhookSecret na URL (?webhookSecret=...). Cookie, Set-Cookie e a assinatura do webhook
+	# também saem do log
+	log {
+		output stdout
+		format filter {
+			request>uri regexp \?.*$ ""
+			request>headers>X-Webhook-Signature delete
+			request>headers>Cookie delete
+			resp_headers>Set-Cookie delete
+		}
+	}
+}

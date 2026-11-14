@@ -1,0 +1,17 @@
+# Contexto do build da imagem de produção (backend/Dockerfile): a raiz do repositório.
+# Nada de segredo, dependência instalada, build local, teste ou relatório vai para dentro da imagem.
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/dist-scripts
+.git
+backend/testes
+backend/http
+backend/docs
+frontend/testes
+frontend/test-results
+frontend/playwright-report
+frontend/*.zip
+**/*.log
+**/.DS_Store
