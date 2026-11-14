@@ -191,6 +191,7 @@ POST   /api/vendas/:id/status                   { status, observacao?, codigoRas
 
 POST   /api/pagamentos/webhook                  (gateway — validado por segredo e assinatura, processado pela reconsulta; ver seção 6)
 POST   /api/pagamentos/:id/concluir-estorno     { motivo }   (admin — devolução manual do pagamento indevido, depois de 5 tentativas)
+POST   /api/pagamentos/:id/simular              (admin — só na demonstração: PERMITIR_SIMULACAO_PIX=true e chave de teste; senão 404)
 
 GET    /api/orcamentos                          ?status=&pagina=&limite=   (admin — paginado, ver seção 4)
 POST   /api/orcamentos                          (público, rate limit: 5 por hora por IP, contando os que deram certo)
@@ -1929,12 +1930,14 @@ Envio de e-mail: `utils/email.ts` (dono: Celio) — serviço de envio de e-mail 
 
 - Mudança neles = **PR separado e pequeno**, com aviso no grupo antes.
 - Nova dependência no `package.json`: combinar antes (evita dois instalarem libs diferentes para a mesma coisa).
-  Já combinadas: `argon2` (hash de senha) e `express-rate-limit` (rate limit). A combinar antes de instalar:
-  SDK do provedor de e-mail (provedor a definir).
+  Já combinadas: `argon2` (hash de senha), `express-rate-limit` (rate limit) e `helmet` (cabeçalhos de segurança,
+  versão exata 8.3.0, Lote 13). A combinar antes de instalar: SDK do provedor de e-mail (provedor a definir).
 - Nova variável de ambiente: adicionar em `config/env.ts` **e** em `.env.example` no mesmo PR.
   Novas: `API_URL`, `FRONTEND_URL`, `GATEWAY_ACCESS_TOKEN`, `GATEWAY_WEBHOOK_SECRET`,
-  `EMAIL_API_KEY`, `EMAIL_REMETENTE`.
+  `EMAIL_API_KEY`, `EMAIL_REMETENTE`; no Lote 13, `FRONTEND_DIST` e `PERMITIR_SIMULACAO_PIX` (opcionais, D-53).
   - `FRONTEND_URL` = endereço público do frontend, usado **só** para montar links em e-mails.
+  - `FRONTEND_DIST` = a pasta do build do frontend; definida, o backend serve o site no mesmo endereço da API.
+  - `PERMITIR_SIMULACAO_PIX` = `true` liga a simulação de Pix da demonstração (só com a chave de teste).
   - `CORS_ORIGIN` (já existe) = origem aceita no CORS e na checagem do header `Origin` (CSRF).
   - Quais são obrigatórias (sempre e só em produção) e quais têm padrão: D-52.
 
@@ -2140,8 +2143,33 @@ clienteRoutes.get('/', autenticar, exigirAdmin, clienteController.listar)       
 - Nunca devolver `senha_hash` nem dados de pagamento; nunca logar senha, cookie ou token.
 - `POST`/`PATCH`/`DELETE` (exceto o webhook) exigem header `Origin` igual a `CORS_ORIGIN` (proteção CSRF).
 - O frontend faz proxy de `/api` para o backend, então o navegador enxerga uma única origem e o cookie
-  `sameSite=lax` funciona sem domínio próprio. Com domínio próprio no futuro: frontend e API em subdomínios
-  do mesmo domínio.
+  `sameSite=lax` funciona sem domínio próprio. Em produção (D-53), o próprio backend serve o site: frontend e API
+  no MESMO endereço (`https://DOMINIO` e `https://DOMINIO/api`).
+
+### Produção: site e API no mesmo endereço, cabeçalhos e simulação de Pix (Lote 13, 14/11/2026)
+
+- **Mesmo endereço (D-53):** com `FRONTEND_DIST`, o `app.ts` serve o build do frontend. Os arquivos de `/assets/` (com o
+  hash do conteúdo no nome) saem com cache de 1 ano; o resto e o `index.html`, com `no-cache`. Todo `GET`/`HEAD` fora de
+  `/api` que não é um arquivo recebe o `index.html` (o roteamento do React). `/api` e `/api/...` desconhecidos continuam
+  `404` em JSON, nunca o HTML; `/assets/` que não existe também é `404`. O `express.static` recusa `../` e não serve
+  dotfiles. Sem `FRONTEND_DIST`, nada muda (o Vite com o proxy de `/api`). Pasta sem `index.html` → o servidor não sobe.
+- **Cabeçalhos (helmet, em toda resposta):** CSP `default-src 'self'`; `img-src 'self' data: https:`; `script-src
+  'self'` mais o hash SHA-256 de cada script inline do `index.html` do build (o tema claro/escuro), calculado na subida;
+  `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`; `font-src 'self' data: https://fonts.gstatic.com`;
+  `connect-src 'self'`; `frame-ancestors 'none'`; `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`. Sem
+  `'unsafe-eval'` e sem `'unsafe-inline'` em scripts. HSTS só em produção (`max-age=15552000`, sem preload e sem
+  subdomínios); `Referrer-Policy: strict-origin-when-cross-origin`; `X-Content-Type-Options: nosniff`; o resto, o
+  padrão do helmet.
+- **Produção atrás do Caddy:** `trust proxy` = 1 (um salto). A app não publica porta; só o Caddy (80/443). Roteiro:
+  [`docs/deploy.md`](docs/deploy.md).
+- **`POST /api/pagamentos/:id/simular`** (admin, `exigirOrigem`, `autenticar`, `exigirAdmin`): só existe com
+  `PERMITIR_SIMULACAO_PIX=true` **e** a chave de teste da AbacatePay (`abc_dev_...`). Faltou uma das duas → `404` igual
+  ao de uma rota inexistente, sem conferir login. O pagamento precisa estar `pendente` e com cobrança (senão `409 'Só
+  um Pix pendente, já gerado, pode ter o pagamento simulado.'`; inexistente → `404 'Pagamento não encontrado.'`).
+  Simula na AbacatePay e processa a cobrança na hora (a mesma função do webhook): `200 { pagamentoId, vendaId,
+  resultado }` (`resultado: 'confirmado'` quando a venda ficou paga). Com `PERMITIR_SIMULACAO_PIX=true` e uma chave que
+  não é de teste, o servidor avisa na subida (`[gateway] PERMITIR_SIMULACAO_PIX=true com uma chave que não é de teste:
+  a simulação fica desligada`).
 
 ---
 

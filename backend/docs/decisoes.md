@@ -8,6 +8,37 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-53 — Deploy: VPS + Docker + Caddy, mesmo endereço para site e API, simulação de Pix só em demonstração
+- **Data:** 14/11/2026 (Lote 13)
+- **Decisão:**
+  - **Onde:** um VPS Linux (Ubuntu, Hostinger) com domínio próprio, tudo em Docker (`docker-compose.prod.yml`): o
+    Caddy na frente (HTTPS automático, Let's Encrypt), a app (uma imagem só com o site e a API) e o Postgres.
+  - **Mesmo endereço:** o backend serve o build do frontend (`FRONTEND_DIST`), e o site e a API ficam em
+    `https://DOMINIO` e `https://DOMINIO/api`. Rota de API desconhecida continua 404 em JSON.
+  - **Portas:** só o Caddy publica (80 e 443). A app e o Postgres não publicam nenhuma, e o Postgres fica numa rede
+    `internal` com o gateway `isolated` (sem internet e sem endereço do host nela). O ufw libera só 22, 80 e 443.
+  - **Imagem:** multi-stage (build do frontend, `tsc` do backend e dos scripts, só as dependências de produção),
+    `NODE_ENV=production`, usuário `node` (não root), código só para leitura.
+  - **Log de acesso do Caddy** sem a query string (o webhook traz o `webhookSecret` na URL), sem cookie e sem a
+    assinatura do webhook.
+  - **Cabeçalhos:** helmet com CSP restrita (só as origens do Google Fonts que o frontend usa, e o hash do script
+    inline do tema em vez de `'unsafe-inline'`), HSTS só em produção (180 dias, sem preload).
+  - **Simulação de Pix:** `POST /api/pagamentos/:id/simular` (admin) só existe com `PERMITIR_SIMULACAO_PIX=true` **e**
+    a chave de teste da AbacatePay (prefixo `abc_dev_`); senão 404, como se não existisse. Com a variável ligada e uma
+    chave de produção, o servidor avisa na subida e a rota continua desligada. O `simularPagamentoPix` do `gateway.ts`
+    passou de "nunca em produção" para "em produção só com as duas travas".
+  - **Segredos:** `.env.producao` fora do Git (modelo `.env.producao.example` só com placeholders), gerados no próprio
+    servidor (`openssl rand -hex 32`).
+- **Motivo:**
+  - O cookie de sessão é `httpOnly`, `SameSite=Lax` e, em produção, `Secure` (D-07, D-52): com o site e a API em
+    endereços diferentes, ele não iria nos pedidos do site.
+  - A AbacatePay exige `https` no webhook, e o HTTPS automático do Caddy dispensa configurar e renovar certificado.
+  - A loja ainda não tem conta na AbacatePay: a demonstração do dia 19 roda em produção com a chave de teste, e a
+    simulação permite mostrar a compra paga sem um Pix de verdade. As duas travas impedem que ela exista com a chave
+    da loja: simular numa conta real confirmaria uma venda sem dinheiro nenhum.
+- **Impacto:** `app.ts` e `env.ts` (compartilhados), `gateway.ts`, `Dockerfile`, `docker-compose.prod.yml`,
+  `Caddyfile`, `.env.producao.example`, `.gitignore`, `.dockerignore`, `scripts/dados-demo.ts` e `docs/deploy.md`.
+
 ### D-52 — Configuração: falhar cedo, sem padrões perigosos
 - **Data:** 09/11/2026
 - **Decisão:**
@@ -23,6 +54,8 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
     `CORS_ORIGIN` (`http://localhost:5173`, só fora de produção). `FRONTEND_URL`, `API_URL` e `GATEWAY_*` são
     opcionais fora de produção (sem token o gateway recusa a chamada; sem segredo o webhook recusa tudo).
     `EMAIL_API_KEY` e `EMAIL_REMETENTE` são opcionais também em produção: o `email.ts` avisa e recusa enviar.
+  - Lote 13 (D-53): `FRONTEND_DIST` (opcional; definida, precisa ter o `index.html`) e `PERMITIR_SIMULACAO_PIX`
+    (opcional; só `true` ou `false`, qualquer outro valor para o servidor na subida).
   - `npm test` e `npm run test:integration` definem `NODE_ENV=test` e uma `DATABASE_URL` que não aponta para
     banco nenhum (porta 1). A integração continua usando só o `TEST_DATABASE_URL` do PostgreSQL descartável.
   - `docker-compose.yml`: o Postgres é publicado só em `127.0.0.1`, e `DB_USER`, `DB_PASSWORD` e `DB_NAME` não

@@ -1539,3 +1539,12 @@ Origin: {{origem}}
 Cookie: sid={{sessaoAdmin}}
 
 { "motivo": "Devolvido pelo painel da AbacatePay" }
+
+# ===== SIMULAÇÃO DE PIX (só na demonstração, Lote 13) =====
+# Existe só com PERMITIR_SIMULACAO_PIX=true E a chave de TESTE da AbacatePay (abc_dev_...). Faltou uma → 404.
+# Admin, exige Origin. O pagamento precisa estar pendente, com o Pix já gerado (POST /api/vendas/:id/pagamentos).
+# 200 - { pagamentoId, vendaId, resultado: 'confirmado' }: a venda fica paga na hora
+###
+POST {{api}}/pagamentos/SUBSTITUA_PELO_ID_DO_PAGAMENTO/simular
+Origin: {{origem}}
+Cookie: sid={{sessaoAdmin}}
