@@ -3,18 +3,22 @@ import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
 import { authService } from '../auth/auth.service.js'
 import { estoqueService } from '../estoque/estoque.service.js'
+import { pagamentoService } from '../pagamentos/pagamento.service.js'
 import { vendaRepository } from './venda.repository.js'
 import { podeTransicionar } from './venda.transicoes.js'
 
 // Tarefas agendadas do módulo vendas (#32, D-16): a cada 5 minutos, cancela as vendas não pagas vencidas e devolve o
-// estoque, e apaga as sessões e os links de recuperação de senha vencidos.
+// estoque, apaga as sessões e os links de recuperação de senha vencidos e tenta
+// de novo a devolução dos pagamentos indevidos.
 
 const intervaloMs = 5 * 60 * 1000
 const primeiraRodadaMs = 30 * 1000
 const vendasPorRodada = 100
+const estornosPorRodada = 50
 const observacaoExpiracao = 'Pagamento não recebido no prazo.'
 
 let rodando = false
+let estornando = false
 
 // O log leva só um código curto: o código do PostgreSQL, a mensagem de um AppError (textos nossos, sem dados) ou
 // 'erro inesperado'. Nunca a mensagem crua de outro erro, que pode trazer dados da linha
@@ -81,10 +85,46 @@ export async function executarExpiracao(): Promise<{ canceladas: number; erros: 
   return { canceladas, erros }
 }
 
+// Devolução de pagamento indevido (#49, parte mínima): até 50 pagamentos aprovados com estorno pedido e menos de 5
+// tentativas, os mais antigos primeiro. Cada um isolado: o erro num não para os outros. Com 5 tentativas o
+// pagamentoService para e avisa no log que o admin precisa agir (a tela do admin entra no Lote 12).
+// Exportada para os testes.
+export async function executarEstornos(): Promise<{ estornados: number; falhas: number; erros: number }> {
+  const ids = await pagamentoService.listarEstornosPendentes(estornosPorRodada)
+  let estornados = 0
+  let falhas = 0
+  let erros = 0
+  for (const id of ids) {
+    try {
+      const resultado = await pagamentoService.tentarEstornoPendente(id)
+      if (resultado === 'estornado') estornados++
+      if (resultado === 'falhou') falhas++
+    } catch (err) {
+      erros++
+      console.error(`[estorno] pagamento ${id}: ${descreverErro(err)}`)
+    }
+  }
+  return { estornados, falhas, erros }
+}
+
 // Pela seção 8 do api.md, a tarefa chama o service do auth, nunca os repositories dele
 export async function executarLimpezas(): Promise<void> {
   await authService.limparSessoesVencidas()
   await authService.limparTokensVencidos()
+}
+
+// Os estornos rodam DEPOIS da rodada de expiração e limpezas, com a trava própria: uma chamada lenta ao gateway na
+// devolução não segura a próxima expiração, e a expiração (que pode marcar devoluções) vem antes. Nunca rejeita
+async function rodarEstornos(): Promise<void> {
+  if (estornando) return
+  estornando = true
+  try {
+    await executarEstornos()
+  } catch (err) {
+    console.error(`[estorno] rodada falhou: ${descreverErro(err)}`)
+  } finally {
+    estornando = false
+  }
 }
 
 // Uma rodada nunca rejeita: cada parte tem o próprio catch, e um erro numa não impede a outra
@@ -114,6 +154,7 @@ async function rodarTarefas(): Promise<void> {
 // unref(): os timers não seguram o processo vivo sozinhos (o servidor HTTP é que segura).
 export function iniciarTarefasVendas(): void {
   if (env.nodeEnv === 'test') return
-  setTimeout(() => void rodarTarefas(), primeiraRodadaMs).unref()
-  setInterval(() => void rodarTarefas(), intervaloMs).unref()
+  const rodada = (): void => void rodarTarefas().then(rodarEstornos)
+  setTimeout(rodada, primeiraRodadaMs).unref()
+  setInterval(rodada, intervaloMs).unref()
 }

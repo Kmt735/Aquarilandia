@@ -31,6 +31,9 @@ import type { PagamentoDaCobranca, PagamentoTravado } from './pagamento.reposito
 const nomeGateway = 'abacatepay'
 const msgIndisponivel = 'Não foi possível falar com o pagamento agora. Tente de novo em instantes.'
 const msgNaoPodePagar = 'Esta compra não pode mais ser paga.'
+const motivoEstorno = 'Pagamento recebido para compra já cancelada ou paga.'
+// O CHECK de pagamentos.estorno_tentativas vai até 5 (D-22); depois disso o admin resolve (tela no Lote 12)
+const maxTentativasEstorno = 5
 // Menos de 60 s até vencer: o Pix não daria tempo de pagar (e a AbacatePay exige expiresIn >= 60)
 const folgaMinimaMs = 60 * 1000
 
@@ -41,6 +44,8 @@ export type ResultadoCobranca =
   | 'sem_mudanca'
   | 'valor_divergente'
   | 'desconhecida' // nenhuma cobrança nossa com esse id
+
+export type ResultadoEstorno = 'estornado' | 'falhou' | 'esgotado' | 'nada'
 
 // Código curto para o log e para eventos_webhook.ultimo_erro: o SQLSTATE do PostgreSQL, GATEWAY_INDISPONIVEL para o
 // 502 do gateway ou ERRO_INESPERADO. Nunca a mensagem crua, que pode trazer dados da linha ou da resposta
@@ -225,6 +230,15 @@ async function processarCobranca(cobrancaId: string): Promise<ResultadoCobranca>
     // d) Conforme a consulta
     return aplicarConsulta(consulta, pagamento.vendaId, statusVenda, travado, client)
   })
+
+  // e) Depois do COMMIT: a primeira tentativa de devolução já. Falhou? A tarefa de 5 em 5 minutos tenta de novo
+  if (resultado === 'devolucao') {
+    try {
+      await tentarEstornoPendente(pagamento.id)
+    } catch (err) {
+      console.error(`[estorno] pagamento ${pagamento.id}: ${codigoDoErro(err)}`)
+    }
+  }
   return resultado
 }
 
@@ -259,13 +273,44 @@ async function processarAviso(eventoId: string, tipo: string, cobrancaId: string
   await pagamentoRepository.marcarEventoProcessado(evento)
 }
 
+// ---------- devolução de pagamento indevido (#49, parte mínima) ----------
+
+// Uma tentativa de devolver um pagamento aprovado com estorno pedido. O gatewayPix.estornar nunca lança por falha do
+// gateway; repetir é seguro, porque a AbacatePay recusa o segundo estorno com "já reembolsada" (= jaEstornado).
+// Só o código curto do erro é gravado (ex.: INSUFFICIENT_FUNDS: a loja sem saldo disponível na conta, D-22)
+async function tentarEstornoPendente(pagamentoId: number): Promise<ResultadoEstorno> {
+  const pagamento = await pagamentoRepository.buscarParaEstorno(pagamentoId)
+  if (!pagamento || pagamento.status !== 'aprovado' || !pagamento.estornoSolicitadoEm || !pagamento.cobrancaId) {
+    return 'nada'
+  }
+  if (pagamento.tentativas >= maxTentativasEstorno) return 'esgotado'
+
+  const resposta = await gatewayPix.estornar(pagamento.cobrancaId, motivoEstorno)
+  if (resposta.aprovado || resposta.jaEstornado) {
+    await pagamentoRepository.marcarEstornado(pagamentoId)
+    return 'estornado'
+  }
+
+  const erro = (resposta.erro ?? 'erro desconhecido').slice(0, 50)
+  const tentativas = await pagamentoRepository.registrarFalhaEstorno(pagamentoId, erro)
+  if (tentativas === null) return 'nada'
+  console.error(`[estorno] pagamento ${pagamentoId}: tentativa ${tentativas} falhou (${erro})`)
+  if (tentativas >= maxTentativasEstorno) console.error(`[estorno] pagamento ${pagamentoId} precisa de ação do admin`)
+  return 'falhou'
+}
+
 export const pagamentoService = {
   gerarPix,
   processarCobranca,
   processarAviso,
+  tentarEstornoPendente,
 
   // Detalhe da compra (#34): o venda.service chama por aqui, não pelo repository (seção 8)
   async listarDaVenda(vendaId: number): Promise<LinhaPagamento[]> {
     return pagamentoRepository.listarPorVenda(vendaId)
+  },
+
+  async listarEstornosPendentes(limite: number): Promise<number[]> {
+    return pagamentoRepository.listarEstornosPendentes(maxTentativasEstorno, limite)
   },
 }
