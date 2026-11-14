@@ -13,6 +13,7 @@ import { calcularFrete } from './frete.service.js'
 import type { ResultadoFrete } from './frete.service.js'
 import { vendaRepository } from './venda.repository.js'
 import { podeTransicionar } from './venda.transicoes.js'
+import { notificarMudancaStatus } from './vendaNotificacoes.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
 import { listaStatusVenda, listaTiposEntrega } from './venda.types.js'
 import type {
@@ -408,7 +409,8 @@ export const vendaService = {
     const motivo = validarMotivo(body)
     const ehAdmin = usuario.papel === 'admin'
 
-    const estornar = await comTransacao(async (client): Promise<number | null> => {
+    type Resultado = { estornar: number | null; cancelou: boolean }
+    const { estornar, cancelou } = await comTransacao(async (client): Promise<Resultado> => {
       // A venda do cliente é procurada por id E cliente_id: a de outro cai no mesmo 404 da inexistente
       const status = await vendaRepository.travarParaCancelar(vendaId, ehAdmin ? null : usuario.id, client)
       if (!status) throw new AppError(ehAdmin ? 'Venda não encontrada.' : 'Compra não encontrada.', 404)
@@ -420,7 +422,7 @@ export const vendaService = {
         await estoqueService.estornarVenda(vendaId, client)
         // Ordem venda → pagamento, a mesma do webhook
         await pagamentoService.cancelarPendentes(vendaId, client)
-        return null
+        return { estornar: null, cancelou: true }
       }
 
       if (statusCancelaComEstorno.includes(status)) {
@@ -433,7 +435,7 @@ export const vendaService = {
           throw new AppError('Não foi possível cancelar agora. Fale com a loja.', 409)
         }
         await vendaRepository.mudarStatus(vendaId, status, 'cancelamento_solicitado', autoria(usuario, motivo), client)
-        return pagamentoId
+        return { estornar: pagamentoId, cancelou: false }
       }
 
       if (status === 'cancelamento_solicitado') {
@@ -453,10 +455,13 @@ export const vendaService = {
           console.error(`[cancelamento] venda ${vendaId} sem baixa de estoque`)
         }
         console.error(`[estorno] pagamento ${pagamento.id} concluído manualmente pelo admin ${usuario.id}`)
-        return null
+        return { estornar: null, cancelou: true }
       }
       throw new AppError('Esta compra não pode mais ser cancelada.', 409)
     })
+
+    // Depois do COMMIT: o e-mail de compra cancelada (no passo 2 abaixo, quem avisa é a conclusão do estorno)
+    if (cancelou) notificarMudancaStatus(vendaId, 'cancelada')
 
     // Passo 2, fora da transação: nenhuma chamada de rede segura a trava da venda. Um erro aqui não desfaz o pedido
     // de cancelamento (já gravado): a tarefa de 5 em 5 minutos tenta de novo
@@ -541,6 +546,9 @@ export const vendaService = {
       // A venda está travada desde a leitura do status: o mudarStatus sempre casa
       await vendaRepository.mudarStatus(vendaId, atual, novo, autoria(admin, pedido.observacao), client)
     })
+
+    // Depois do COMMIT: o e-mail ao cliente (em_separacao não avisa)
+    if (novo === 'enviada' || novo === 'pronta_retirada' || novo === 'entregue') notificarMudancaStatus(vendaId, novo)
 
     return vendaService.buscarParaAdmin(vendaId)
   },

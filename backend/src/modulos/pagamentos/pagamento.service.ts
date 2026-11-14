@@ -5,6 +5,7 @@ import { clienteRepository } from '../clientes/cliente.repository.js'
 import { estoqueService } from '../estoque/estoque.service.js'
 import { vendaRepository } from '../vendas/venda.repository.js'
 import { podeTransicionar } from '../vendas/venda.transicoes.js'
+import { notificarMudancaStatus } from '../vendas/vendaNotificacoes.js'
 import type { LinhaPagamento, PagamentoAdmin, PixGerado, StatusVenda } from '../vendas/venda.types.js'
 import { gatewayPix } from './gateway.js'
 import type { ConsultaCobranca } from './gateway.js'
@@ -235,6 +236,9 @@ async function processarCobranca(cobrancaId: string): Promise<ResultadoCobranca>
     return aplicarConsulta(consulta, pagamento.vendaId, statusVenda, travado, client)
   })
 
+  // Depois do COMMIT: o e-mail de pagamento confirmado (webhook, expiração ou detalhe da compra)
+  if (resultado === 'confirmado') notificarMudancaStatus(pagamento.vendaId, 'paga')
+
   // e) Depois do COMMIT: a primeira tentativa de devolução já. Falhou? A tarefa de 5 em 5 minutos tenta de novo
   if (resultado === 'devolucao') {
     try {
@@ -331,7 +335,8 @@ async function tentarEstornoPendente(pagamentoId: number): Promise<ResultadoEsto
 
   const resposta = await gatewayPix.estornar(pagamento.cobrancaId, motivoEstorno)
   if (resposta.aprovado || resposta.jaEstornado) {
-    await concluirEstorno(pagamento.vendaId, pagamentoId)
+    // Concluiu o cancelamento (depois do COMMIT): o e-mail de compra cancelada, com o valor devolvido
+    if (await concluirEstorno(pagamento.vendaId, pagamentoId)) notificarMudancaStatus(pagamento.vendaId, 'cancelada')
     return 'estornado'
   }
 

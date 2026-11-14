@@ -452,6 +452,21 @@ export const vendaRepository = {
     }))
   },
 
+  // E-mail de mudança de status (vendaNotificacoes.ts): o dono, o rastreio e se algum pagamento foi devolvido
+  async buscarParaNotificacao(
+    vendaId: number,
+  ): Promise<{ clienteId: number; codigoRastreio: string | null; pagamentoDevolvido: boolean } | null> {
+    const { rows } = await db.query<{ clienteId: number; codigoRastreio: string | null; pagamentoDevolvido: boolean }>(
+      `SELECT v.cliente_id AS "clienteId", v.codigo_rastreio AS "codigoRastreio",
+              EXISTS (SELECT 1 FROM pagamentos p WHERE p.venda_id = v.id AND p.status = 'estornado')
+                AS "pagamentoDevolvido"
+         FROM vendas v
+        WHERE v.id = $1`,
+      [vendaId],
+    )
+    return rows[0] ?? null
+  },
+
   async existe(vendaId: number): Promise<boolean> {
     const { rows } = await db.query('SELECT 1 FROM vendas WHERE id = $1', [vendaId])
     return rows.length > 0
