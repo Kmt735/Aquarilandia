@@ -153,6 +153,23 @@ export interface PagamentoDaVenda {
   criadoEm: Date
 }
 
+// Resposta do POST /api/vendas/:id/pagamentos (#44). O código Pix e a imagem só existem nesta resposta: não são
+// gravados no banco (pedir de novo com o mesmo pagamento devolve a mesma cobrança)
+export interface PixGerado {
+  pagamentoId: number
+  codigoPix: string
+  qrCodeImagem: string
+  expiraEm: Date
+}
+
+// Venda travada para gerar o Pix: podePagar = expira_em pelo menos 60 s no futuro (relógio do banco)
+export interface VendaParaPix {
+  status: StatusVenda
+  total: number
+  expiraEm: Date
+  podePagar: boolean
+}
+
 // Histórico como o cliente vê: sem origem nem alterado_por_id (quem mudou é dado interno da loja)
 export interface EtapaHistorico {
   status: StatusVenda

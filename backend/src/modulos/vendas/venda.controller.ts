@@ -1,4 +1,6 @@
 import type { Request, Response } from 'express'
+import { idParam } from '../../utils/validacao.js'
+import { pagamentoService } from '../pagamentos/pagamento.service.js'
 import { vendaService } from './venda.service.js'
 import { validarChaveIdempotencia } from './venda.validacao.js'
 
@@ -12,5 +14,13 @@ export const vendaController = {
     // A repetição responde igual à criação (201, mesmo corpo); o header avisa que nada novo foi criado
     if (repetida) res.set('Idempotent-Replayed', 'true')
     res.status(201).json(venda)
+  },
+
+  // POST /api/vendas/:id/pagamentos (#44). Nenhum campo do body é lido: valor, vencimento e dono vêm do banco.
+  // no-store: a resposta tem o código Pix, que não pode ficar em cache
+  async gerarPix(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const pix = await pagamentoService.gerarPix(req.usuario!.id, idParam(req.params.id))
+    res.set('Cache-Control', 'no-store')
+    res.status(201).json(pix)
   },
 }

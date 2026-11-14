@@ -10,6 +10,7 @@ import type {
   StatusVenda,
   TipoEntrega,
   VendaCriada,
+  VendaParaPix,
 } from './venda.types.js'
 
 // Linha de vendas lida pelo buscarCompleta: os entrega_* de endereço são NULL na retirada
@@ -233,6 +234,22 @@ export const vendaRepository = {
       [limite],
     )
     return rows.map((linha) => linha.id)
+  },
+
+  // ---------- #44 pagamento ----------
+  // Trava a linha da venda (FOR UPDATE) até o COMMIT de quem chama. A ordem das travas está no pagamento.service.ts:
+  // cliente → venda → pagamento
+
+  // Filtra por id E cliente_id: venda de outro cliente não é encontrada (quem chama responde 404)
+  async travarDoCliente(vendaId: number, clienteId: number, client: Queryable): Promise<VendaParaPix | null> {
+    const { rows } = await client.query<VendaParaPix>(
+      `SELECT status, total, expira_em AS "expiraEm", expira_em >= now() + interval '60 seconds' AS "podePagar"
+         FROM vendas
+        WHERE id = $1 AND cliente_id = $2
+          FOR UPDATE`,
+      [vendaId, clienteId],
+    )
+    return rows[0] ?? null
   },
 
   // ---------- #33 e #37 compras do cliente ----------
