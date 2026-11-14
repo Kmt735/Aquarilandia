@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+
 // Configuração do backend: falhar cedo (D-52).
 //
 // O ambiente é validado UMA vez, quando este módulo é carregado. Faltou uma variável obrigatória, ou ela veio
@@ -77,6 +80,22 @@ if (producao && gatewayWebhookSecret !== undefined && gatewayWebhookSecret.lengt
   throw new Error('Variável de ambiente inválida: GATEWAY_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em produção. Veja o .env.example.')
 }
 
+// FRONTEND_DIST (opcional, Lote 13): a pasta do build do frontend (vite build). Com ela, o backend serve o site no
+// MESMO endereço da API (o cookie de sessão SameSite=Lax depende disso). Sem ela, nada muda: em desenvolvimento o
+// site vem do Vite. Definida, a pasta precisa ter o index.html: um caminho errado para o servidor na subida, e não
+// num 404 no meio da demonstração. A mensagem não repete o caminho
+function lerFrontendDist(): string | undefined {
+  const valor = opcional('FRONTEND_DIST')
+  if (valor === undefined) return undefined
+  const pasta = resolve(valor)
+  if (!existsSync(join(pasta, 'index.html'))) {
+    throw new Error('Variável de ambiente inválida: FRONTEND_DIST precisa apontar para a pasta do build do frontend (com o index.html). Veja o .env.example.')
+  }
+  return pasta
+}
+
+const frontendDist = lerFrontendDist()
+
 export const env = {
   nodeEnv,
   databaseUrl,
@@ -92,4 +111,6 @@ export const env = {
   // Opcional também em produção: o email.ts avisa no log e recusa enviar sem a chave
   emailApiKey: opcional('EMAIL_API_KEY'),
   emailRemetente: opcional('EMAIL_REMETENTE'),
+  // Caminho absoluto da pasta do build do frontend, ou undefined (o site não é servido pelo backend)
+  frontendDist,
 }
