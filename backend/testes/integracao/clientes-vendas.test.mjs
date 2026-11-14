@@ -18,7 +18,7 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     const urlApp = new URL(url); urlApp.searchParams.set('options', `-c search_path=${schema}`); urlApp.searchParams.set('application_name', schema)
@@ -199,7 +199,7 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
         ($1, 'abacatepay', $4, $5, 'credit_card', 'recusado', $6, 2000, 0, NULL, now() - interval '1 hour')`,
       [enviada, ...segredos])
       const r = await pedir(`/clientes/me/vendas/${enviada}`, dani)
-      assert.deepEqual(Object.keys(r.corpo.pagamento).sort(), ['criadoEm', 'metodo', 'status'])
+      assert.deepEqual(Object.keys(r.corpo.pagamento).sort(), ['criadoEm', 'mensagem', 'metodo', 'status'])
       assert.deepEqual([r.corpo.pagamento.status, r.corpo.pagamento.metodo], ['aprovado', 'pix'])
       for (const segredo of [...segredos, 'gateway', 'estorno', 'statusDetalhe', 'abacatepay']) {
         assert.equal(r.texto.includes(segredo), false, `vazou ${segredo}`)

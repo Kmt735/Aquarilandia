@@ -6,24 +6,24 @@ import { after, before, beforeEach, describe, it, mock } from 'node:test'
 import pg from 'pg'
 
 const urlTeste = process.env.TEST_DATABASE_URL
-describe('Webhook AbacatePay — POST /api/pagamentos/webhook com a aplicação real e o PostgreSQL (#45)', {
+describe('Webhook AbacatePay — POST /api/pagamentos/webhook com a aplicação real e o PostgreSQL (#45, #46, #47)', {
   skip: !urlTeste && 'Defina TEST_DATABASE_URL para verificar o webhook no PostgreSQL.',
 }, () => {
   const schema = `teste_webhook_${randomUUID().replaceAll('-', '')}`
   // Segredo de teste definido aqui, antes de carregar a aplicação; o do .env nunca é usado
   const segredo = `segredo-teste-${randomUUID()}`
   const chavePublica = 't9dXRhHHo3yDEj5pVDYz0frf7q6bMKyMRmxxCPIPp3RCplBfXRxqlC6ZpiWmOqj4L63qEaeUOtrCI8P0VMUgo6iIga2ri9ogaHFs0WIIywSMg0q7RmBfybe1E5XJcfC4IW3alNqym0tXoAKkzvfEjZxV6bE0oG2zJrNNYmUCKZyV0KZ3JS8Votf9EAWWYdiDkMkpbMdPggfh1EqHlVkMiTady6jOR3hyzGEHrIz2Ret0xHKMbiqkr9HS1JhNHDX9'
-  let cliente, pool, servidor, origem, schemaCriado = false
-  let logs
+  let cliente, pool, servidor, origem, gatewayPix, schemaCriado = false
+  let logs, consultas
 
   before(async () => {
     cliente = new pg.Client({ connectionString: urlTeste }); await cliente.connect()
     await cliente.query(`CREATE SCHEMA ${schema}`); schemaCriado = true
     await cliente.query(`SET search_path TO ${schema}`)
-    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql']) {
+    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '22_pagamentos_estorno.sql']) {
       await cliente.query(await readFile(new URL(`../../db/init/${arquivo}`, import.meta.url), 'utf8'))
     }
-    // Uma venda e um pagamento pendentes: o webhook não pode mexer neles nesta tarefa
+    // Uma venda e um pagamento pendentes: com a consulta dizendo 'pendente', o webhook não pode mexer neles
     const { rows: [c] } = await cliente.query(
       "INSERT INTO clientes (nome, email, senha_hash) VALUES ('Comprador', 'comprador@teste.example', 'hash-fixture') RETURNING id")
     const { rows: [v] } = await cliente.query(
@@ -38,8 +38,10 @@ describe('Webhook AbacatePay — POST /api/pagamentos/webhook com a aplicação 
     urlAplicacao.searchParams.set('options', `-c search_path=${schema}`)
     process.env.DATABASE_URL = urlAplicacao.toString()
     process.env.GATEWAY_WEBHOOK_SECRET = segredo
+    delete process.env.GATEWAY_ACCESS_TOKEN
     const { app } = await import('../../src/app.ts')
     pool = (await import('../../src/config/db.ts')).db
+    gatewayPix = (await import('../../src/modulos/pagamentos/gateway.ts')).gatewayPix
     servidor = app.listen(0, '127.0.0.1'); await once(servidor, 'listening')
     origem = `http://127.0.0.1:${servidor.address().port}`
   })
@@ -57,9 +59,16 @@ describe('Webhook AbacatePay — POST /api/pagamentos/webhook com a aplicação 
   beforeEach(() => {
     mock.restoreAll()
     logs = ['error', 'info', 'log', 'warn'].map((nome) => mock.method(console, nome, () => {}))
+    // Lote 11: o webhook passa a reconsultar a cobrança. Sempre pelo gatewayPix FALSO, que aqui responde 'pendente'
+    // com o valor gravado: nenhuma chamada real à AbacatePay
+    consultas = []
+    mock.method(gatewayPix, 'consultarCobranca', async (cobrancaId) => {
+      consultas.push(cobrancaId)
+      return { cobrancaId, status: 'pendente', valor: 1000, externalId: null, vendaId: null, pagamentoId: null }
+    })
   })
 
-  // Foto das três tabelas: o webhook desta tarefa não grava nada
+  // Foto das três tabelas
   const foto = async () => (await cliente.query(`
     SELECT (SELECT coalesce(json_agg(v ORDER BY id), '[]') FROM vendas v)::text AS vendas,
            (SELECT coalesce(json_agg(p ORDER BY id), '[]') FROM pagamentos p)::text AS pagamentos,
@@ -78,19 +87,44 @@ describe('Webhook AbacatePay — POST /api/pagamentos/webhook com a aplicação 
   }
   const impresso = () => logs.flatMap((espiao) => espiao.mock.calls.map((c) => c.arguments.join(' '))).join('\n')
 
-  it('válido (sem Origin e sem cookie) → 200, e nenhuma linha muda em vendas, pagamentos e eventos_webhook', async () => {
+  // Lote 11: antes, "válido → 200 e nenhuma linha muda em vendas, pagamentos e eventos_webhook" (o webhook não
+  // processava nada). A ideia continua em dois casos: com a consulta dizendo 'pendente', nada muda em vendas e
+  // pagamentos, e eventos_webhook ganha só a linha do aviso, com payload só { cobrancaId }
+  it('(a) válido (sem Origin e sem cookie) e consulta pendente → 200; vendas e pagamentos iguais; eventos_webhook só com a linha do aviso { cobrancaId }', async () => {
     const antes = await foto()
     for (const event of ['transparent.completed', 'transparent.refunded', 'checkout.completed', 'evento.novo']) {
       const resposta = await enviar(evento(event))
       assert.equal(resposta.status, 200, event)
       assert.deepEqual(await resposta.json(), { recebido: true })
     }
-    assert.deepEqual(await foto(), antes)
+    const depois = await foto()
+    assert.equal(depois.vendas, antes.vendas)
+    assert.equal(depois.pagamentos, antes.pagamentos)
+    // O mesmo id de aviso nos dois eventos tratados: a primeira vez grava, a segunda é a repetição (já processada)
+    const eventos = JSON.parse(depois.eventos)
+    assert.equal(eventos.length, 1)
+    assert.deepEqual([eventos[0].gateway_notificacao_id, eventos[0].tipo, eventos[0].payload, eventos[0].tentativas],
+      ['log_Qw8eR2tY4uI6oP1aS3dF5gH7', 'transparent.completed', { cobrancaId: 'pix_char_abc123' }, 0])
+    assert.notEqual(eventos[0].processado_em, null)
+    assert.deepEqual(consultas, ['pix_char_abc123'], 'só o primeiro evento tratado consultou; os não tratados nem gravam')
     const texto = impresso()
-    assert.match(texto, /\[webhook\] recebido log_Qw8eR2tY4uI6oP1aS3dF5gH7 transparent.completed/)
-    assert.match(texto, /\[webhook\] recebido log_Qw8eR2tY4uI6oP1aS3dF5gH7 transparent.refunded/)
-    assert.equal(texto.includes('checkout.completed'), false, 'evento não tratado é só confirmado')
-    for (const parte of [segredo, 'Maria Fictícia', 'pix_char_abc123']) assert.equal(texto.includes(parte), false)
+    for (const parte of [segredo, 'Maria Fictícia', 'pix_char_abc123', 'log_Qw8']) assert.equal(texto.includes(parte), false)
+  })
+
+  it('(b) o CORPO diz que está pago (PAID, valor certo), mas a consulta diz pendente → nada é confirmado', async () => {
+    const corpo = JSON.stringify({
+      id: 'log_CorpoDizPago123', event: 'transparent.completed', apiVersion: 2, devMode: true,
+      data: { transparent: { id: 'pix_char_abc123', amount: 1000, status: 'PAID', paidAmount: 1000 }, customer: { name: 'Maria Fictícia' } },
+    })
+    const antes = await foto()
+    const resposta = await enviar(corpo)
+    assert.equal(resposta.status, 200)
+    const depois = await foto()
+    assert.equal(depois.vendas, antes.vendas, 'a venda não pode virar paga pelo corpo do aviso')
+    assert.equal(depois.pagamentos, antes.pagamentos, 'o pagamento não pode virar aprovado pelo corpo do aviso')
+    const status = (await cliente.query(`SELECT v.status AS venda, p.status AS pagamento FROM vendas v JOIN pagamentos p ON p.venda_id = v.id`)).rows
+    assert.deepEqual(status, [{ venda: 'aguardando_pagamento', pagamento: 'pendente' }])
+    assert.deepEqual(consultas, ['pix_char_abc123'], 'a decisão veio da consulta')
   })
 
   it('com um Origin qualquer também não dá 403 (a rota não usa exigirOrigem)', async () => {
