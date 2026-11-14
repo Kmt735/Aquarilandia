@@ -7,6 +7,7 @@ import { clienteRepository } from '../clientes/cliente.repository.js'
 import type { Endereco } from '../clientes/cliente.types.js'
 import { enderecoRepository } from '../clientes/endereco.repository.js'
 import { estoqueService } from '../estoque/estoque.service.js'
+import { pagamentoService } from '../pagamentos/pagamento.service.js'
 import { calcularFrete } from './frete.service.js'
 import type { ResultadoFrete } from './frete.service.js'
 import { vendaRepository } from './venda.repository.js'
@@ -187,7 +188,7 @@ export const vendaService = {
     const [codigoRastreio, historico, pagamentos] = await Promise.all([
       vendaRepository.buscarCodigoRastreio(id),
       vendaRepository.listarHistorico(id),
-      vendaRepository.listarPagamentos(id),
+      pagamentoService.listarDaVenda(id),
     ])
     return { ...venda, codigoRastreio, historico, pagamento: escolherPagamento(pagamentos) }
   },

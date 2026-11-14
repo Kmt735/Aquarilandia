@@ -136,13 +136,15 @@ export interface PaginaVendas {
 // Os mesmos valores do CHECK de pagamentos.status (db/init/20_vendas.sql)
 export type StatusPagamento = 'pendente' | 'aprovado' | 'recusado' | 'estornado' | 'cancelado' | 'em_disputa'
 
-// Linha de pagamentos lida para o detalhe. Só estas colunas saem do banco: nenhum id do gateway, código Pix,
-// valor, status_detalhe ou dado de estorno. O id serve só para desempatar a ordem e não vai para a resposta
+// Linha de pagamentos lida para o detalhe (pagamentoRepository.listarPorVenda). Só estas colunas saem do banco:
+// nenhum id do gateway, código Pix, valor, status_detalhe ou erro de estorno. O id serve só para desempatar a ordem
+// e o estornoSolicitadoEm só para a escolha do pagamento (#48); nenhum dos dois vai para a resposta
 export interface LinhaPagamento {
   id: number
   status: StatusPagamento
   metodo: string | null
   criadoEm: Date
+  estornoSolicitadoEm: Date | null
 }
 
 export interface PagamentoDaVenda {

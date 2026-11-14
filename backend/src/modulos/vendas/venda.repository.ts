@@ -4,7 +4,6 @@ import type { AutoriaVenda } from './venda.transicoes.js'
 import type {
   EtapaHistorico,
   FiltroVendas,
-  LinhaPagamento,
   LinhaResumoVenda,
   NovaVenda,
   NovoItemVenda,
@@ -271,7 +270,8 @@ export const vendaRepository = {
   },
 
   // ---------- #34 detalhe da compra ----------
-  // As três leituras abaixo filtram só pela venda: quem chama já conferiu o dono com o buscarCompleta(id, clienteId)
+  // As duas leituras abaixo (e o pagamentoRepository.listarPorVenda) filtram só pela venda: quem chama já conferiu o
+  // dono com o buscarCompleta(id, clienteId)
 
   async buscarCodigoRastreio(vendaId: number): Promise<string | null> {
     const { rows } = await db.query<{ codigoRastreio: string | null }>(
@@ -293,15 +293,5 @@ export const vendaRepository = {
     return rows
   },
 
-  // Só id, status, método e data: nenhum id do gateway, código Pix, valor, detalhe ou dado de estorno sai do banco
-  async listarPagamentos(vendaId: number): Promise<LinhaPagamento[]> {
-    const { rows } = await db.query<LinhaPagamento>(
-      `SELECT id, status, metodo, criado_em AS "criadoEm"
-         FROM pagamentos
-        WHERE venda_id = $1
-        ORDER BY criado_em DESC, id DESC`,
-      [vendaId],
-    )
-    return rows
-  },
+  // Os pagamentos da venda saíram daqui no Lote 11: estão no pagamentoRepository.listarPorVenda (seção 8)
 }

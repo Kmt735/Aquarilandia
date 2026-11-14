@@ -292,3 +292,10 @@ export async function simularPagamentoPix(cobrancaId: string): Promise<void> {
   const id = conferirCobrancaId(cobrancaId)
   await chamarOu502('simular', { metodo: 'POST', caminho: '/transparents/simulate-payment', query: { id } })
 }
+
+// O "seam" dos testes: o pagamento.service chama o gateway SEMPRE por este objeto (gatewayPix.consultarCobranca(...)),
+// nunca pelas funções importadas direto. Um import de ES module não pode ser trocado depois de carregado, mas a
+// propriedade de um objeto pode: os testes de integração trocam as três por falsas com
+// mock.method(gatewayPix, 'consultarCobranca', ...), e nenhum teste fala com a AbacatePay de verdade.
+// Em produção o objeto aponta para as funções reais acima; nada mais muda.
+export const gatewayPix = { criarCobrancaPix, consultarCobranca, estornar }
