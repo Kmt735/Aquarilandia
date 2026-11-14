@@ -16,6 +16,14 @@ export const vendaController = {
     res.status(201).json(venda)
   },
 
+  // POST /api/vendas/:id/cancelar (#35): do cliente ou do admin (o service decide pelo papel da sessão). no-store: a
+  // resposta é o detalhe da compra, com endereço e pagamento
+  async cancelar(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const venda = await vendaService.cancelar(req.usuario!, idParam(req.params.id), req.body)
+    res.set('Cache-Control', 'no-store')
+    res.status(200).json(venda)
+  },
+
   // POST /api/vendas/:id/pagamentos (#44). Nenhum campo do body é lido: valor, vencimento e dono vêm do banco.
   // no-store: a resposta tem o código Pix, que não pode ficar em cache
   async gerarPix(req: Request<{ id: string }>, res: Response): Promise<void> {

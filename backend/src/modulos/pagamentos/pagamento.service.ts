@@ -328,6 +328,11 @@ export const pagamentoService = {
     return pagamentoRepository.listarPorVenda(vendaId)
   },
 
+  // #35, dentro da transação do vendaService.cancelar (a venda já travada): o Pix pendente vira cancelado
+  async cancelarPendentes(vendaId: number, client: Queryable): Promise<number> {
+    return pagamentoRepository.cancelarPendentes(vendaId, client)
+  },
+
   // Expiração: a cobrança do pagamento pendente da venda, se já foi gravada (sem cobrança não há o que consultar)
   async buscarCobrancaPendente(vendaId: number): Promise<string | null> {
     return pagamentoRepository.buscarCobrancaPendente(vendaId)

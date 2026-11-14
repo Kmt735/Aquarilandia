@@ -157,6 +157,18 @@ export const pagamentoRepository = {
     )
   },
 
+  // ---------- #35 cancelar a compra ----------
+
+  // Venda não paga cancelada: o Pix pendente vira cancelado (sem chamar o gateway: ele vence sozinho). Quem chama já
+  // travou a venda. Se o Pix for pago mesmo assim, o webhook acha a venda cancelada e devolve o dinheiro
+  async cancelarPendentes(vendaId: number, client: Queryable): Promise<number> {
+    const { rowCount } = await client.query(
+      "UPDATE pagamentos SET status = 'cancelado', atualizado_em = now() WHERE venda_id = $1 AND status = 'pendente'",
+      [vendaId],
+    )
+    return rowCount ?? 0
+  },
+
   // ---------- rede de proteção (reconsulta) ----------
 
   // Expiração: a cobrança do pagamento pendente mais recente da venda, se já foi gravada

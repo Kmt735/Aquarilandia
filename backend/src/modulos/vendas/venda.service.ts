@@ -1,3 +1,4 @@
+import type { UsuarioLogado } from '../../types/index.js'
 import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
 import type { Queryable } from '../../utils/transacao.js'
@@ -11,6 +12,8 @@ import { pagamentoService } from '../pagamentos/pagamento.service.js'
 import { calcularFrete } from './frete.service.js'
 import type { ResultadoFrete } from './frete.service.js'
 import { vendaRepository } from './venda.repository.js'
+import { podeTransicionar } from './venda.transicoes.js'
+import type { AutoriaVenda } from './venda.transicoes.js'
 import { listaStatusVenda } from './venda.types.js'
 import type {
   DetalheVenda,
@@ -145,6 +148,28 @@ function pagamentoDaVenda(pagamentos: readonly LinhaPagamento[], statusVenda: St
   return escolhido && { ...escolhido, mensagem: mensagemDoPagamento(escolhido, statusVenda) }
 }
 
+// #35: { motivo } opcional, até 300 caracteres depois do trim (vai para a observação do histórico). As outras
+// chaves do body são ignoradas. Vazio ou só espaços = sem motivo
+function validarMotivo(body: unknown): string | null {
+  const motivo = typeof body === 'object' && body !== null ? (body as Record<string, unknown>).motivo : undefined
+  if (motivo === undefined || motivo === null) return null
+  if (typeof motivo !== 'string') throw new AppError('Dados inválidos', 422, { motivo: 'Informe o motivo em texto.' })
+  const texto = motivo.trim()
+  if (texto.length > 300) {
+    throw new AppError('Dados inválidos', 422, { motivo: 'O motivo pode ter até 300 caracteres.' })
+  }
+  return texto === '' ? null : texto
+}
+
+function autoria(usuario: UsuarioLogado, observacao: string | null): AutoriaVenda {
+  return { ator: usuario.papel, clienteId: usuario.id, observacao }
+}
+
+// Sempre a tabela de transições antes de mudar: a regra não depende só de quem escreveu o fluxo
+function exigirTransicao(de: StatusVenda, para: StatusVenda, ator: AutoriaVenda['ator']): void {
+  if (!podeTransicionar(de, para, ator)) throw new Error(`Transição ${de} → ${para} proibida para ${ator}.`)
+}
+
 // ?status= (opcional, um dos valores do DOMAIN status_venda) e a paginação da seção 4. Os erros dos dois saem juntos
 function validarFiltroVendas(query: Record<string, unknown>): FiltroVendas {
   const erros: Record<string, string> = {}
@@ -230,6 +255,47 @@ export const vendaService = {
       pagamentoService.listarDaVenda(id),
     ])
     return { ...venda, codigoRastreio, historico, pagamento: pagamentoDaVenda(pagamentos, venda.status) }
+  },
+
+  // POST /api/vendas/:id/cancelar (#35), do cliente (só a própria venda) ou do admin (qualquer uma). O status é lido
+  // com a venda TRAVADA, e o que acontece depende dele:
+  //   aguardando_pagamento → cancelada, o estoque volta e o Pix pendente vira cancelado, tudo na mesma transação.
+  //   enviada, entregue, cancelada (e os outros, por enquanto) → 409.
+  async cancelar(usuario: UsuarioLogado, vendaId: number, body: unknown): Promise<DetalheVenda> {
+    const motivo = validarMotivo(body)
+    const ehAdmin = usuario.papel === 'admin'
+
+    await comTransacao(async (client) => {
+      // A venda do cliente é procurada por id E cliente_id: a de outro cai no mesmo 404 da inexistente
+      const status = await vendaRepository.travarParaCancelar(vendaId, ehAdmin ? null : usuario.id, client)
+      if (!status) throw new AppError(ehAdmin ? 'Venda não encontrada.' : 'Compra não encontrada.', 404)
+
+      if (status === 'aguardando_pagamento') {
+        exigirTransicao(status, 'cancelada', usuario.papel)
+        // A venda está travada: o mudarStatus sempre casa
+        await vendaRepository.mudarStatus(vendaId, status, 'cancelada', autoria(usuario, motivo), client)
+        await estoqueService.estornarVenda(vendaId, client)
+        // Ordem venda → pagamento, a mesma do webhook
+        await pagamentoService.cancelarPendentes(vendaId, client)
+        return
+      }
+      throw new AppError('Esta compra não pode mais ser cancelada.', 409)
+    })
+
+    return ehAdmin ? vendaService.buscarParaAdmin(vendaId) : vendaService.buscarDoCliente(vendaId, usuario.id)
+  },
+
+  // O detalhe de uma venda para o admin (#35; o completo, com cliente e pagamentos, é da #40)
+  async buscarParaAdmin(vendaId: number): Promise<DetalheVenda> {
+    const venda = await vendaRepository.buscarCompletaParaAdmin(vendaId)
+    if (!venda) throw new AppError('Venda não encontrada.', 404)
+    const { clienteId: _dono, ...semDono } = venda
+    const [codigoRastreio, historico, pagamentos] = await Promise.all([
+      vendaRepository.buscarCodigoRastreio(vendaId),
+      vendaRepository.listarHistorico(vendaId),
+      pagamentoService.listarDaVenda(vendaId),
+    ])
+    return { ...semDono, codigoRastreio, historico, pagamento: pagamentoDaVenda(pagamentos, venda.status) }
   },
 
   async temCompraEmAndamento(clienteId: number, executor: Queryable): Promise<boolean> {
