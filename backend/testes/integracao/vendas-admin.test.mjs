@@ -498,7 +498,7 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     assert.match(emailsDa(correios.vendaId)[1].texto, /BR123456789BR/)
     assert.deepEqual(emailsDa(retirada.vendaId).map((e) => e.assunto.split(' — ')[0]),
       ['Pagamento confirmado', 'Seu pedido está pronto para retirada', 'Pedido entregue'])
-    assert.match(emailsDa(retirada.vendaId)[1].texto, /Retire na loja/)
+    assert.ok(emailsDa(retirada.vendaId)[1].texto.includes('Retire na loja Aquarilândia (Av. Josué de Queiroz, 115 – São João del Rei)'))
   })
 
   it('13. #41 erros: rastreio faltando, fora do formato, em propria; pronta_retirada em correios; status fora da lista; pular etapas', async () => {

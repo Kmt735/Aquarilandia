@@ -1654,7 +1654,7 @@ cliente `403`, também em caminho desconhecido. Todas com `Cache-Control: no-sto
 |---|---|---|
 | `paga` | webhook, reconsulta (expiração e detalhe) | `'Pagamento confirmado — pedido #<id>'` |
 | `enviada` | #41 (com o código de rastreio, quando há) | `'Seu pedido #<id> foi enviado'` |
-| `pronta_retirada` | #41 (com um texto fixo sobre a retirada na loja) | `'Seu pedido está pronto para retirada — pedido #<id>'` |
+| `pronta_retirada` | #41 (com o endereço da loja, `enderecoLoja` do `frete.config.ts`) | `'Seu pedido está pronto para retirada — pedido #<id>'` |
 | `entregue` | #41 | `'Pedido entregue — pedido #<id>'` |
 | `cancelada` | #35 e a conclusão do estorno (`'O valor foi devolvido.'` quando havia pagamento) | `'Compra cancelada — pedido #<id>'` |
 

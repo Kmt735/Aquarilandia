@@ -1,5 +1,6 @@
 import { enviarEmail } from '../../utils/email.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
+import { enderecoLoja } from './frete.config.js'
 import { vendaRepository } from './venda.repository.js'
 
 // E-mail ao cliente quando a venda muda de status (item 1 do PDF). Uma função só, chamada DEPOIS do COMMIT por quem
@@ -14,9 +15,9 @@ export type StatusAvisado = 'paga' | 'enviada' | 'pronta_retirada' | 'entregue' 
 // O "seam" dos testes, como o gatewayPix: o envio passa SEMPRE por este objeto, que os testes trocam por um falso
 export const canalEmail = { enviar: enviarEmail }
 
-// O frete.config.ts não tem o endereço da loja: texto fixo até a loja confirmar (#4)
+// O endereço vem do frete.config.ts (enderecoLoja), o mesmo lugar das outras regras de entrega e retirada
 const textoRetirada =
-  'Retire na loja Aquarilândia, em São João del Rei, no horário de funcionamento. Leve um documento com foto.'
+  `Retire na loja Aquarilândia (${enderecoLoja}), no horário de funcionamento. Leve um documento com foto.`
 
 export interface DadosAviso {
   vendaId: number

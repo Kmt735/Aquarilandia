@@ -25,6 +25,9 @@ export const categoriaPeixe = 'peixes'
 
 export const prazoRetiradaDias = 1
 
+// Endereço da loja para a retirada (confirmado pela loja): usado no e-mail de "pronto para retirada"
+export const enderecoLoja = 'Av. Josué de Queiroz, 115 – São João del Rei'
+
 // Faixa a confirmar nos Correios
 export const saoJoaoDelRei: Readonly<FaixaCep> = {
   cepInicio: '36300000',
