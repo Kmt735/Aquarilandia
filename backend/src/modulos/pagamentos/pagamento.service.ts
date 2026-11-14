@@ -7,7 +7,7 @@ import { vendaRepository } from '../vendas/venda.repository.js'
 import { podeTransicionar } from '../vendas/venda.transicoes.js'
 import { notificarMudancaStatus } from '../vendas/vendaNotificacoes.js'
 import type { LinhaPagamento, PagamentoAdmin, PixGerado, StatusVenda } from '../vendas/venda.types.js'
-import { gatewayPix } from './gateway.js'
+import { gatewayPix, simulacaoPixPermitida, simuladorPix } from './gateway.js'
 import type { ConsultaCobranca } from './gateway.js'
 import { detalheIndevido, pagamentoRepository } from './pagamento.repository.js'
 import type { PagamentoDaCobranca, PagamentoTravado } from './pagamento.repository.js'
@@ -383,6 +383,29 @@ async function concluirEstornoManual(
   return { id: pagamentoId, vendaId, status: 'estornado', statusDetalhe: 'estorno manual' }
 }
 
+// ---------- simulação de pagamento (só na demonstração, Lote 13) ----------
+
+// POST /api/pagamentos/:id/simular (admin). A rota só existe com PERMITIR_SIMULACAO_PIX=true e a chave de TESTE
+// (simulacaoPixPermitida, conferida de novo aqui). Simula o pagamento na AbacatePay (Dev mode) e já processa a
+// cobrança pela mesma função do webhook, para a venda ficar paga na hora, sem esperar o aviso. O webhook que chegar
+// depois acha o pagamento aprovado e não faz nada (idempotente)
+async function simularPagamento(
+  adminId: number,
+  pagamentoId: number,
+): Promise<{ pagamentoId: number; vendaId: number; resultado: ResultadoCobranca }> {
+  if (!simulacaoPixPermitida()) throw new Error('Simulação de Pix desligada.')
+  const pagamento = await pagamentoRepository.buscarParaEstorno(pagamentoId)
+  if (!pagamento) throw new AppError('Pagamento não encontrado.', 404)
+  if (pagamento.status !== 'pendente' || !pagamento.cobrancaId) {
+    throw new AppError('Só um Pix pendente, já gerado, pode ter o pagamento simulado.', 409)
+  }
+  // Fora de transação, como toda chamada ao gateway
+  await simuladorPix.simularPagamentoPix(pagamento.cobrancaId)
+  console.info(`[pagamento] pagamento ${pagamentoId}: pagamento simulado pelo admin ${adminId} (demonstração)`)
+  const resultado = await processarCobranca(pagamento.cobrancaId)
+  return { pagamentoId, vendaId: pagamento.vendaId, resultado }
+}
+
 // ---------- rede de proteção (reconsulta) ----------
 
 // Detalhe da compra: no máximo 1 consulta a cada 20 s por pagamento (reservarReconsulta), mesmo com o frontend
@@ -408,6 +431,7 @@ export const pagamentoService = {
   tentarEstornoPendente,
   reconsultarPendente,
   concluirEstornoManual,
+  simularPagamento,
   maxTentativasEstorno,
 
   // Detalhe da compra (#34): o venda.service chama por aqui, não pelo repository (seção 8)

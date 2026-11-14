@@ -21,6 +21,30 @@ const codigosDeMensagens: Readonly<Record<string, string>> = {
   'Saldo insuficiente para realizar o reembolso.': 'INSUFFICIENT_FUNDS',
 }
 
+// Chave de TESTE (Dev mode) da AbacatePay: começa com este prefixo. A de produção não. Conferido só pelo prefixo,
+// sem guardar nem imprimir a chave
+const prefixoChaveDeTeste = 'abc_dev_'
+
+export function ehChaveDeTeste(): boolean {
+  return env.gatewayAccessToken?.startsWith(prefixoChaveDeTeste) ?? false
+}
+
+// A simulação de pagamento pela API (POST /api/pagamentos/:id/simular, Lote 13) exige as DUAS travas: a variável
+// PERMITIR_SIMULACAO_PIX=true e a chave de teste. Com uma chave de produção, nunca: simular pagamento numa conta real
+// confirmaria uma venda sem dinheiro nenhum
+export function simulacaoPixPermitida(): boolean {
+  return env.permitirSimulacaoPix && ehChaveDeTeste()
+}
+
+// Na subida (este módulo é carregado pelo app): a variável ligada com uma chave que não é de teste é configuração
+// errada. A simulação fica desligada (a rota responde 404) e o log avisa, sem a chave. Exportada para os testes
+export function avisarSimulacaoComChaveDeProducao(): void {
+  if (env.permitirSimulacaoPix && !ehChaveDeTeste()) {
+    console.error('[gateway] PERMITIR_SIMULACAO_PIX=true com uma chave que não é de teste: a simulação fica desligada')
+  }
+}
+avisarSimulacaoComChaveDeProducao()
+
 // Os status de pagamento do projeto (CHECK de pagamentos.status, db/init/20_vendas.sql)
 export type StatusCobranca = 'pendente' | 'aprovado' | 'recusado' | 'estornado' | 'cancelado' | 'em_disputa'
 
@@ -286,9 +310,14 @@ export async function estornar(cobrancaId: string, motivo?: string): Promise<Res
   }
 }
 
-// Só para testes em Dev mode: em produção a AbacatePay recusa, e aqui nem chega a chamar
+// Simula o pagamento de um Pix em Dev mode (scripts/gateway-dev.ts e a rota de simulação da demonstração). Fora de
+// produção, como antes. Em produção, SÓ com PERMITIR_SIMULACAO_PIX=true e a chave de teste (simulacaoPixPermitida): a
+// demonstração do dia 19 roda com NODE_ENV=production e a chave de teste. Com a chave de produção a AbacatePay recusaria
+// de qualquer jeito, e aqui nem chega a chamar
 export async function simularPagamentoPix(cobrancaId: string): Promise<void> {
-  if (env.nodeEnv === 'production') throw new Error('Simular pagamento só existe fora de produção (Dev mode).')
+  if (env.nodeEnv === 'production' && !simulacaoPixPermitida()) {
+    throw new Error('Simular pagamento só existe fora de produção (Dev mode), ou na demonstração com a chave de teste.')
+  }
   const id = conferirCobrancaId(cobrancaId)
   await chamarOu502('simular', { metodo: 'POST', caminho: '/transparents/simulate-payment', query: { id } })
 }
@@ -299,3 +328,5 @@ export async function simularPagamentoPix(cobrancaId: string): Promise<void> {
 // mock.method(gatewayPix, 'consultarCobranca', ...), e nenhum teste fala com a AbacatePay de verdade.
 // Em produção o objeto aponta para as funções reais acima; nada mais muda.
 export const gatewayPix = { criarCobrancaPix, consultarCobranca, estornar }
+// O mesmo "seam" para a simulação (Lote 13), separado: o gatewayPix continua só com as três funções da venda real
+export const simuladorPix = { simularPagamentoPix }

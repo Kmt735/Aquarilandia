@@ -21,6 +21,13 @@ function lerCobrancaId(data: unknown): string | null {
 }
 
 export const pagamentoController = {
+  // POST /api/pagamentos/:id/simular (admin, só na demonstração: a trava está na rota e no service)
+  async simular(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const resultado = await pagamentoService.simularPagamento(req.usuario!.id, idParam(req.params.id))
+    res.set('Cache-Control', 'no-store')
+    res.status(200).json(resultado)
+  },
+
   // POST /api/pagamentos/:id/concluir-estorno (admin; a rota passa antes pelo autenticar e pelo exigirAdmin)
   async concluirEstorno(req: Request<{ id: string }>, res: Response): Promise<void> {
     const resultado = await pagamentoService.concluirEstornoManual(req.usuario!.id, idParam(req.params.id), req.body)

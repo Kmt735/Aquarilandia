@@ -96,6 +96,19 @@ function lerFrontendDist(): string | undefined {
 
 const frontendDist = lerFrontendDist()
 
+// PERMITIR_SIMULACAO_PIX (opcional, Lote 13): só 'true' liga a simulação de pagamento Pix pela API (a demonstração do
+// dia 19 roda em produção com a chave de TESTE da AbacatePay, porque a loja ainda não tem conta). Mesmo ligada, ela
+// só funciona com a chave de teste (gateway.ts). Qualquer valor que não seja true ou false é erro: um "sim" ou "1"
+// não liga nada por engano
+function lerPermitirSimulacaoPix(): boolean {
+  const valor = opcional('PERMITIR_SIMULACAO_PIX')
+  if (valor === undefined || valor === 'false') return false
+  if (valor === 'true') return true
+  throw new Error('Variável de ambiente inválida: PERMITIR_SIMULACAO_PIX precisa ser true ou false. Veja o .env.example.')
+}
+
+const permitirSimulacaoPix = lerPermitirSimulacaoPix()
+
 export const env = {
   nodeEnv,
   databaseUrl,
@@ -113,4 +126,5 @@ export const env = {
   emailRemetente: opcional('EMAIL_REMETENTE'),
   // Caminho absoluto da pasta do build do frontend, ou undefined (o site não é servido pelo backend)
   frontendDist,
+  permitirSimulacaoPix,
 }
