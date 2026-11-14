@@ -25,7 +25,7 @@ RUN npm run build
 # Os scripts também viram JavaScript (o tsx é dependência de desenvolvimento e não vai para a imagem final)
 RUN npx tsc --ignoreConfig --types node --outDir dist-scripts --rootDir . --module nodenext --moduleResolution nodenext \
       --target es2022 --strict --esModuleInterop --skipLibCheck --resolveJsonModule \
-      scripts/criar-admin.ts
+      scripts/criar-admin.ts scripts/dados-demo.ts
 
 # ---------- 3. só as dependências de produção ----------
 FROM ${NODE_IMAGE} AS dependencias
