@@ -21,9 +21,12 @@ export interface PagamentoTravado {
   status: StatusPagamento
   valor: number
   estornoSolicitadoEm: Date | null
+  statusDetalhe: string | null
+  tentativas: number
 }
 
 export interface PagamentoParaEstorno {
+  vendaId: number
   status: StatusPagamento
   cobrancaId: string | null
   tentativas: number
@@ -114,7 +117,8 @@ export const pagamentoRepository = {
   // Quem chama já travou a venda: a ordem é sempre venda → pagamento (ver pagamento.service.ts)
   async travar(pagamentoId: number, client: Queryable): Promise<PagamentoTravado | null> {
     const { rows } = await client.query<PagamentoTravado>(
-      `SELECT id, status, valor, estorno_solicitado_em AS "estornoSolicitadoEm"
+      `SELECT id, status, valor, estorno_solicitado_em AS "estornoSolicitadoEm", status_detalhe AS "statusDetalhe",
+              estorno_tentativas AS tentativas
          FROM pagamentos
         WHERE id = $1
           FOR UPDATE`,
@@ -123,16 +127,22 @@ export const pagamentoRepository = {
     return rows[0] ?? null
   },
 
-  // No Pix, o id do pagamento no gateway é o próprio id da cobrança. pedirEstorno = pagamento indevido (venda já
-  // cancelada ou já paga): fica aprovado, com estorno_solicitado_em, e a devolução é tentada fora da transação
-  async marcarAprovado(pagamentoId: number, cobrancaId: string, pedirEstorno: boolean, client: Queryable): Promise<void> {
+  // No Pix, o id do pagamento no gateway é o próprio id da cobrança. detalheIndevido preenchido = pagamento indevido
+  // (venda já cancelada ou já paga): fica aprovado, com estorno_solicitado_em e esse status_detalhe, e a devolução é
+  // tentada fora da transação. O status_detalhe é o que separa o indevido do pagamento que confirmou a venda (Lote 12)
+  async marcarAprovado(
+    pagamentoId: number,
+    cobrancaId: string,
+    detalheIndevido: string | null,
+    client: Queryable,
+  ): Promise<void> {
     await client.query(
       `UPDATE pagamentos
-          SET status = 'aprovado', gateway_pagamento_id = $2, status_detalhe = NULL,
-              estorno_solicitado_em = CASE WHEN $3 THEN now() ELSE estorno_solicitado_em END,
+          SET status = 'aprovado', gateway_pagamento_id = $2, status_detalhe = $3::varchar,
+              estorno_solicitado_em = CASE WHEN $3::varchar IS NOT NULL THEN now() ELSE estorno_solicitado_em END,
               atualizado_em = now()
         WHERE id = $1`,
-      [pagamentoId, cobrancaId, pedirEstorno],
+      [pagamentoId, cobrancaId, detalheIndevido],
     )
   },
 
@@ -228,7 +238,7 @@ export const pagamentoRepository = {
 
   async buscarParaEstorno(pagamentoId: number): Promise<PagamentoParaEstorno | null> {
     const { rows } = await db.query<PagamentoParaEstorno>(
-      `SELECT status, gateway_cobranca_id AS "cobrancaId", estorno_tentativas AS tentativas,
+      `SELECT venda_id AS "vendaId", status, gateway_cobranca_id AS "cobrancaId", estorno_tentativas AS tentativas,
               estorno_solicitado_em AS "estornoSolicitadoEm"
          FROM pagamentos
         WHERE id = $1`,
@@ -237,8 +247,9 @@ export const pagamentoRepository = {
     return rows[0] ?? null
   },
 
-  async marcarEstornado(pagamentoId: number): Promise<boolean> {
-    const { rowCount } = await db.query(
+  // Quem chama já travou a venda e o pagamento (pagamento.service, tentarEstornoPendente)
+  async marcarEstornado(pagamentoId: number, client: Queryable): Promise<boolean> {
+    const { rowCount } = await client.query(
       `UPDATE pagamentos SET status = 'estornado', estorno_ultimo_erro = NULL, atualizado_em = now()
         WHERE id = $1 AND status = 'aprovado' AND estorno_solicitado_em IS NOT NULL`,
       [pagamentoId],

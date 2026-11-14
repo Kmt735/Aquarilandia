@@ -2,6 +2,7 @@ import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
 import type { Queryable } from '../../utils/transacao.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
+import { estoqueService } from '../estoque/estoque.service.js'
 import { vendaRepository } from '../vendas/venda.repository.js'
 import { podeTransicionar } from '../vendas/venda.transicoes.js'
 import type { LinhaPagamento, PixGerado, StatusVenda } from '../vendas/venda.types.js'
@@ -34,6 +35,9 @@ const msgNaoPodePagar = 'Esta compra não pode mais ser paga.'
 const motivoEstorno = 'Pagamento recebido para compra já cancelada ou paga.'
 // O CHECK de pagamentos.estorno_tentativas vai até 5 (D-22); depois disso o admin resolve (tela no Lote 12)
 const maxTentativasEstorno = 5
+// Marca do pagamento indevido (status_detalhe): separa o pagamento em dobro (ou o de venda já cancelada) do pagamento
+// que confirmou a venda. Só o que confirmou a venda conclui o cancelamento dela quando é estornado (Lote 12)
+const detalheIndevido = 'pagamento indevido'
 // Menos de 60 s até vencer: o Pix não daria tempo de pagar (e a AbacatePay exige expiresIn >= 60)
 const folgaMinimaMs = 60 * 1000
 
@@ -166,7 +170,7 @@ async function aplicarConsulta(
         if (!podeTransicionar('aguardando_pagamento', 'paga', 'gateway')) {
           throw new Error('Transição aguardando_pagamento → paga proibida para o gateway.')
         }
-        await pagamentoRepository.marcarAprovado(id, consulta.cobrancaId, false, client)
+        await pagamentoRepository.marcarAprovado(id, consulta.cobrancaId, null, client)
         const pagou = await vendaRepository.mudarStatus(vendaId, 'aguardando_pagamento', 'paga', {
           ator: 'gateway',
           clienteId: null,
@@ -179,7 +183,7 @@ async function aplicarConsulta(
       // Venda cancelada, ou já paga por OUTRO pagamento (este ainda não estava aprovado): o dinheiro entrou, mas não
       // tem compra para ele. Fica aprovado + estorno pedido, e a devolução é tentada depois do COMMIT. Nunca reabre a
       // venda nem mexe no estoque
-      await pagamentoRepository.marcarAprovado(id, consulta.cobrancaId, true, client)
+      await pagamentoRepository.marcarAprovado(id, consulta.cobrancaId, detalheIndevido, client)
       console.error(`[pagamento] pagamento ${id}: recebido com a venda ${vendaId} em ${statusVenda}; devolução pedida`)
       return 'devolucao'
     }
@@ -275,6 +279,46 @@ async function processarAviso(eventoId: string, tipo: string, cobrancaId: string
 
 // ---------- devolução de pagamento indevido (#49, parte mínima) ----------
 
+// 409 do estornarVenda (Dev 2) para venda sem baixa (dado inconsistente, ex.: inserida à mão): o dinheiro já voltou e
+// não havia estoque baixado para devolver, então o cancelamento fica (o mesmo tratamento da expiração)
+function semBaixaDeEstoque(err: unknown): boolean {
+  return err instanceof AppError && err.statusCode === 409 && err.message === 'Venda sem baixa original de estoque'
+}
+
+// O estorno foi aprovado no gateway (ou já tinha sido): numa transação, trava a venda e o pagamento (ordem venda →
+// pagamento) e marca o pagamento como estornado. Se a venda está em cancelamento_solicitado e ESTE é o pagamento que
+// a confirmou (não o indevido), conclui o cancelamento: cancelada (ator sistema) e o estoque de volta, juntos.
+// Venda em outro status (o pagamento em dobro de uma venda paga, ou o de uma venda já cancelada): só o pagamento muda.
+// É por aqui que a tarefa de 5 em 5 minutos conclui sozinha os cancelamentos cujo estorno falhou da primeira vez: ela
+// chama o tentarEstornoPendente de novo e, quando o gateway aprova, cai aqui.
+// true = a venda foi cancelada nesta chamada
+async function concluirEstorno(vendaId: number, pagamentoId: number): Promise<boolean> {
+  return comTransacao(async (client) => {
+    const statusVenda = await vendaRepository.travarParaPagamento(vendaId, client)
+    const travado = await pagamentoRepository.travar(pagamentoId, client)
+    // Outra chamada (o cancelamento e a tarefa ao mesmo tempo) já concluiu: nada a fazer
+    if (!statusVenda || !travado || travado.status !== 'aprovado' || !travado.estornoSolicitadoEm) return false
+    await pagamentoRepository.marcarEstornado(pagamentoId, client)
+    if (statusVenda !== 'cancelamento_solicitado' || travado.statusDetalhe === detalheIndevido) return false
+
+    if (!podeTransicionar('cancelamento_solicitado', 'cancelada', 'sistema')) {
+      throw new Error('Transição cancelamento_solicitado → cancelada proibida para o sistema.')
+    }
+    await vendaRepository.mudarStatus(vendaId, 'cancelamento_solicitado', 'cancelada', {
+      ator: 'sistema',
+      clienteId: null,
+      observacao: 'Pagamento devolvido.',
+    }, client)
+    try {
+      await estoqueService.estornarVenda(vendaId, client)
+    } catch (err) {
+      if (!semBaixaDeEstoque(err)) throw err
+      console.error(`[cancelamento] venda ${vendaId} sem baixa de estoque`)
+    }
+    return true
+  })
+}
+
 // Uma tentativa de devolver um pagamento aprovado com estorno pedido. O gatewayPix.estornar nunca lança por falha do
 // gateway; repetir é seguro, porque a AbacatePay recusa o segundo estorno com "já reembolsada" (= jaEstornado).
 // Só o código curto do erro é gravado (ex.: INSUFFICIENT_FUNDS: a loja sem saldo disponível na conta, D-22)
@@ -287,7 +331,7 @@ async function tentarEstornoPendente(pagamentoId: number): Promise<ResultadoEsto
 
   const resposta = await gatewayPix.estornar(pagamento.cobrancaId, motivoEstorno)
   if (resposta.aprovado || resposta.jaEstornado) {
-    await pagamentoRepository.marcarEstornado(pagamentoId)
+    await concluirEstorno(pagamento.vendaId, pagamentoId)
     return 'estornado'
   }
 
