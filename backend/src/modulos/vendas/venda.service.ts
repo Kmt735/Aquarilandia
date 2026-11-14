@@ -19,6 +19,7 @@ import type {
   LinhaPagamento,
   NovoItemVenda,
   PagamentoDaVenda,
+  PagamentoEscolhido,
   PaginaVendas,
   ResultadoCriacaoVenda,
   StatusVenda,
@@ -96,22 +97,52 @@ export function montarResumo(primeiroItem: string | null, quantidadeItens: numbe
   return `${primeiroItem} e mais ${outros} ${outros === 1 ? 'item' : 'itens'}`
 }
 
-// O pagamento que a compra mostra: o 'aprovado' mais recente; sem aprovado, o mais recente de qualquer status;
-// sem pagamentos, null. "Mais recente" = maior criadoEm, e o maior id no empate. Não depende da ordem recebida.
-// Devolve só status, método e data (o id serve só para o desempate). Exportada para os testes.
-// Quando a #35 criar o estorno_solicitado_em, a regra passa a ser "aprovado e sem estorno marcado": fica anotado para
-// a #47 (um pagamento em dobro, já estornado, não pode aparecer como o pagamento da compra).
-export function escolherPagamento(pagamentos: readonly LinhaPagamento[]): PagamentoDaVenda | null {
+// O pagamento que a compra mostra (#34, #48): o 'aprovado' mais recente SEM estorno pedido (estorno_solicitado_em);
+// sem um aprovado assim, o mais recente de qualquer status; sem pagamentos, null. "Mais recente" = maior criadoEm, e
+// o maior id no empate. Não depende da ordem recebida. Um pagamento em dobro (aprovado e devolvido, ou com a
+// devolução pedida) nunca aparece como o pagamento da compra enquanto houver o aprovado de verdade.
+// Devolve só status, método e data (o id e o estorno servem só para a escolha). Exportada para os testes.
+export function escolherPagamento(pagamentos: readonly LinhaPagamento[]): PagamentoEscolhido | null {
   const maisRecente = (a: LinhaPagamento, b: LinhaPagamento): LinhaPagamento => {
     const diferenca = a.criadoEm.getTime() - b.criadoEm.getTime()
     if (diferenca !== 0) return diferenca > 0 ? a : b
     return a.id > b.id ? a : b
   }
-  const aprovados = pagamentos.filter((pagamento) => pagamento.status === 'aprovado')
+  const aprovados = pagamentos.filter((pagamento) => pagamento.status === 'aprovado' && !pagamento.estornoSolicitadoEm)
   const candidatos = aprovados.length ? aprovados : pagamentos
   if (!candidatos.length) return null
   const { status, metodo, criadoEm } = candidatos.reduce(maisRecente)
   return { status, metodo, criadoEm }
+}
+
+// #48 (item 9 do PDF): a mensagem do pagamento no detalhe da compra. Depende também do status da venda: o Pix
+// cancelado (expirado) de uma compra que ainda espera o pagamento convida a gerar outro; o aprovado de uma compra
+// cancelada é dinheiro que está sendo devolvido. Exportada para os testes
+export function mensagemDoPagamento(pagamento: PagamentoEscolhido, statusVenda: StatusVenda): string {
+  switch (pagamento.status) {
+    case 'pendente':
+      return 'Aguardando o pagamento do Pix.'
+    case 'aprovado':
+      // Só chega aqui um aprovado com devolução pedida quando não há outro aprovado: a compra foi cancelada
+      return statusVenda === 'cancelada' || statusVenda === 'cancelamento_solicitado'
+        ? 'Pagamento recebido. A devolução está em andamento.'
+        : 'Pagamento confirmado.'
+    case 'cancelado':
+      return statusVenda === 'aguardando_pagamento'
+        ? 'O código Pix expirou. Gere um novo código para pagar.'
+        : 'Pagamento não concluído.'
+    case 'recusado':
+      return 'O pagamento não foi aprovado. Gere um novo código Pix.'
+    case 'estornado':
+      return 'Pagamento devolvido.'
+    case 'em_disputa':
+      return 'Pagamento em análise.'
+  }
+}
+
+function pagamentoDaVenda(pagamentos: readonly LinhaPagamento[], statusVenda: StatusVenda): PagamentoDaVenda | null {
+  const escolhido = escolherPagamento(pagamentos)
+  return escolhido && { ...escolhido, mensagem: mensagemDoPagamento(escolhido, statusVenda) }
 }
 
 // ?status= (opcional, um dos valores do DOMAIN status_venda) e a paginação da seção 4. Os erros dos dois saem juntos
@@ -198,7 +229,7 @@ export const vendaService = {
       vendaRepository.listarHistorico(id),
       pagamentoService.listarDaVenda(id),
     ])
-    return { ...venda, codigoRastreio, historico, pagamento: escolherPagamento(pagamentos) }
+    return { ...venda, codigoRastreio, historico, pagamento: pagamentoDaVenda(pagamentos, venda.status) }
   },
 
   async temCompraEmAndamento(clienteId: number, executor: Queryable): Promise<boolean> {

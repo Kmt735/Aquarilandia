@@ -147,10 +147,16 @@ export interface LinhaPagamento {
   estornoSolicitadoEm: Date | null
 }
 
-export interface PagamentoDaVenda {
+// O pagamento como o escolherPagamento devolve (sem a mensagem, que depende também do status da venda)
+export interface PagamentoEscolhido {
   status: StatusPagamento
   metodo: string | null
   criadoEm: Date
+}
+
+// O pagamento no detalhe da compra: o escolhido mais a mensagem para o cliente (#48)
+export interface PagamentoDaVenda extends PagamentoEscolhido {
+  mensagem: string
 }
 
 // Resposta do POST /api/vendas/:id/pagamentos (#44). O código Pix e a imagem só existem nesta resposta: não são
