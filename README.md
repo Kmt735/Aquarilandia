@@ -67,6 +67,7 @@ O `backend/docker-compose.yml` sobe um PostgreSQL 17. Na primeira subida (volume
 | --- | --- |
 | `npm run db:up` | Sobe o banco e espera ficar saudável |
 | `npm run db:migrar-estoque` | Migração incremental de estoque, sem somar novamente os saldos legados; não reseta dados |
+| `npm run db:migrar-consultas-estoque` | Apenas índice33 para histórico geral/período; executar em janela autorizada, sem reset |
 | `npm run db:down` | Para o banco (os dados ficam no volume) |
 | `npm run db:reset` | Apaga o volume e recria o banco do zero (roda o schema de novo) |
 | `npm run db:psql` | Abre o `psql` dentro do container |
@@ -134,6 +135,20 @@ em `backend/`. Ela considera somente nomes gerados há mais de 24h, consulta ref
 locks com uploads; não percorre assets externos. Monitore `limpeza pendente`, contagens e exit code.
 Todas as réplicas precisam do **mesmo banco e volume**; armazenamento local não oferece replicação entre hosts.
 Limites de produção do compose: 1 GiB/2 CPUs para a app inteira; homologar capacidade antes de escalar.
+
+### Consultas administrativas de movimentos de estoque
+
+`GET /api/estoque/movimentacoes` agora aceita consulta geral (sem `produtoId`) e combina `produtoId`, `tipo`,
+`de`, `ate`, `pagina` e `limite`. Exige sessão/papel atual de admin. O período usa timestamps com fuso explícito,
+início inclusivo e fim exclusivo; não há corte de histórico oculto. Envelope e DTO existentes preservados.
+Contrato, EXPLAIN e resultados atuais: [consultas de estoque](backend/docs/estoque-consultas-2026-11-15.md).
+Exemplos HTTP: [estoque-consultas.http](backend/http/estoque-consultas.http).
+
+Bootstrap novo inclui `33_estoque_consultas.sql`. Em base existente, a consulta funciona antes do índice, mas
+o custo pode ser maior. Aplicar somente em janela autorizada/backup/pausa de escritas, com
+`npm run db:migrar-consultas-estoque` em `backend/` ou SQL via psql; construção normal do índice bloqueia escritas.
+O runner antigo continua somente30/31; não é necessário reset nem migração de saldo. Nenhuma aplicação automática
+em base compartilhada faz parte deste incremento.
 
 ### Desenvolvimento e diagnóstico da vitrine
 

@@ -1,12 +1,13 @@
 import { AppError } from '../../utils/AppError.js'
 import type { FiltrosHistoricoEstoque, NovoMovimentoAdmin, TipoMovimentoAdmin } from './estoque.types.js'
+import { tiposMovimentoHistorico, type TipoMovimentoHistorico } from './estoque.types.js'
 
 const tipos: readonly TipoMovimentoAdmin[] = ['entrada', 'ajuste_positivo', 'ajuste_negativo', 'saida']
 const uuidCanonico = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 function lerInteiroConsulta(valor: unknown, campo: string, maximo: number, erros: Record<string, string>): number {
   const numero = typeof valor === 'string' ? Number(valor) : NaN
-  if (typeof valor !== 'string' || !/^[1-9]\d*$/.test(valor) || !Number.isSafeInteger(numero) || numero > maximo) {
+  if (typeof valor !== 'string' || valor.trim() !== valor || !/^[1-9]\d*$/.test(valor) || !Number.isSafeInteger(numero) || numero > maximo) {
     erros[campo] = `Informe um inteiro entre 1 e ${maximo}, sem zeros à esquerda.`
     return 0
   }
@@ -21,17 +22,50 @@ export function validarConsultaSaldo(id: unknown, query: object): number {
   return produtoId
 }
 
+// Validar componentes antes de construir Date: Date.parse normaliza datas inexistentes.
+// Preservar até microssegundos, a precisão do TIMESTAMPTZ; Date sozinho perderia os últimos três dígitos.
+function lerInstante(valor: unknown, campo: string, erros: Record<string, string>): { iso: string; micros: bigint } | undefined {
+  if (valor === undefined) return undefined
+  const invalido = () => {
+    erros[campo] = 'Informe data existente no formato AAAA-MM-DDTHH:mm:ss[.ffffff]Z ou com fuso ±HH:mm (até 6 casas decimais).'
+    return undefined
+  }
+  const partes = typeof valor === 'string'
+    ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|([+-])(\d{2}):(\d{2}))$/.exec(valor)
+    : null
+  // Em JavaScript, $ também pode casar antes de uma quebra de linha final. Exigir consumo integral.
+  if (!partes || partes[0] !== valor) return invalido()
+  const [, a, m, d, h, min, s, fracao = '', , sinal, fh = '0', fm = '0'] = partes
+  const ano = Number(a), mes = Number(m), dia = Number(d), hora = Number(h), minuto = Number(min), segundo = Number(s)
+  const horaFuso = Number(fh), minutoFuso = Number(fm)
+  const bissexto = ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0)
+  const dias = [31, bissexto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  if (ano < 1 || mes < 1 || mes > 12 || dia < 1 || dia > dias[mes - 1]
+    || hora > 23 || minuto > 59 || segundo > 59 || horaFuso > 23 || minutoFuso > 59) return invalido()
+  const data = new Date(0)
+  data.setUTCFullYear(ano, mes - 1, dia); data.setUTCHours(hora, minuto, segundo, 0)
+  data.setTime(data.getTime() - (sinal === '-' ? -1 : 1) * (horaFuso * 60 + minutoFuso) * 60000)
+  if (data.getUTCFullYear() < 1 || data.getUTCFullYear() > 9999) return invalido()
+  const micros = fracao.padEnd(6, '0')
+  return { iso: `${data.toISOString().slice(0, 19)}.${micros}Z`, micros: BigInt(data.getTime()) * 1000n + BigInt(micros) }
+}
+
 export function validarConsultaHistorico(query: Record<string, unknown>): FiltrosHistoricoEstoque {
   const erros: Record<string, string> = Object.create(null)
   for (const campo of Object.keys(query)) {
-    if (!['produtoId', 'pagina', 'limite'].includes(campo)) erros[campo] = 'Parâmetro não permitido nesta consulta.'
+    if (!['produtoId', 'tipo', 'de', 'ate', 'pagina', 'limite'].includes(campo)) erros[campo] = 'Parâmetro não permitido nesta consulta.'
   }
-  const produtoId = lerInteiroConsulta(query.produtoId, 'produtoId', 2147483647, erros)
+  const produtoId = query.produtoId === undefined ? undefined : lerInteiroConsulta(query.produtoId, 'produtoId', 2147483647, erros)
+  if (query.tipo !== undefined && (typeof query.tipo !== 'string' || !tiposMovimentoHistorico.includes(query.tipo as TipoMovimentoHistorico))) {
+    erros.tipo = `Escolha ${tiposMovimentoHistorico.join(', ')}.`
+  }
+  const de = lerInstante(query.de, 'de', erros), ate = lerInstante(query.ate, 'ate', erros)
+  if (de && ate && de.micros >= ate.micros) erros.ate = 'O limite ate deve ser posterior a de (intervalo [de, ate)).'
   const pagina = lerInteiroConsulta(query.pagina === undefined ? '1' : query.pagina, 'pagina', Number.MAX_SAFE_INTEGER, erros)
   const limite = lerInteiroConsulta(query.limite === undefined ? '20' : query.limite, 'limite', 100, erros)
   if (!Number.isSafeInteger((pagina - 1) * limite)) erros.pagina = 'Página fora do intervalo permitido.'
   if (Object.keys(erros).length) throw new AppError('Parâmetros inválidos', 400, erros)
-  return { produtoId, pagina, limite }
+  return { produtoId, tipo: query.tipo as TipoMovimentoHistorico | undefined, de: de?.iso, ate: ate?.iso, pagina, limite }
 }
 
 export function validarMovimento(body: unknown, chave: unknown, query: object): { dados: NovoMovimentoAdmin; chave: string } {

@@ -13,7 +13,8 @@ describe('Estoque — leituras administrativas HTTP', () => {
     delta: 7, saldoAnterior: 0, saldoPosterior: 7, criadoEm: '2026-11-03T12:00:00.123456+00:00',
     motivo: 'Saldo preexistente.', origem: 'abertura', autorId: null,
   }
-  const rotas = ['/api/estoque/42', '/api/estoque/movimentacoes?produtoId=42']
+  const geral = '/api/estoque/movimentacoes'
+  const rotas = ['/api/estoque/42', `${geral}?produtoId=42`, geral]
   before(async () => {
     servidor = app.listen(0, '127.0.0.1'); await once(servidor, 'listening'); origem = `http://127.0.0.1:${servidor.address().port}`
   })
@@ -55,7 +56,7 @@ describe('Estoque — leituras administrativas HTTP', () => {
       }
       const head = await get(rota, {}, 'HEAD'); assert.equal(head.status, 200); assert.equal(await head.text(), '')
     })
-    it(`${rota}: produto inexistente retorna 404`, async () => {
+    if (rota !== geral) it(`${rota}: produto inexistente retorna 404`, async () => {
       autenticar(); mock.method(db, 'query', async (sql) => ({ rows: sql.startsWith('SELECT id AS') ? [] : [{ existe: false, itens: [], total: 0 }] }))
       const r = await get(rota); assert.equal(r.status, 404); assert.deepEqual(await r.json(), { erro: 'Produto não encontrado' })
     })
@@ -83,16 +84,78 @@ describe('Estoque — leituras administrativas HTTP', () => {
     assert.equal(r.status, 200); assert.deepEqual(await r.json(), { itens: [], total: 3 })
     assert.deepEqual(query.mock.calls[0].arguments[1], [42, 5, 5])
   })
+  it('ausência de produtoId consulta todo o histórico, sem filtro de produto ou período oculto', async () => {
+    autenticar(); const query = banco(); const r = await get(geral)
+    assert.equal(r.status, 200); assert.equal((await r.json()).total, 1)
+    const [sql, parametros] = query.mock.calls[0].arguments
+    assert.deepEqual(parametros, [20, 0])
+    assert.doesNotMatch(sql, /WHERE m\.(produto_id|criado_em)|now\(\)|FOR UPDATE|INSERT|UPDATE|DELETE/)
+    assert.equal(query.mock.callCount(), 1)
+  })
+  for (const tipo of ['entrada', 'ajuste_positivo', 'ajuste_negativo', 'saida', 'abertura', 'baixa_venda', 'estorno_venda']) {
+    it(`tipo real ${tipo} é aceito e enviado como parâmetro`, async () => {
+      autenticar(); const query = banco(); const r = await get(`${geral}?tipo=${tipo}`)
+      assert.equal(r.status, 200)
+      const [sql, parametros] = query.mock.calls[0].arguments
+      assert.deepEqual(parametros, [tipo, 20, 0]); assert.ok(!sql.includes(`'${tipo}'`))
+    })
+  }
+  it('combina filtros, normaliza fuso e preserva microssegundos no intervalo', async () => {
+    autenticar(); const query = banco()
+    const params = new URLSearchParams({ produtoId: '42', tipo: 'entrada', de: '2026-11-01T10:20:30.123456-03:00',
+      ate: '2026-11-01T13:20:30.123457Z', pagina: '2', limite: '5' })
+    const r = await get(`${geral}?${params}`); assert.equal(r.status, 200)
+    assert.deepEqual(query.mock.calls[0].arguments[1], [42, 'entrada', '2026-11-01T13:20:30.123456Z', '2026-11-01T13:20:30.123457Z', 5, 5])
+    assert.equal(query.mock.callCount(), 1)
+  })
+  for (const [entrada, esperado] of [
+    ['2024-02-29T23:30:00-03:00', '2024-03-01T02:30:00.000000Z'],
+    ['2000-02-29T00:00:00.1+02:30', '2000-02-28T21:30:00.100000Z'],
+    ['0099-01-01T00:00:00Z', '0099-01-01T00:00:00.000000Z'],
+    ['1969-12-31T23:59:59.999999Z', '1969-12-31T23:59:59.999999Z'],
+    ['2026-11-01T00:00:00.12Z', '2026-11-01T00:00:00.120000Z'],
+  ]) {
+    it(`aceita instante existente e fuso explícito: ${entrada}`, async () => {
+      autenticar(); const query = banco()
+      for (const campo of ['de', 'ate']) {
+        assert.equal((await get(`${geral}?${new URLSearchParams({ [campo]: entrada })}`)).status, 200)
+      }
+      assert.deepEqual(query.mock.calls[0].arguments[1], [esperado, 20, 0])
+      assert.deepEqual(query.mock.calls[1].arguments[1], [esperado, 20, 0])
+    })
+  }
+  it('total geral mantém número acima do INTEGER do banco, inclusive em página vazia', async () => {
+    autenticar(); mock.method(db, 'query', async () => ({ rows: [{ existe: true, itens: [], total: '2147483648' }] }))
+    assert.deepEqual(await (await get(geral)).json(), { itens: [], total: 2147483648 })
+  })
   const invalidos = [
-    ...['0', '-1', '01', '1.0', '1e2', '2147483648', 'abc', ' 42 ', "1' OR true --"].map((id) => `/api/estoque/${encodeURIComponent(id)}`),
+    ...['0', '-1', '01', '1.0', '1e2', '2147483648', 'abc', ' 42 ', '42\n', '42\u2028', "1' OR true --"].map((id) => `/api/estoque/${encodeURIComponent(id)}`),
     '/api/estoque/42?incluir_inativos=true', '/api/estoque/42?produtoId=43',
-    '/api/estoque/movimentacoes',
-    ...['', '0', '01', '-1', '1e2', '2147483648', 'a'].map((id) => `/api/estoque/movimentacoes?produtoId=${id}`),
+    ...['', '0', '01', '-1', '1e2', '2147483648', 'a', '42\n'].map((id) => `/api/estoque/movimentacoes?produtoId=${encodeURIComponent(id)}`),
     '/api/estoque/movimentacoes?produtoId=42&produtoId=43', '/api/estoque/movimentacoes?produtoId[]=42',
     ...['pagina=0', 'pagina=01', 'pagina=1.5', 'pagina=1e2', 'pagina=', 'pagina=1&pagina=2',
       'pagina=9007199254740992', 'pagina=9007199254740991&limite=100',
-      'limite=0', 'limite=101', 'limite=', 'limite=abc', 'limite=1&limite=2',
-      'tipo=saida', 'de=2026-11-01', 'ate=2026-11-03', 'ordem=nome', '__proto__=admin'].map((q) => `/api/estoque/movimentacoes?produtoId=42&${q}`),
+      'limite=0', 'limite=101', 'limite=', 'limite=abc', 'limite=1&limite=2', 'limite=1%0A', 'pagina=1%0A',
+      'tipo=admin', 'tipo=venda', 'tipo=desconhecido', 'tipo=', 'tipo=Entrada', 'tipo=entrada&tipo=saida', 'tipo[]=entrada',
+      'de=2026-11-01', 'ate=2026-11-03', 'de[]=2026-11-01T00:00:00Z', 'de=2026-11-01T00:00:00Z&de=2026-11-02T00:00:00Z',
+      'ate=2026-11-01T00:00:00Z&ate=2026-11-02T00:00:00Z', 'ate[x]=data',
+      'ordem=nome', 'origem=venda', 'incluir_inativos=true', '__proto__=admin'].map((q) => `/api/estoque/movimentacoes?produtoId=42&${q}`),
+    ...['', 'infinity', '2026-02-30T12:00:00Z', '2026-02-29T12:00:00Z', '1900-02-29T12:00:00Z',
+      '2026-04-31T12:00:00Z', '2026-00-01T00:00:00Z', '2026-13-01T00:00:00Z', '2026-01-00T00:00:00Z',
+      '2026-11-01T24:00:00Z', '2026-11-01T23:60:00Z', '2026-11-01T23:59:60Z',
+      '2026-11-01T00:00:00', '2026-11-01T00:00Z', '2026-11-01 00:00:00Z', '2026-11-01T00:00:00z',
+      '2026-11-01T00:00:00+24:00', '2026-11-01T00:00:00-03:60', '2026-11-01T00:00:00+0300',
+      '2026-11-01T00:00:00.1234567Z', '2026-11-01T00:00:00,1Z', '2026-11-01T00:00:00.Z',
+      '0000-01-01T00:00:00Z', '0001-01-01T00:00:00+01:00', '9999-12-31T23:59:59-01:00',
+      ' 2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z ', '2026-11-01T00:00:00Z\n', '2026-11-01T00:00:00Z\r\n',
+      '2026-11-01T00:00:00Z\u2028', "2026-11-01T00:00:00Z' OR true --",
+    ].flatMap((data) => ['de', 'ate'].map((campo) => `${geral}?${new URLSearchParams({ [campo]: data })}`)),
+    ...[
+      ['2026-11-02T00:00:00Z', '2026-11-01T00:00:00Z'],
+      ['2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z'],
+      ['2026-11-01T00:00:00.000001Z', '2026-11-01T00:00:00.000000Z'],
+      ['2026-11-01T00:00:00-03:00', '2026-11-01T03:00:00Z'],
+    ].map(([de, ate]) => `${geral}?${new URLSearchParams({ de, ate })}`),
   ]
   for (const rota of invalidos) {
     it(`consulta inválida: ${rota}`, async () => {
