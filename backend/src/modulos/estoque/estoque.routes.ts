@@ -11,6 +11,7 @@ const semCache: RequestHandler = (_req, res, next) => {
   next()
 }
 // Leituras seguem o catálogo administrativo: sessão/admin, sem exigir Origin; caminho estático primeiro.
+estoqueRoutes.get('/', semCache, autenticar, exigirAdmin, estoqueController.listarSaldos)
 estoqueRoutes.get('/movimentacoes', semCache, autenticar, exigirAdmin, estoqueController.consultarHistorico)
 estoqueRoutes.get('/:produtoId', semCache, autenticar, exigirAdmin, estoqueController.consultarSaldo)
 estoqueRoutes.post('/movimentacoes', semCache, autenticar, exigirAdmin, exigirOrigem, estoqueController.criar)

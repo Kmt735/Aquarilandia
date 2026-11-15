@@ -1,9 +1,42 @@
 import type { PoolClient } from 'pg'
 import { db } from '../../config/db.js'
-import type { FiltrosHistoricoEstoque, HistoricoEstoque, NovoMovimentoAdmin, OperacaoPersistida, ResultadoMovimento, SaldoProdutoAdmin } from './estoque.types.js'
+import type { FiltrosHistoricoEstoque, FiltrosSaldosEstoque, HistoricoEstoque, ListaSaldosEstoque, NovoMovimentoAdmin, OperacaoPersistida, OrdemSaldosEstoque, ResultadoMovimento, SaldoProdutoAdmin } from './estoque.types.js'
+
+const ordensSaldos: Record<OrdemSaldosEstoque, string> = {
+  nome: 'nome ASC, "produtoId" ASC',
+  '-nome': 'nome DESC, "produtoId" ASC',
+  saldo: '"saldoAtual" ASC, "produtoId" ASC',
+  '-saldo': '"saldoAtual" DESC, "produtoId" ASC',
+}
 
 // Executor obrigatório: nenhuma escrita escapa da transação de quem chama.
 export const estoqueRepository = {
+  async listarSaldos(filtros: FiltrosSaldosEstoque): Promise<ListaSaldosEstoque> {
+    const valores: (string | number | boolean)[] = [], condicoes: string[] = []
+    const parametro = (valor: string | number | boolean) => { valores.push(valor); return `$${valores.length}` }
+    if (filtros.categoria !== undefined) condicoes.push(`p.categoria_id = (SELECT id FROM categorias WHERE slug = ${parametro(filtros.categoria)})`)
+    if (filtros.busca !== undefined) condicoes.push(`p.nome ILIKE ${parametro(`%${filtros.busca.replace(/[!%_]/g, '!$&')}%`)} ESCAPE '!'`)
+    if (filtros.ativo !== undefined) condicoes.push(`p.ativo = ${parametro(filtros.ativo)}`)
+    if (filtros.emEstoque !== undefined) condicoes.push(`CASE WHEN ${parametro(filtros.emEstoque)}::boolean THEN p.estoque > 0 ELSE p.estoque = 0 END`)
+    const ordem = ordensSaldos[filtros.ordem]
+    const limite = parametro(filtros.limite), offset = parametro((filtros.pagina - 1) * filtros.limite)
+    // Valores parametrizados, ordenação fechada e uma instrução/snapshot para total e página.
+    // O saldo vem de produtos.estoque; a leitura nunca soma movimentos ou adquire locks de escrita.
+    const { rows } = await db.query<Omit<ListaSaldosEstoque, 'total'> & { total: string }>(
+      `WITH filtrados AS NOT MATERIALIZED (
+         SELECT p.id AS "produtoId", p.nome, p.ativo, p.estoque AS "saldoAtual" FROM produtos p
+          ${condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : ''}
+       )
+       SELECT (SELECT count(*)::text FROM filtrados) AS total,
+              COALESCE((SELECT json_agg(pagina ORDER BY ${ordem}) FROM (
+                SELECT * FROM filtrados ORDER BY ${ordem} LIMIT ${limite} OFFSET ${offset}
+              ) pagina), '[]'::json) AS itens`, valores,
+    )
+    const total = Number(rows[0].total)
+    if (!Number.isSafeInteger(total)) throw new Error('Contagem de saldos fora do intervalo seguro.')
+    return { itens: rows[0].itens, total }
+  },
+
   async buscarSaldo(produtoId: number): Promise<SaldoProdutoAdmin | null> {
     const { rows } = await db.query<SaldoProdutoAdmin>(
       'SELECT id AS "produtoId", nome, ativo, estoque AS "saldoAtual" FROM produtos WHERE id = $1', [produtoId],

@@ -1,0 +1,38 @@
+@api = http://localhost:3333/api
+@sid = substitua-pela-sessao-admin-local
+@produtoId = 42
+
+### Todos os saldos: ativos e inativos, zero e positivos
+GET {{api}}/estoque?pagina=1&limite=20
+Cookie: sid={{sid}}
+
+### Filtros combinados e saldo decrescente
+GET {{api}}/estoque?busca=Filtro&categoria=filtros&ativo=true&em_estoque=true&ordem=-saldo&pagina=1&limite=20
+Cookie: sid={{sid}}
+
+### Inativos zerados, em ordem alfabética
+GET {{api}}/estoque?ativo=false&em_estoque=false&ordem=nome
+Cookie: sid={{sid}}
+
+### Busca literal por '%' ou '_' — codificação normal da URL
+GET {{api}}/estoque?busca=50%25
+Cookie: sid={{sid}}
+
+### HEAD administrativo, sem corpo
+HEAD {{api}}/estoque
+Cookie: sid={{sid}}
+
+### Consulta individual preservada
+GET {{api}}/estoque/{{produtoId}}
+Cookie: sid={{sid}}
+
+### Histórico preservado
+GET {{api}}/estoque/movimentacoes?produtoId={{produtoId}}&pagina=1&limite=20
+Cookie: sid={{sid}}
+
+### Visitante não recebe quantidades: 401
+GET {{api}}/estoque
+
+### Booleano inválido: 400 para admin
+GET {{api}}/estoque?ativo=1
+Cookie: sid={{sid}}

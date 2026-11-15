@@ -92,6 +92,7 @@ criação/cancelamento/expiração/pagamento ainda dependem da integração come
 | GET | `/api/produtos/:id` | Produto ativo do PostgreSQL, ID numérico, centavos e ficha técnica da categoria |
 | POST | `/api/produtos` | Admin: cria produto e ficha na mesma transação, estoque inicial zero, retorna `201` |
 | PATCH | `/api/produtos/:id` | Admin: edita parcialmente produto/ficha; categoria, estoque e ativo protegidos; retorna `200` |
+| GET | `/api/estoque?busca=&categoria=&ativo=&em_estoque=&ordem=&pagina=1&limite=20` | Admin: saldos atuais de ativos/inativos, envelope `{ itens, total }` e filtros combinados |
 | GET | `/api/peixes?temperatura=&ph=&tamanho_max=&aquario_litros=&dificuldade=&temperamento=&tipo_agua=&busca=&pagina=1&limite=20` | Produtos ativos da categoria peixes com ficha, resposta `{ itens, total }` |
 | GET | `/api/peixes/:id` | Mesmo ID e detalhe do produto, restrito a peixes com ficha |
 | GET | `/api/servicos` | Serviços |
@@ -149,6 +150,13 @@ o custo pode ser maior. Aplicar somente em janela autorizada/backup/pausa de esc
 `npm run db:migrar-consultas-estoque` em `backend/` ou SQL via psql; construção normal do índice bloqueia escritas.
 O runner antigo continua somente30/31; não é necessário reset nem migração de saldo. Nenhuma aplicação automática
 em base compartilhada faz parte deste incremento.
+
+### Listagem administrativa de saldos
+
+`GET /api/estoque` lista os saldos atuais para admin e mantém os quatro campos da consulta individual,
+filtros/paginação, total anterior à página e consulta sem alterações de dados. Usa unidades disponíveis após
+as baixas, sem recálculo de histórico. Não exige migração adicional à base atual.
+Contrato e verificações: [listagem de saldos](backend/docs/estoque-saldos-2026-11-15.md).
 
 ### Desenvolvimento e diagnóstico da vitrine
 

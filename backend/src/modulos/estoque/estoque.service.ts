@@ -2,12 +2,15 @@ import { createHash, randomUUID } from 'node:crypto'
 import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
 import { estoqueRepository } from './estoque.repository.js'
-import { validarConsultaHistorico, validarConsultaSaldo, validarMovimento } from './estoque.validacao.js'
+import { validarConsultaHistorico, validarConsultaSaldo, validarConsultaSaldos, validarMovimento } from './estoque.validacao.js'
 import type { ResultadoMovimento } from './estoque.types.js'
 import { estoqueVendaService } from './estoque-venda.service.js'
 
 export const estoqueService = {
   ...estoqueVendaService,
+  async listarSaldos(query: Record<string, unknown>) {
+    return estoqueRepository.listarSaldos(validarConsultaSaldos(query))
+  },
   async consultarSaldo(id: unknown, query: object) {
     const produto = await estoqueRepository.buscarSaldo(validarConsultaSaldo(id, query))
     if (!produto) throw new AppError('Produto não encontrado', 404)
