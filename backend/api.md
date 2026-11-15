@@ -221,19 +221,20 @@ GET    /api/servicos                                                          (p
 
 GET    /api/estoque                  ?abaixoDe=   (previsto, sem handler)    (admin)
 GET    /api/estoque/:produtoId       (saldo atual; implementado em 03/11/2026) (admin)
-GET    /api/estoque/movimentacoes    ?produtoId=&pagina=&limite= (implementado em 03/11/2026) (admin)
+GET    /api/estoque/movimentacoes    ?produtoId=&tipo=&de=&ate=&pagina=&limite= (geral/filtros ampliados em 15/11/2026) (admin)
 POST   /api/estoque/movimentacoes    (entrada / ajuste positivo/negativo / saída; implementado em 03/11/2026) (admin)
 ```
 
 ---
 
 O POST administrativo tem contrato em [estoque administrativo](docs/estoque-admin-2026-11-03.md).
-As duas leituras por produto estão implementadas conforme a seção abaixo. A listagem geral `GET /api/estoque`
-e os filtros históricos `tipo`, `de` e `ate` continuam previstos, sem implementação. Os helpers de baixa/devolução
+Saldo por produto e histórico geral/filtrado estão implementados conforme a seção abaixo. A listagem geral
+**de saldos** `GET /api/estoque` continua prevista, sem implementação; é diferente do histórico geral de movimentos.
+Os helpers de baixa/devolução
 por venda já estão implementados (D-50), sem reserva separada, e são consumidos por B2 no mesmo `PoolClient`.
 A orquestração financeira e suas pendências continuam sob responsabilidade de B2; ver a seção 8.
 
-### Estoque — consultas administrativas de saldo e histórico (03/11/2026)
+### Estoque — consultas administrativas de saldo e histórico (03/11/2026; ampliadas em 15/11/2026)
 
 Ambas exigem cookie `sid` válido e papel **atual** de admin. Sem sessão/revogada/expirada/conta inativa: `401`;
 cliente: `403`. Como nas leituras administrativas de produtos, não exigem `Origin`; CORS não substitui autorização.
@@ -255,8 +256,21 @@ Preserva o caminho `/:produtoId` já previsto no mapa; não cria alias `/produto
 {"itens":[{"operacaoId":"6229c4e2-a4c4-4bb7-a07d-43b9048bde90","produtoId":42,"tipo":"entrada","quantidade":2,"delta":2,"saldoAnterior":5,"saldoPosterior":7,"criadoEm":"2026-11-03T15:00:00.000Z","motivo":"Reposição conferida","origem":"admin","autorId":9}],"total":1}
 ```
 
-- `produtoId` obrigatório, mesmo domínio do ID. Somente `produtoId`, `pagina` e `limite` são aceitos;
-  desconhecidos (inclusive os futuros `tipo`, `de`, `ate`), repetidos e arrays retornam `400`.
+- **Evolução de 15/11/2026:** `produtoId` passa de obrigatório a opcional. Ausência significa consulta **geral**,
+  incluindo todos os produtos e todo o histórico, sem período padrão oculto. Chamadas antigas por produto mantêm
+  DTO, política de inexistência e ordenação. Informado, o ID tem o mesmo domínio da consulta de saldo.
+- Somente `produtoId`, `tipo`, `de`, `ate`, `pagina` e `limite` são aceitos. Desconhecidos, repetidos, arrays,
+  objetos e valores vazios/malformados retornam `400` antes da consulta de histórico.
+- `tipo`: um de `entrada`, `ajuste_positivo`, `ajuste_negativo`, `saida`, `abertura`, `baixa_venda`, `estorno_venda`.
+  É o tipo do **movimento**, não a origem: `tipo=admin` ou `tipo=venda` é inválido. Filtra também os internos;
+  isso não autoriza criar esses tipos no POST administrativo.
+- `de` inclusivo e `ate` exclusivo, sobre `movimentacoes_estoque.criado_em`. Cada um é opcional; juntos exigem
+  `de < ate`, comparando os instantes normalizados em UTC, inclusive microssegundos. Nenhum limite implícito.
+  Formato aceito: ISO 8601 estendido `AAAA-MM-DDTHH:mm:ss[.ffffff]Z` ou fuso numérico `±HH:mm`.
+  Ano 0001–9999 (também após conversão UTC), segundos obrigatórios, fração opcional de 1–6 dígitos, `T`/`Z`
+  maiúsculos; offset com hora 00–23/minuto 00–59. Não aceita só dia, hora sem fuso, hora 24, segundo 60,
+  data inexistente, espaços ou fração que o banco teria de arredondar. Não normaliza 30/02 para março.
+  Na query, codifique `+` como `%2B` (ou use URLSearchParams/`curl --data-urlencode`).
 - `pagina`: inteiro positivo seguro, padrão 1; `limite`: inteiro 1–100, padrão 20. Notação canônica e deslocamento
   inteiro seguro, conforme as demais listas. Total precede paginação; página além do fim mantém total e `itens: []`.
 - Ordem `criado_em DESC, id DESC`; BIGSERIAL de desempate é interno, não é exposto nem convertido para Number.
@@ -271,17 +285,42 @@ Preserva o caminho `/:produtoId` já previsto no mapa; não cria alias `/produto
   e acrescentam `vendaId` e `operacaoOriginalId` (null na baixa, UUID da baixa no estorno). As respostas de
   admin/abertura preservam os mesmos campos anteriores, sem essas duas chaves. Não expõe ID interno de movimento.
   O POST administrativo continua aceitando somente seus quatro tipos; enviar tipos de venda retorna `400`.
-- Inexistente: `404 { "erro": "Produto não encontrado" }`; inativo continua acessível. Parâmetros: `400 { erro, detalhes }`;
+- Se `produtoId` foi informado e inexiste: `404 { "erro": "Produto não encontrado" }`, mesmo se o período/tipo
+  não retornar movimentos; inativo continua acessível. Sem produto ou com produto existente sem resultados:
+  `200 { "itens": [], "total": 0 }`. Parâmetros: `400 { erro, detalhes }`;
   banco: `500 { "erro": "Erro interno do servidor" }`. Autorização precede validação/consulta. O formato de erro
   local permanece diferente de `{ erro: codigo, mensagem }` do PDF, sem exposição de SQL/stack.
 
-As leituras usam o índice existente. Desde a evolução de vendas, requerem `30_estoque.sql` e `31_estoque_vendas.sql`.
+Desde a evolução de vendas, as leituras requerem `30_estoque.sql` e `31_estoque_vendas.sql`.
+O índice existente `(produto_id,criado_em,id)` é preservado. A migração incremental **33_estoque_consultas.sql**
+adiciona somente `(criado_em DESC,id DESC)` para consultas gerais/período, justificada por EXPLAIN com 120 mil
+movimentos fictícios. Não altera dados ou versões aplicadas. Bootstrap novo inclui33; base existente usa
+`npm run db:migrar-consultas-estoque` em janela autorizada com backup/pausa de escritas, ou SQL operacional via psql.
+O runner antigo de estoque continua aplicando somente30/31. Sem33 a consulta funciona, com possível custo maior;
+construção normal do índice bloqueia escritas enquanto executa. Não aplicar silenciosamente em base compartilhada.
 Em base existente, seguir o procedimento
 incremental do relatório administrativo antes de habilitar o módulo, sem reset. Leituras não escrevem nem
 reconciliam automaticamente; não inventam saldo/histórico. Cadastro zero, PATCH protegido e API pública
 (`emEstoque`, sem quantidade/histórico) permanecem iguais. Helpers internos de venda estão descritos na seção 8;
 as leituras não reservam nem debitam unidades.
 Homologação: [consultas e integração isolada](docs/estoque-leituras-integracao-2026-11-03.md).
+Ampliação, análise de índices, testes atuais e exemplos:
+[consultas de movimentos — 15/11/2026](docs/estoque-consultas-2026-11-15.md),
+[estoque-consultas.http](http/estoque-consultas.http).
+
+Exemplos (sempre admin):
+
+```text
+GET /api/estoque/movimentacoes
+GET /api/estoque/movimentacoes?produtoId=42&pagina=1&limite=20
+GET /api/estoque/movimentacoes?tipo=baixa_venda
+GET /api/estoque/movimentacoes?de=2026-11-01T00:00:00Z&ate=2026-12-01T00:00:00Z
+GET /api/estoque/movimentacoes?produtoId=42&tipo=entrada&de=2026-11-01T00:00:00-03:00&ate=2026-12-01T00:00:00-03:00&pagina=2&limite=10
+```
+
+O intervalo final inclui início e exclui início de dezembro no fuso indicado. Os filtros preservam precisão
+de microssegundos; `criadoEm` da resposta mantém o formato antigo ISO UTC com **milissegundos**. Não muda nem
+arredonda os timestamps persistidos; dois movimentos distintos podem ter o mesmo `criadoEm` serializado.
 
 ## 4. Formato do JSON
 

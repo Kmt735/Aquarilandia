@@ -156,7 +156,14 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   Preserva o DTO histórico do POST, sem renomear seu saldoAtual.
 - **Consulta:** produtoId obrigatório; paginação 1/20, teto 100, validação canônica e parâmetros fechados.
   Total e página compartilham snapshot SQL; ordem data/ID internos decrescentes. Inserções entre requisições
-  podem deslocar páginas. Filtros tipo/de/ate e lista geral de saldos seguem pendentes.
+  podem deslocar páginas. A regra original de produto obrigatório foi ampliada em 15/11/2026, conforme abaixo.
+- **Ampliação em 15/11/2026:** `produtoId` opcional, com consulta geral quando ausente; tipo fechado inclui os sete
+  tipos reais (admin/abertura/venda), sem confundir tipo e origem. `de`/`ate` são timestamps com segundos e fuso
+  explícito, normalizados UTC com até6 casas, intervalo `[de,ate)`, sem período oculto e com `de < ate`.
+  Mesma paginação/DTO/404 para produto informado e inexistente. Snapshot em uma instrução parametrizada; JOIN
+  de operação somente na página. Índice global data/ID via nova migração33, medido com EXPLAIN, sem editar30/31.
+  Não cria movimentos nem modifica saldos/histórico/sessão. Lista geral **de saldos** continua pendente.
+  Contrato, limitações e homologação: [ampliação das consultas](estoque-consultas-2026-11-15.md).
 - **Limite:** nenhuma regra comercial do Ciclo 3 aprovada; não cria reserva, worker ou baixa por venda.
   Backend 2 combinado/testado somente em cópia isolada; sem merge definitivo.
 - **Evidências:** [consultas e integração](estoque-leituras-integracao-2026-11-03.md).

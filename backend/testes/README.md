@@ -1,5 +1,31 @@
 # Testes do catálogo
 
+## Consultas de movimentos de estoque — 15/11/2026
+
+`estoque-leituras.test.mjs`: **156 HTTP passaram**, incluindo consulta geral, tipos reais, normalização UTC,
+precisão de microssegundos, datas impossíveis, duplicados/arrays, limite/offset, guardas e HEAD.
+`integracao/estoque-leituras.test.mjs`: **22 passaram** com PostgreSQL real: tipos admin/abertura/venda,
+ativo/inativo, paginação global e por produto, intervalo exato/fusos, erros, revogação/papel, snapshot SQL,
+migração33/reaplicação/rollback. Hashes e contagens de todas as tabelas confirmam leituras sem alterações.
+
+Em `backend/`, usando dependências existentes e banco **descartável** explicitamente informado:
+
+```bash
+NODE_ENV=test DATABASE_URL=postgres://fixture@127.0.0.1:1/fixture node --import tsx --test testes/estoque-leituras.test.mjs
+NODE_ENV=test DATABASE_URL=postgres://fixture@127.0.0.1:1/fixture TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste node --import tsx --test testes/integracao/estoque-leituras.test.mjs
+TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste ARQUIVO_EXPLAIN=/tmp/estoque-explain.json node --import tsx testes/homologacao/estoque-consultas-explain.mjs
+```
+
+O harness EXPLAIN cria600 produtos/120mil movimentos em schema próprio, confere reconciliação e compara a mesma
+SQL antes/depois da migração33; remove o schema e não usa DATABASE_URL como fallback. Arquivo JSON é opcional.
+Não use `TEST_DATABASE_URL` de desenvolvimento/compartilhado: fixtures fazem DDL e DML no schema descartável.
+
+Suíte geral desta rodada: **1.318 unitários/HTTP passaram**; integração **620 passaram e1 falhou**, sem ignorados.
+Falha preexistente reproduzida no HEAD sem incremento: `vendas-admin.test.mjs:400` espera que uma venda de3h atrás
+ainda seja de hoje em São Paulo; perto da meia-noite essa premissa não vale. A fixture e o código B2 foram preservados.
+Não declarar a suíte geral de integração aprovada. Logs, EXPLAIN, comandos e limites:
+[relatório desta entrega](../docs/estoque-consultas-2026-11-15.md).
+
 ## Imagem principal — 14/11/2026
 
 `imagem-config.test.mjs` (3), `imagem-processamento.test.mjs` (8) e `produto-imagem-http.test.mjs` (6)

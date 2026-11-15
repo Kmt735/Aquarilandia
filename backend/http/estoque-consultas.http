@@ -1,0 +1,38 @@
+@api = http://localhost:3333/api
+@sid = substitua-pela-sessao-admin-local
+@produtoId = 42
+
+### Geral: todo o histórico, sem produto nem período obrigatório
+GET {{api}}/estoque/movimentacoes?pagina=1&limite=20
+Cookie: sid={{sid}}
+
+### Chamada antiga por produto, incluindo inativos
+GET {{api}}/estoque/movimentacoes?produtoId={{produtoId}}&pagina=1&limite=20
+Cookie: sid={{sid}}
+
+### Movimento interno de venda: consulta, sem autorizar esse tipo no POST admin
+GET {{api}}/estoque/movimentacoes?tipo=estorno_venda
+Cookie: sid={{sid}}
+
+### Intervalo UTC: novembro completo, início inclusivo e fim exclusivo
+GET {{api}}/estoque/movimentacoes?de=2026-11-01T00:00:00Z&ate=2026-12-01T00:00:00Z
+Cookie: sid={{sid}}
+
+### Combinados: mesmo intervalo no fuso -03:00; produto/tipo/paginação
+GET {{api}}/estoque/movimentacoes?produtoId={{produtoId}}&tipo=entrada&de=2026-11-01T00:00:00-03:00&ate=2026-12-01T00:00:00-03:00&pagina=2&limite=10
+Cookie: sid={{sid}}
+
+### Só um limite; '+' de fuso precisa ser codificado como %2B
+GET {{api}}/estoque/movimentacoes?ate=2026-11-15T10:30:00.123456%2B02:30
+Cookie: sid={{sid}}
+
+### HEAD mantém autorização/cache e não retorna corpo
+HEAD {{api}}/estoque/movimentacoes?tipo=abertura
+Cookie: sid={{sid}}
+
+### Visitante: 401, nenhum histórico
+GET {{api}}/estoque/movimentacoes
+
+### Data inexistente: 400; não normaliza para março
+GET {{api}}/estoque/movimentacoes?de=2026-02-30T00:00:00Z
+Cookie: sid={{sid}}

@@ -12,33 +12,40 @@ export const estoqueRepository = {
   },
 
   async listarHistorico(filtros: FiltrosHistoricoEstoque): Promise<HistoricoEstoque | null> {
-    const { rows } = await db.query<HistoricoEstoque & { existe: boolean }>(
-      `WITH filtrados AS (
-         SELECT m.id, m.operacao_id AS "operacaoId", m.produto_id AS "produtoId", m.tipo, m.quantidade,
-                m.delta, m.saldo_anterior AS "saldoAnterior", m.saldo_atual AS "saldoPosterior",
-                m.criado_em AS "criadoEm", m.motivo, o.origem, o.autor_id AS "autorId",
-                o.venda_id AS "vendaId", o.operacao_original_id AS "operacaoOriginalId"
-           FROM movimentacoes_estoque m JOIN operacoes_estoque o ON o.id = m.operacao_id
-          WHERE m.produto_id = $1
+    const valores: (string | number)[] = [], condicoes: string[] = []
+    const parametro = (valor: string | number) => { valores.push(valor); return `$${valores.length}` }
+    const produto = filtros.produtoId === undefined ? undefined : parametro(filtros.produtoId)
+    if (produto) condicoes.push(`m.produto_id = ${produto}`)
+    if (filtros.tipo !== undefined) condicoes.push(`m.tipo = ${parametro(filtros.tipo)}`)
+    if (filtros.de !== undefined) condicoes.push(`m.criado_em >= ${parametro(filtros.de)}::timestamptz`)
+    if (filtros.ate !== undefined) condicoes.push(`m.criado_em < ${parametro(filtros.ate)}::timestamptz`)
+    const limite = parametro(filtros.limite), offset = parametro((filtros.pagina - 1) * filtros.limite)
+    // Uma instrução/snapshot. CTE inlinável permite usar índices no recorte e contar sem JOIN em todas as linhas.
+    // Somente fragmentos fixos gerados acima entram no SQL; todo valor recebido é parâmetro.
+    const { rows } = await db.query<Omit<HistoricoEstoque, 'total'> & { existe: boolean; total: string }>(
+      `WITH filtrados AS NOT MATERIALIZED (
+         SELECT m.* FROM movimentacoes_estoque m
+          ${condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : ''}
+       ), pagina AS (
+         SELECT * FROM filtrados ORDER BY criado_em DESC, id DESC LIMIT ${limite} OFFSET ${offset}
        )
-       SELECT EXISTS (SELECT 1 FROM produtos WHERE id = $1) AS existe,
-              (SELECT count(*)::int FROM filtrados) AS total,
+       SELECT ${produto ? `EXISTS (SELECT 1 FROM produtos WHERE id = ${produto})` : 'true'} AS existe,
+              (SELECT count(*)::text FROM filtrados) AS total,
               COALESCE((SELECT json_agg(json_build_object(
-                'operacaoId', p."operacaoId", 'produtoId', p."produtoId", 'tipo', p.tipo,
-                'quantidade', p.quantidade, 'delta', p.delta, 'saldoAnterior', p."saldoAnterior",
-                'saldoPosterior', p."saldoPosterior", 'criadoEm', p."criadoEm", 'motivo', p.motivo,
-                'origem', p.origem, 'autorId', p."autorId")::jsonb
-                  || CASE WHEN p.origem = 'venda' THEN jsonb_build_object('vendaId', p."vendaId", 'operacaoOriginalId', p."operacaoOriginalId") ELSE '{}'::jsonb END
-                ORDER BY p."criadoEm" DESC, p.id DESC)
-                FROM (SELECT id, "operacaoId", "produtoId", tipo, quantidade, delta, "saldoAnterior", "saldoPosterior",
-                             "criadoEm", motivo, origem, "autorId", "vendaId", "operacaoOriginalId"
-                        FROM filtrados ORDER BY "criadoEm" DESC, id DESC LIMIT $2 OFFSET $3) p), '[]'::json) AS itens`,
-      [filtros.produtoId, filtros.limite, (filtros.pagina - 1) * filtros.limite],
+                'operacaoId', p.operacao_id, 'produtoId', p.produto_id, 'tipo', p.tipo,
+                'quantidade', p.quantidade, 'delta', p.delta, 'saldoAnterior', p.saldo_anterior,
+                'saldoPosterior', p.saldo_atual, 'criadoEm', p.criado_em, 'motivo', p.motivo,
+                'origem', o.origem, 'autorId', o.autor_id)::jsonb
+                  || CASE WHEN o.origem = 'venda' THEN jsonb_build_object('vendaId', o.venda_id, 'operacaoOriginalId', o.operacao_original_id) ELSE '{}'::jsonb END
+                ORDER BY p.criado_em DESC, p.id DESC)
+                FROM pagina p JOIN operacoes_estoque o ON o.id = p.operacao_id), '[]'::json) AS itens`, valores,
     )
     const resultado = rows[0]
     if (!resultado.existe) return null
     // JSON do PostgreSQL preserva microssegundos/offset; a API mantém o ISO UTC do restante do projeto.
-    return { total: resultado.total, itens: resultado.itens.map((m) => ({ ...m, criadoEm: new Date(m.criadoEm).toISOString() })) }
+    const total = Number(resultado.total)
+    if (!Number.isSafeInteger(total)) throw new Error('Contagem de histórico fora do intervalo seguro.')
+    return { total, itens: resultado.itens.map((m) => ({ ...m, criadoEm: new Date(m.criadoEm).toISOString() })) }
   },
 
   async criarOperacao(id: string, autorId: number, chave: string, hash: string, tx: PoolClient): Promise<boolean> {

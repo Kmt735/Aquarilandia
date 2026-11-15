@@ -1,5 +1,9 @@
 export type TipoMovimentoAdmin = 'entrada' | 'ajuste_positivo' | 'ajuste_negativo' | 'saida'
 
+// Mesmo conjunto permitido pelo CHECK de movimentacoes_estoque (SQL 30/31).
+export const tiposMovimentoHistorico = ['entrada', 'ajuste_positivo', 'ajuste_negativo', 'saida', 'abertura', 'baixa_venda', 'estorno_venda'] as const
+export type TipoMovimentoHistorico = (typeof tiposMovimentoHistorico)[number]
+
 export interface NovoMovimentoAdmin {
   produtoId: number
   tipo: TipoMovimentoAdmin
@@ -29,7 +33,10 @@ export interface SaldoProdutoAdmin {
 }
 
 export interface FiltrosHistoricoEstoque {
-  produtoId: number
+  produtoId?: number
+  tipo?: TipoMovimentoHistorico
+  de?: string
+  ate?: string
   pagina: number
   limite: number
 }
@@ -37,7 +44,7 @@ export interface FiltrosHistoricoEstoque {
 export interface MovimentoHistoricoAdmin {
   operacaoId: string
   produtoId: number
-  tipo: TipoMovimentoAdmin | 'abertura' | 'baixa_venda' | 'estorno_venda'
+  tipo: TipoMovimentoHistorico
   quantidade: number
   delta: number
   saldoAnterior: number
