@@ -162,8 +162,15 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   explícito, normalizados UTC com até6 casas, intervalo `[de,ate)`, sem período oculto e com `de < ate`.
   Mesma paginação/DTO/404 para produto informado e inexistente. Snapshot em uma instrução parametrizada; JOIN
   de operação somente na página. Índice global data/ID via nova migração33, medido com EXPLAIN, sem editar30/31.
-  Não cria movimentos nem modifica saldos/histórico/sessão. Lista geral **de saldos** continua pendente.
+  Não cria movimentos nem modifica saldos/histórico/sessão. A lista geral de saldos foi entregue no incremento abaixo.
   Contrato, limitações e homologação: [ampliação das consultas](estoque-consultas-2026-11-15.md).
+- **Listagem de saldos em 15/11/2026:** `GET /api/estoque` administrativo, sessão/papel atuais, no-store/Vary Cookie
+  e HEAD. Envelope `{itens,total}` com o DTO individual de quatro campos. Filtros busca/categoria/ativo/em_estoque,
+  quatro ordenações fechadas, padrão nome crescente com ID crescente como desempate, paginação1/20/teto100.
+  Saldo lê diretamente produtos.estoque, disponível após baixa na criação da venda; inclui inativos por padrão.
+  Busca nome com ILIKE e curingas literais; total e itens na mesma instrução/snapshot. Sem escrita/reconciliação,
+  dados extras, novo índice ou migração (EXPLAIN medido). A antiga previsão abaixoDe não foi implementada.
+  Evidências: [listagem de saldos](estoque-saldos-2026-11-15.md).
 - **Limite:** nenhuma regra comercial do Ciclo 3 aprovada; não cria reserva, worker ou baixa por venda.
   Backend 2 combinado/testado somente em cópia isolada; sem merge definitivo.
 - **Evidências:** [consultas e integração](estoque-leituras-integracao-2026-11-03.md).

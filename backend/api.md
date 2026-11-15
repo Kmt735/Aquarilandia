@@ -219,7 +219,7 @@ GET    /api/peixes                   ?temperatura=&ph=&tamanho_max=&aquario_litr
 GET    /api/peixes/:id                                                        (público)
 GET    /api/servicos                                                          (público)
 
-GET    /api/estoque                  ?abaixoDe=   (previsto, sem handler)    (admin)
+GET    /api/estoque                  ?busca=&categoria=&ativo=&em_estoque=&ordem=&pagina=&limite= (implementado em 15/11/2026) (admin)
 GET    /api/estoque/:produtoId       (saldo atual; implementado em 03/11/2026) (admin)
 GET    /api/estoque/movimentacoes    ?produtoId=&tipo=&de=&ate=&pagina=&limite= (geral/filtros ampliados em 15/11/2026) (admin)
 POST   /api/estoque/movimentacoes    (entrada / ajuste positivo/negativo / saída; implementado em 03/11/2026) (admin)
@@ -228,17 +228,63 @@ POST   /api/estoque/movimentacoes    (entrada / ajuste positivo/negativo / saíd
 ---
 
 O POST administrativo tem contrato em [estoque administrativo](docs/estoque-admin-2026-11-03.md).
-Saldo por produto e histórico geral/filtrado estão implementados conforme a seção abaixo. A listagem geral
-**de saldos** `GET /api/estoque` continua prevista, sem implementação; é diferente do histórico geral de movimentos.
+Listagem de saldos, saldo por produto e histórico geral/filtrado estão implementados conforme a seção abaixo.
+`GET /api/estoque` lista o saldo atual; `GET /api/estoque/movimentacoes` continua consultando o histórico.
 Os helpers de baixa/devolução
 por venda já estão implementados (D-50), sem reserva separada, e são consumidos por B2 no mesmo `PoolClient`.
 A orquestração financeira e suas pendências continuam sob responsabilidade de B2; ver a seção 8.
 
 ### Estoque — consultas administrativas de saldo e histórico (03/11/2026; ampliadas em 15/11/2026)
 
-Ambas exigem cookie `sid` válido e papel **atual** de admin. Sem sessão/revogada/expirada/conta inativa: `401`;
+As leituras exigem cookie `sid` válido e papel **atual** de admin. Sem sessão/revogada/expirada/conta inativa: `401`;
 cliente: `403`. Como nas leituras administrativas de produtos, não exigem `Origin`; CORS não substitui autorização.
 GET/HEAD, inclusive erros, enviam `Cache-Control: no-store` e `Vary: Cookie`. Escritas continuam exigindo `Origin`.
+
+#### Listagem de saldos atuais — 15/11/2026
+
+`GET /api/estoque` retorna `{ itens, total }`, com os mesmos quatro campos da consulta individual:
+
+```json
+{"itens":[{"produtoId":42,"nome":"Filtro externo","ativo":true,"saldoAtual":7}],"total":1}
+```
+
+`saldoAtual` vem diretamente de `produtos.estoque`: unidades disponíveis segundo a regra vigente, já reduzidas
+na criação da venda. Não soma histórico, não reconcilia e não calcula reserva adicional ou estoque físico total.
+Um produto inativo pode manter unidades e aparecer nesta leitura administrativa; isso não o torna comprável.
+Não acrescenta categoria/ficha/imagem/histórico ou dados de cliente ao DTO. A API pública continua usando
+somente a disponibilidade `emEstoque`, sem divulgar quantidades.
+
+| Query opcional | Contrato |
+|---|---|
+| `busca` | Substring somente em nome, sem diferenciar caixa (ILIKE); trim, 1–150 unidades UTF-16 como no catálogo, sem controles internos. `%`, `_`, `!` e barra invertida são literais; usa ESCAPE `!` |
+| `categoria` | Slug do catálogo, trim, 1–80 caracteres, `[a-z0-9]+(-[a-z0-9]+)*`; slug válido inexistente retorna lista vazia, sem404 |
+| `ativo` | Somente `true` ou `false`, minúsculos e sem espaços; omitido inclui ativos e inativos |
+| `em_estoque` | Somente `true` (saldo>0) ou `false` (saldo=0); omitido inclui ambos |
+| `ordem` | `nome`, `-nome`, `saldo` ou `-saldo`; padrão nome crescente. Todas usam produtoId crescente como desempate |
+| `pagina`, `limite` | Padrões1/20, teto100; inteiros positivos canônicos e offset seguro, como no histórico |
+
+Não há filtros de preço, estoque baixo/`abaixoDe`, data ou tipo de movimento nesta listagem. A indicação antiga
+de `abaixoDe` no mapa era apenas uma reserva sem handler; o incremento atual adota o contrato acima e rejeita
+esse parâmetro com400. Campos desconhecidos/repetidos/arrays/objetos, booleanos fora do formato e paginação
+malformada recebem `400 {erro,detalhes?}`. Autorização ocorre antes da validação e da leitura dos saldos.
+
+Total é contado depois de todos os filtros e antes da página, na mesma instrução/snapshot SQL dos itens.
+Página além do fim mantém total e itens[]; lista vazia retorna200 com total0. Valores são parâmetros e a
+ordenação vem de mapa fechado, sem locks de escrita ou consultas adicionais por produto. Ordem textual segue
+a collation do PostgreSQL, como nas listas existentes. Alterações entre requisições podem deslocar páginas,
+especialmente ao ordenar por saldo; não é um snapshot da navegação inteira.
+
+Não há schema, índice ou migração nova neste incremento. EXPLAIN com10mil produtos fictícios e os índices
+existentes está no [relatório de saldos](docs/estoque-saldos-2026-11-15.md). Rotas individuais, histórico e todas
+as escritas mantêm comportamento e contrato. Exemplos: [estoque-saldos.http](http/estoque-saldos.http).
+
+```text
+GET /api/estoque
+GET /api/estoque?busca=Filtro&categoria=filtros&ativo=true&em_estoque=true&ordem=-saldo&pagina=1&limite=20
+GET /api/estoque?ativo=false&em_estoque=false&ordem=nome
+```
+
+Falha do banco preserva `500 { "erro": "Erro interno do servidor" }`, sem SQL/credenciais/driver na resposta.
 
 `GET /api/estoque/42` retorna, inclusive para inativo:
 

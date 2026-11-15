@@ -1,5 +1,5 @@
 import { AppError } from '../../utils/AppError.js'
-import type { FiltrosHistoricoEstoque, NovoMovimentoAdmin, TipoMovimentoAdmin } from './estoque.types.js'
+import type { FiltrosHistoricoEstoque, FiltrosSaldosEstoque, NovoMovimentoAdmin, OrdemSaldosEstoque, TipoMovimentoAdmin } from './estoque.types.js'
 import { tiposMovimentoHistorico, type TipoMovimentoHistorico } from './estoque.types.js'
 
 const tipos: readonly TipoMovimentoAdmin[] = ['entrada', 'ajuste_positivo', 'ajuste_negativo', 'saida']
@@ -20,6 +20,45 @@ export function validarConsultaSaldo(id: unknown, query: object): number {
   if (Object.keys(query).length) erros.query = 'Não envie parâmetros na consulta de saldo por ID.'
   if (Object.keys(erros).length) throw new AppError('Parâmetros inválidos', 400, erros)
   return produtoId
+}
+
+export function validarConsultaSaldos(query: Record<string, unknown>): FiltrosSaldosEstoque {
+  const erros: Record<string, string> = Object.create(null)
+  for (const campo of Object.keys(query)) {
+    if (!['busca', 'categoria', 'ativo', 'em_estoque', 'ordem', 'pagina', 'limite'].includes(campo)) {
+      erros[campo] = 'Parâmetro não permitido nesta consulta.'
+    }
+  }
+  function texto(campo: string, maximo: number): string | undefined {
+    const valor = query[campo]
+    if (valor === undefined) return undefined
+    if (typeof valor !== 'string' || !valor.trim() || valor.trim().length > maximo || /[\u0000-\u001f\u007f]/.test(valor.trim())) {
+      erros[campo] = `Informe um texto de 1 a ${maximo} caracteres, sem controles.`
+      return undefined
+    }
+    return valor.trim()
+  }
+  function booleano(campo: string): boolean | undefined {
+    const valor = query[campo]
+    if (valor === undefined) return undefined
+    if (valor === 'true') return true
+    if (valor === 'false') return false
+    erros[campo] = 'Informe true ou false.'
+    return undefined
+  }
+  const busca = texto('busca', 150), categoria = texto('categoria', 80)
+  if (categoria !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(categoria)) {
+    erros.categoria = 'Informe o slug da categoria, em minúsculas e separado por hífens.'
+  }
+  const ativo = booleano('ativo'), emEstoque = booleano('em_estoque')
+  const ordens: readonly OrdemSaldosEstoque[] = ['nome', '-nome', 'saldo', '-saldo']
+  const ordem = query.ordem === undefined ? 'nome' : query.ordem
+  if (typeof ordem !== 'string' || !ordens.includes(ordem as OrdemSaldosEstoque)) erros.ordem = 'Escolha nome, -nome, saldo ou -saldo.'
+  const pagina = lerInteiroConsulta(query.pagina === undefined ? '1' : query.pagina, 'pagina', Number.MAX_SAFE_INTEGER, erros)
+  const limite = lerInteiroConsulta(query.limite === undefined ? '20' : query.limite, 'limite', 100, erros)
+  if (!Number.isSafeInteger((pagina - 1) * limite)) erros.pagina = 'Página fora do intervalo permitido.'
+  if (Object.keys(erros).length) throw new AppError('Parâmetros inválidos', 400, erros)
+  return { busca, categoria, ativo, emEstoque, ordem: ordem as OrdemSaldosEstoque, pagina, limite }
 }
 
 // Validar componentes antes de construir Date: Date.parse normaliza datas inexistentes.

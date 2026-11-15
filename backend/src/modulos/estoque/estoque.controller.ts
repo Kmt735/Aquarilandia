@@ -3,6 +3,10 @@ import { AppError } from '../../utils/AppError.js'
 import { estoqueService } from './estoque.service.js'
 
 export const estoqueController = {
+  async listarSaldos(req: Request, res: Response): Promise<void> {
+    res.json(await estoqueService.listarSaldos(req.query))
+  },
+
   async consultarSaldo(req: Request<{ produtoId: string }>, res: Response): Promise<void> {
     res.json(await estoqueService.consultarSaldo(req.params.produtoId, req.query))
   },

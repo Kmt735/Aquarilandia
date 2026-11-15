@@ -32,6 +32,23 @@ export interface SaldoProdutoAdmin {
   saldoAtual: number
 }
 
+export type OrdemSaldosEstoque = 'nome' | '-nome' | 'saldo' | '-saldo'
+
+export interface FiltrosSaldosEstoque {
+  busca?: string
+  categoria?: string
+  ativo?: boolean
+  emEstoque?: boolean
+  ordem: OrdemSaldosEstoque
+  pagina: number
+  limite: number
+}
+
+export interface ListaSaldosEstoque {
+  itens: SaldoProdutoAdmin[]
+  total: number
+}
+
 export interface FiltrosHistoricoEstoque {
   produtoId?: number
   tipo?: TipoMovimentoHistorico

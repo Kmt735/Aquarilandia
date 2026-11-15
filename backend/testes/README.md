@@ -1,5 +1,28 @@
 # Testes do catálogo
 
+## Listagem administrativa de saldos — 15/11/2026
+
+`estoque-saldos.test.mjs`: **93 HTTP aprovados** (guardas/HEAD/cache, filtros e tipos fechados, trim/limites,
+wildcards literais, SQL parametrizado, ordenação estável, paginação e erros sem detalhes internos).
+`integracao/estoque-saldos.test.mjs`: **23 aprovados** com PostgreSQL real. Inclui vazio, produto novo zero,
+ativos/inativos, filtros, páginas/empates, entrada/baixa/devolução, leitura durante transação bloqueada,
+snapshots de todas as tabelas antes/depois, saldo individual/histórico preservados e API pública sem quantidades.
+
+Em `backend/`, com dependências instaladas e PostgreSQL **descartável** explicitamente informado:
+
+```bash
+NODE_ENV=test DATABASE_URL=postgres://fixture@127.0.0.1:1/fixture node --import tsx --test testes/estoque-saldos.test.mjs
+NODE_ENV=test DATABASE_URL=postgres://fixture@127.0.0.1:1/fixture TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste node --import tsx --test testes/integracao/estoque-saldos.test.mjs
+TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste ARQUIVO_EXPLAIN=/tmp/estoque-saldos-explain.json node --import tsx testes/homologacao/estoque-saldos-explain.mjs
+```
+
+O harness EXPLAIN usa10mil produtos, schema próprio e histórico de abertura reconciliado. Não usa DATABASE_URL
+como fallback; cria/remove apenas suas fixtures, sem acesso à base de desenvolvimento. JSON de planos é opcional.
+Resultados gerais desta rodada: **1.411 HTTP/unitários e644 integrações passaram**, zero ignorados/falhas.
+O caso temporal de vendas-admin passou nesta execução diurna; o arquivo e sua fragilidade de data não foram
+alterados. Resultados históricos abaixo continuam referentes às rodadas anteriores, inclusive a falha então observada.
+Contrato, Git, medição, comandos e limitações: [relatório](../docs/estoque-saldos-2026-11-15.md).
+
 ## Consultas de movimentos de estoque — 15/11/2026
 
 `estoque-leituras.test.mjs`: **156 HTTP passaram**, incluindo consulta geral, tipos reais, normalização UTC,
