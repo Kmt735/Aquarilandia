@@ -1,0 +1,420 @@
+--- a/backend/src/modulos/vendas/venda.repository.ts
++++ b/backend/src/modulos/vendas/venda.repository.ts
+@@ -248,13 +248,25 @@
+
+   // ---------- #32 expiração ----------
+
+-  // Até `limite` vendas aguardando pagamento vencidas há mais de 5 minutos, as mais antigas primeiro (usa o índice
+-  // parcial idx_vendas_expira_em). A folga de 5 minutos e a de 1 hora estão explicadas no venda.tarefas.ts
++  // O prazo é reavaliado DEPOIS de obter o lock, com o relógio real do banco (now() seria o início da transação).
++  // A seleção da rodada é só uma lista de candidatos; pode ficar antiga enquanto pagamento/cancelamento disputa a venda.
++  async podeExpirarSobLock(vendaId: number, executor: Queryable): Promise<boolean> {
++    await executor.query('SELECT id FROM vendas WHERE id = $1 FOR NO KEY UPDATE', [vendaId])
++    const { rows } = await executor.query<{ vencida: boolean }>(
++      `SELECT status = 'aguardando_pagamento' AND expira_em <= clock_timestamp() AS vencida
++         FROM vendas WHERE id = $1`, [vendaId],
++    )
++    return rows[0]?.vencida ?? false
++  },
++
++
++  // Até `limite` vendas vencidas, mais antigas primeiro. Cinco minutos é a periodicidade, não prazo adicional.
++  // A reconsulta financeira fora da transação permanece no serviço de pagamentos.
+   async buscarVencidas(limite: number): Promise<VendaVencida[]> {
+     const { rows } = await db.query<VendaVencida>(
+       `SELECT id, expira_em < now() - interval '1 hour' AS "vencidaHaMaisDeUmaHora"
+          FROM vendas
+-        WHERE status = 'aguardando_pagamento' AND expira_em < now() - interval '5 minutes'
++        WHERE status = 'aguardando_pagamento' AND expira_em <= clock_timestamp()
+         ORDER BY expira_em, id
+         LIMIT $1`,
+       [limite],
+--- a/backend/src/modulos/vendas/venda.tarefas.ts
++++ b/backend/src/modulos/vendas/venda.tarefas.ts
+@@ -41,6 +41,7 @@
+ // true = cancelada nesta chamada; false = alguém mudou o status antes (foi paga ou cancelada nesse meio-tempo).
+ async function expirarVenda(vendaId: number): Promise<boolean> {
+   return comTransacao(async (client) => {
++    if (!(await vendaRepository.podeExpirarSobLock(vendaId, client))) return false
+     // Sempre true pela tabela de transições; fica explícito para a regra não depender só de quem escreveu a tarefa
+     if (!podeTransicionar('aguardando_pagamento', 'cancelada', 'sistema')) {
+       throw new Error('Transição aguardando_pagamento → cancelada proibida para o sistema.')
+@@ -91,8 +92,8 @@
+
+ // Exportada para os testes. Cada venda tem a sua transação: o erro numa não desfaz nem impede as outras.
+ export async function executarExpiracao(): Promise<{ canceladas: number; erros: number }> {
+-  // Folga de 5 minutos: o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar com atraso; a folga evita
+-  // cancelar uma venda paga no último segundo. Além dela, a reconsulta acima confere o Pix antes de cancelar.
++  // expira_em é o prazo; cinco minutos é só a periodicidade. A reconsulta financeira permanece fora dos locks.
++  // Estado e prazo serão revalidados dentro da transação, depois de conseguir o lock da venda.
+   const vencidas = await vendaRepository.buscarVencidas(vendasPorRodada)
+   let canceladas = 0
+   let erros = 0
+--- a/backend/src/modulos/pagamentos/pagamento.service.ts
++++ b/backend/src/modulos/pagamentos/pagamento.service.ts
+@@ -1,6 +1,7 @@
+ import { AppError } from '../../utils/AppError.js'
+ import { comTransacao } from '../../utils/transacao.js'
+ import type { Queryable } from '../../utils/transacao.js'
++import type { PoolClient } from 'pg'
+ import { clienteRepository } from '../clientes/cliente.repository.js'
+ import { estoqueService } from '../estoque/estoque.service.js'
+ import { vendaRepository } from '../vendas/venda.repository.js'
+@@ -45,7 +46,7 @@
+ export type ResultadoCobranca =
+   | 'confirmado' // a venda virou paga
+   | 'devolucao' // pagamento aprovado de venda cancelada ou já paga: estorno pedido
+-  | 'atualizado' // só o pagamento mudou (estornado, cancelado, recusado, em disputa)
++  | 'atualizado' // pagamento atualizado; refund solicitado também pode concluir o cancelamento/estoque
+   | 'sem_mudanca'
+   | 'valor_divergente'
+   | 'desconhecida' // nenhuma cobrança nossa com esse id
+@@ -228,16 +229,22 @@
+
+   // c) Trava NESTA ORDEM: a venda e depois o pagamento. É a mesma ordem do #44 (cliente → venda) e da expiração
+   // (venda), então nenhuma delas espera pela outra em círculo: sem deadlock
+-  const resultado = await comTransacao(async (client) => {
++  const { resultado, cancelou } = await comTransacao(async (client) => {
+     const statusVenda = await vendaRepository.travarParaPagamento(pagamento.vendaId, client)
+     const travado = await pagamentoRepository.travar(pagamento.id, client)
+     if (!statusVenda || !travado) throw new Error('Venda ou pagamento não encontrado durante o processamento.')
+     // d) Conforme a consulta
+-    return aplicarConsulta(consulta, pagamento.vendaId, statusVenda, travado, client)
++    const resultado = await aplicarConsulta(consulta, pagamento.vendaId, statusVenda, travado, client)
++    // A confirmação financeira também pode chegar pelo webhook/reconsulta antes da resposta HTTP do estorno.
++    // Concluir aqui, no MESMO client, evita pagamento estornado com venda/estoque eternamente pendentes.
++    const cancelou = consulta.status === 'estornado'
++      && await concluirCancelamentoComEstoque(pagamento.vendaId, statusVenda, travado, client)
++    return { resultado, cancelou }
+   })
+
+   // Depois do COMMIT: o e-mail de pagamento confirmado (webhook, expiração ou detalhe da compra)
+   if (resultado === 'confirmado') notificarMudancaStatus(pagamento.vendaId, 'paga')
++  if (cancelou) notificarMudancaStatus(pagamento.vendaId, 'cancelada')
+
+   // e) Depois do COMMIT: a primeira tentativa de devolução já. Falhou? A tarefa de 5 em 5 minutos tenta de novo
+   if (resultado === 'devolucao') {
+@@ -289,6 +296,29 @@
+   return err instanceof AppError && err.statusCode === 409 && err.message === 'Venda sem baixa original de estoque'
+ }
+
++// Somente depois de aprovação financeira pelo gateway (ou confirmação manual já validada por B2).
++// Quem chama segura venda e pagamento, nesta ordem; não abre transação nem decide refund.
++async function concluirCancelamentoComEstoque(
++  vendaId: number, statusVenda: StatusVenda, pagamento: PagamentoTravado, client: PoolClient,
++): Promise<boolean> {
++  if (statusVenda !== 'cancelamento_solicitado' || !pagamento.estornoSolicitadoEm
++    || pagamento.statusDetalhe === detalheIndevido || !['aprovado', 'estornado'].includes(pagamento.status)) return false
++  if (!podeTransicionar('cancelamento_solicitado', 'cancelada', 'sistema')) {
++    throw new Error('Transição cancelamento_solicitado → cancelada proibida para o sistema.')
++  }
++  const mudou = await vendaRepository.mudarStatus(vendaId, 'cancelamento_solicitado', 'cancelada', {
++    ator: 'sistema', clienteId: null, observacao: 'Pagamento devolvido.',
++  }, client)
++  if (!mudou) throw new Error('A venda travada mudou durante a conclusão do estorno.')
++  try {
++    await estoqueService.estornarVenda(vendaId, client)
++  } catch (err) {
++    if (!semBaixaDeEstoque(err)) throw err
++    console.error(`[cancelamento] venda ${vendaId} sem baixa de estoque`)
++  }
++  return true
++}
++
+ // O estorno foi aprovado no gateway (ou já tinha sido): numa transação, trava a venda e o pagamento (ordem venda →
+ // pagamento) e marca o pagamento como estornado. Se a venda está em cancelamento_solicitado e ESTE é o pagamento que
+ // a confirmou (não o indevido), conclui o cancelamento: cancelada (ator sistema) e o estoque de volta, juntos.
+@@ -301,25 +331,9 @@
+     const statusVenda = await vendaRepository.travarParaPagamento(vendaId, client)
+     const travado = await pagamentoRepository.travar(pagamentoId, client)
+     // Outra chamada (o cancelamento e a tarefa ao mesmo tempo) já concluiu: nada a fazer
+-    if (!statusVenda || !travado || travado.status !== 'aprovado' || !travado.estornoSolicitadoEm) return false
+-    await pagamentoRepository.marcarEstornado(pagamentoId, client)
+-    if (statusVenda !== 'cancelamento_solicitado' || travado.statusDetalhe === detalheIndevido) return false
+-
+-    if (!podeTransicionar('cancelamento_solicitado', 'cancelada', 'sistema')) {
+-      throw new Error('Transição cancelamento_solicitado → cancelada proibida para o sistema.')
+-    }
+-    await vendaRepository.mudarStatus(vendaId, 'cancelamento_solicitado', 'cancelada', {
+-      ator: 'sistema',
+-      clienteId: null,
+-      observacao: 'Pagamento devolvido.',
+-    }, client)
+-    try {
+-      await estoqueService.estornarVenda(vendaId, client)
+-    } catch (err) {
+-      if (!semBaixaDeEstoque(err)) throw err
+-      console.error(`[cancelamento] venda ${vendaId} sem baixa de estoque`)
+-    }
+-    return true
++    if (!statusVenda || !travado || !['aprovado', 'estornado'].includes(travado.status) || !travado.estornoSolicitadoEm) return false
++    if (travado.status === 'aprovado') await pagamentoRepository.marcarEstornado(pagamentoId, client)
++    return concluirCancelamentoComEstoque(vendaId, statusVenda, travado, client)
+   })
+ }
+
+--- a/backend/testes/integracao/venda-expiracao.test.mjs
++++ b/backend/testes/integracao/venda-expiracao.test.mjs
+@@ -3,6 +3,7 @@
+ import { once } from 'node:events'
+ import { readFile } from 'node:fs/promises'
+ import { after, afterEach, before, describe, it, mock } from 'node:test'
++import { setTimeout as esperar } from 'node:timers/promises'
+ import pg from 'pg'
+ import { hashToken } from '../../src/modulos/auth/sessao.ts'
+
+@@ -33,7 +34,11 @@
+     server = app.listen(0, '127.0.0.1'); await once(server, 'listening')
+     api = `http://127.0.0.1:${server.address().port}/api`
+   })
+-  afterEach(() => mock.restoreAll())
++  afterEach(async () => {
++    mock.restoreAll()
++    if (criado) assert.deepEqual((await c.query(`SELECT p.id FROM produtos p LEFT JOIN movimentacoes_estoque m ON m.produto_id=p.id
++      GROUP BY p.id HAVING p.estoque::bigint <> COALESCE(sum(m.delta),0)`)).rows, [], 'Saldo deve reconciliar após cada cenário')
++  })
+   after(async () => {
+     try { if (server) await new Promise((r) => server.close(r)); if (pool) await pool.end() }
+     finally { if (c) { try { if (criado) await c.query(`DROP SCHEMA ${schema} CASCADE`) } finally { await c.end() } } }
+@@ -72,6 +77,14 @@
+   const estornos = async (id) => (await c.query("SELECT count(*)::int AS n FROM operacoes_estoque WHERE venda_id = $1 AND tipo_venda = 'estorno_venda'", [id])).rows[0].n
+   const cancelamentos = async (id) => (await c.query("SELECT count(*)::int AS n FROM historico_status_venda WHERE venda_id = $1 AND status_novo = 'cancelada'", [id])).rows[0].n
+   const silenciarLog = () => mock.method(console, 'error', () => {})
++  async function aguardarDisputa() {
++    for (let n = 0; n < 300; n++) {
++      const { rows } = await c.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM vendas WHERE id = $1%'", [schema])
++      if (rows.length) return
++      await esperar(10)
++    }
++    assert.fail('A expiração não aguardou o lock da venda')
++  }
+
+   it('1. vencida há mais de 5 min → cancelada pelo sistema com a observação, estoque de volta, 1 operação de estorno', async () => {
+     const quem = await cliente(), p = await produto(10)
+@@ -89,16 +102,13 @@
+       alterado_por_id: null, observacao: 'Pagamento não recebido no prazo.' })
+   })
+
+-  it('2. vencida há 2 min (dentro da folga) → continua aguardando_pagamento', async () => {
++  it('2. vencida há 2 min → expira sem tolerância adicional', async () => {
+     const quem = await cliente(), p = await produto(10)
+     const id = await comprar(quem, [[p, 2]])
+     await vencer(id, 2)
+-    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 0, erros: 0 })
+-    assert.equal(await status(id), 'aguardando_pagamento')
+-    assert.equal(await saldo(p), 8)
+-    // Fora da folga a rodada pega; deixa o schema sem vencidas para os próximos casos
+-    await vencer(id, 6)
+-    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
++    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
++    assert.equal(await status(id), 'cancelada')
++    assert.equal(await saldo(p), 10)
+   })
+
+   it('3. paga "no último segundo" (antes da rodada) → a rodada não mexe nela', async () => {
+@@ -189,4 +199,92 @@
+     // A sessão do cliente da fixture (válida por 1 hora) continua
+     assert.equal((await c.query('SELECT count(*)::int AS n FROM sessoes WHERE cliente_id = $1', [quem.id])).rows[0].n, 2)
+   })
++
++  it('8. prazo futuro permanece ativo; no limite expira sem esperar cinco minutos adicionais', async () => {
++    const p = await produto(), id = await comprar(await cliente(), [[p, 1]])
++    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 0, erros: 0 })
++    assert.equal(await saldo(p), 9)
++    await c.query('UPDATE vendas SET expira_em=clock_timestamp() WHERE id=$1', [id])
++    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
++    assert.equal(await saldo(p), 10); assert.equal(await estornos(id), 1)
++  })
++
++  it('9. candidato antigo cujo prazo mudou enquanto aguardava o lock não é cancelado', async () => {
++    const p = await produto(), id = await comprar(await cliente(), [[p, 2]]); await vencer(id, 10)
++    const gate = await pool.connect(); let rodada
++    try {
++      await gate.query('BEGIN'); await gate.query("UPDATE vendas SET expira_em=clock_timestamp()+interval '1 hour' WHERE id=$1", [id])
++      rodada = tarefas.executarExpiracao(); await aguardarDisputa()
++      await gate.query('COMMIT')
++      assert.deepEqual(await rodada, { canceladas: 0, erros: 0 })
++      assert.equal(await status(id), 'aguardando_pagamento'); assert.equal(await saldo(p), 8)
++      assert.equal(await estornos(id), 0); assert.equal(await cancelamentos(id), 0)
++    } finally { await gate.query('ROLLBACK'); if (rodada) await Promise.allSettled([rodada]); gate.release() }
++  })
++
++  it('10. pagamento que confirma antes de liberar o lock impede cancelamento e crédito', async () => {
++    const p = await produto(), id = await comprar(await cliente(), [[p, 2]]); await vencer(id, 10)
++    const gate = await pool.connect(); let rodada
++    try {
++      await gate.query('BEGIN'); await repo.mudarStatus(id, 'aguardando_pagamento', 'paga', { ator: 'gateway', clienteId: null }, gate)
++      rodada = tarefas.executarExpiracao(); await aguardarDisputa(); await gate.query('COMMIT')
++      assert.deepEqual(await rodada, { canceladas: 0, erros: 0 })
++      assert.equal(await status(id), 'paga'); assert.equal(await saldo(p), 8); assert.equal(await estornos(id), 0)
++    } finally { await gate.query('ROLLBACK'); if (rodada) await Promise.allSettled([rodada]); gate.release() }
++  })
++
++  it('11. cancelamento transacional concorrente à expiração não devolve duas vezes', async () => {
++    const p = await produto(), id = await comprar(await cliente(), [[p, 3]]); await vencer(id, 10)
++    const gate = await pool.connect(); let rodada
++    try {
++      await gate.query('BEGIN'); await repo.mudarStatus(id, 'aguardando_pagamento', 'cancelada', { ator: 'sistema', clienteId: null }, gate)
++      await estoque.estornarVenda(id, gate)
++      rodada = tarefas.executarExpiracao(); await aguardarDisputa(); await gate.query('COMMIT')
++      assert.deepEqual(await rodada, { canceladas: 0, erros: 0 })
++      await tarefas.executarExpiracao()
++      assert.equal(await saldo(p), 10); assert.equal(await estornos(id), 1); assert.equal(await cancelamentos(id), 1)
++    } finally { await gate.query('ROLLBACK'); if (rodada) await Promise.allSettled([rodada]); gate.release() }
++  })
++
++  it('12. prazo que vence após BEGIN e durante a espera usa clock_timestamp depois do lock', async () => {
++    const p = await produto(), id = await comprar(await cliente(), [[p, 1]])
++    await c.query("UPDATE vendas SET expira_em=clock_timestamp()+interval '200 milliseconds' WHERE id=$1", [id])
++    const gate = await pool.connect(); let verificacao
++    try {
++      await gate.query('BEGIN'); await gate.query('SELECT id FROM vendas WHERE id=$1 FOR NO KEY UPDATE', [id])
++      verificacao = tx((client) => repo.podeExpirarSobLock(id, client)); await aguardarDisputa()
++      for (let n = 0; n < 300; n++) {
++        if ((await c.query('SELECT expira_em <= clock_timestamp() AS vencida FROM vendas WHERE id=$1', [id])).rows[0].vencida) break
++        if (n === 299) assert.fail('Relógio do banco não alcançou o prazo')
++        await esperar(10)
++      }
++      await gate.query('COMMIT'); assert.equal(await verificacao, true)
++      assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
++    } finally { await gate.query('ROLLBACK'); if (verificacao) await Promise.allSettled([verificacao]); gate.release() }
++  })
++
++  it('13. venda com repetidos e vários produtos devolve a baixa, mesmo com itens alterados depois', async () => {
++    const a = await produto(), b = await produto(), id = await comprar(await cliente(), [[b, 2], [a, 1], [a, 2]])
++    assert.equal(await saldo(a), 7); assert.equal(await saldo(b), 8)
++    await c.query('UPDATE itens_venda SET quantidade=99,subtotal=preco_unitario*99 WHERE venda_id=$1', [id]); await vencer(id, 1)
++    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
++    assert.equal(await saldo(a), 10); assert.equal(await saldo(b), 10); assert.equal(await estornos(id), 1)
++    const linhas = (await c.query("SELECT produto_id,quantidade FROM movimentacoes_estoque WHERE tipo='estorno_venda' AND operacao_id IN (SELECT id FROM operacoes_estoque WHERE venda_id=$1) ORDER BY produto_id", [id])).rows
++    assert.deepEqual(linhas, [{ produto_id: a, quantidade: 3 }, { produto_id: b, quantidade: 2 }])
++  })
++
++  it('14. erro no segundo crédito desfaz status, histórico e primeiro crédito; próxima rodada recupera', async () => {
++    const a = await produto(), b = await produto(), id = await comprar(await cliente(), [[a, 2], [b, 3]]); await vencer(id, 1)
++    await c.query(`CREATE FUNCTION falhar_credito_expiracao() RETURNS trigger LANGUAGE plpgsql AS $$
++      BEGIN IF NEW.tipo='estorno_venda' AND NEW.produto_id=${b} THEN RAISE EXCEPTION 'NAO_EXIBIR_DADO'; END IF; RETURN NEW; END $$`)
++    await c.query('CREATE TRIGGER falhar_credito_expiracao BEFORE INSERT ON movimentacoes_estoque FOR EACH ROW EXECUTE FUNCTION falhar_credito_expiracao()')
++    const log = silenciarLog()
++    try {
++      assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 0, erros: 1 })
++      assert.equal(await status(id), 'aguardando_pagamento'); assert.equal(await saldo(a), 8); assert.equal(await saldo(b), 7)
++      assert.equal(await estornos(id), 0); assert.equal(await cancelamentos(id), 0)
++      assert.doesNotMatch(JSON.stringify(log.mock.calls), /NAO_EXIBIR_DADO|SELECT|INSERT|UPDATE/)
++    } finally { await c.query('DROP TRIGGER falhar_credito_expiracao ON movimentacoes_estoque'); await c.query('DROP FUNCTION falhar_credito_expiracao()') }
++    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 }); assert.equal(await saldo(a), 10); assert.equal(await saldo(b), 10)
++  })
+ })
+--- a/backend/testes/integracao/vendas-admin.test.mjs
++++ b/backend/testes/integracao/vendas-admin.test.mjs
+@@ -613,6 +613,54 @@
+     for (const e of emails) assert.match(e.para, /@vendasadmin\.example$/)
+   })
+
++  it('17. webhook de estorno aprovado conclui cancelamento pendente e devolve uma vez', async () => {
++    const { vendaId, produtoId, dono, cobrancaId } = await paga()
++    gw.estorno = () => ({ aprovado: false, jaEstornado: false, erro: 'INSUFFICIENT_FUNDS' })
++    assert.equal((await cancelar(dono, vendaId)).corpo.status, 'cancelamento_solicitado')
++    assert.equal(await saldo(produtoId), 8)
++    gw.cobrancas.get(cobrancaId).status = 'estornado'
++    assert.equal(await aviso(cobrancaId), 200)
++    assert.equal(await statusVenda(vendaId), 'cancelada')
++    assert.equal(await saldo(produtoId), 10); assert.equal(await devolucoesEstoque(vendaId), 1)
++    assert.equal(await aviso(cobrancaId), 200); await tarefas.executarEstornos()
++    assert.equal(await saldo(produtoId), 10); assert.equal(await devolucoesEstoque(vendaId), 1)
++  })
++
++  it('18. webhook de estorno e resposta do gateway em paralelo compensam somente uma vez', async () => {
++    const { vendaId, produtoId, dono, cobrancaId } = await paga()
++    let chegou, liberar
++    const iniciou = new Promise((r) => { chegou = r }), bloqueio = new Promise((r) => { liberar = r })
++    gw.estorno = async () => { chegou(); await bloqueio; return { aprovado: true, jaEstornado: false } }
++    const cancelamento = cancelar(dono, vendaId)
++    try {
++      await iniciou
++      assert.equal(await statusVenda(vendaId), 'cancelamento_solicitado'); assert.equal(await saldo(produtoId), 8)
++      gw.cobrancas.get(cobrancaId).status = 'estornado'
++      assert.equal(await aviso(cobrancaId), 200)
++      assert.equal(await statusVenda(vendaId), 'cancelada'); assert.equal(await saldo(produtoId), 10)
++    } finally { liberar(); await cancelamento }
++    assert.equal(await devolucoesEstoque(vendaId), 1)
++    assert.equal((await historico(vendaId)).filter((h) => h.status_novo === 'cancelada').length, 1)
++  })
++
++  it('19. falha no crédito durante webhook desfaz pagamento/status/histórico; retry recupera', async () => {
++    const { vendaId, produtoId, dono, cobrancaId } = await paga()
++    gw.estorno = () => ({ aprovado: false, jaEstornado: false, erro: 'INSUFFICIENT_FUNDS' })
++    await cancelar(dono, vendaId); gw.cobrancas.get(cobrancaId).status = 'estornado'
++    await c.query(`CREATE FUNCTION falhar_credito_webhook() RETURNS trigger LANGUAGE plpgsql AS $$
++      BEGIN IF NEW.tipo='estorno_venda' AND NEW.produto_id=${produtoId} THEN RAISE EXCEPTION 'DADO_NAO_LOGAR'; END IF; RETURN NEW; END $$`)
++    await c.query('CREATE TRIGGER falhar_credito_webhook BEFORE INSERT ON movimentacoes_estoque FOR EACH ROW EXECUTE FUNCTION falhar_credito_webhook()')
++    try {
++      assert.equal(await aviso(cobrancaId), 500)
++      assert.equal(await statusVenda(vendaId), 'cancelamento_solicitado'); assert.equal(await saldo(produtoId), 8)
++      assert.equal((await pagamentos(vendaId))[0].status, 'aprovado'); assert.equal(await devolucoesEstoque(vendaId), 0)
++    } finally { await c.query('DROP TRIGGER falhar_credito_webhook ON movimentacoes_estoque'); await c.query('DROP FUNCTION falhar_credito_webhook()') }
++    assert.equal(await aviso(cobrancaId), 200); assert.equal(await statusVenda(vendaId), 'cancelada')
++    assert.equal(await saldo(produtoId), 10); assert.equal(await devolucoesEstoque(vendaId), 1)
++    assert.deepEqual((await c.query('SELECT p.id FROM produtos p LEFT JOIN movimentacoes_estoque m ON m.produto_id=p.id GROUP BY p.id HAVING p.estoque::bigint <> COALESCE(sum(m.delta),0)')).rows, [])
++    assert.equal(saida.some((linha) => linha.includes('DADO_NAO_LOGAR')), false)
++  })
++
+   it('99. nenhum token, cookie, segredo, código Pix ou id de cobrança no log da suíte', () => {
+     const texto = saida.join('\n')
+     for (const proibido of ['pix_char_', prefixoCodigoPix, segredo, admin.token]) assert.equal(texto.includes(proibido), false, proibido.slice(0, 10))
+--- a/backend/api.md
++++ b/backend/api.md
+@@ -1447,9 +1447,9 @@
+
+ - Roda a cada **5 minutos**, e uma primeira vez **30 s** depois de o servidor subir. Nunca duas rodadas ao mesmo tempo
+   no mesmo processo; os timers não seguram o processo vivo (`unref`).
+-- Cada rodada pega até **100** vendas `aguardando_pagamento` com `expira_em` vencido há **mais de 5 minutos** (as mais
+-  antigas primeiro; o resto fica para a rodada seguinte). A folga existe porque o Pix vence junto com a venda, mas o
+-  aviso da AbacatePay pode chegar com atraso: sem ela, uma venda paga no último segundo seria cancelada.
++- Cada rodada pega até **100** vendas aguardando pagamento com `expira_em <= clock_timestamp()`, em ordem de prazo/ID.
++  Cinco minutos é a periodicidade, sem tolerância adicional. A seleção é só de candidatos: `podeExpirarSobLock`
++  revalida estado/prazo depois do lock, com o relógio real do banco. A reconsulta abaixo permanece fora dos locks.
+ - **Reconsulta antes de cancelar (Lote 11):** se a venda tem um pagamento `pendente` com cobrança, a tarefa chama o
+   mesmo `processarCobranca` do webhook antes de cancelar. Pago → a venda vira `paga` e não é cancelada; Pix expirado →
+   o pagamento vira `cancelado` e a venda é cancelada. Gateway fora → a venda **não** é cancelada nesta rodada (conta
+@@ -2192,3 +2192,11 @@
+ - Tipos: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`.
+ - Antes de abrir PR: `git pull --rebase origin main` e `npm run typecheck`.
+ - PR que toca arquivo de outro dono ou arquivo compartilhado: marcar o outro como revisor obrigatório.
++
++### Revisão de integração de estoque — 14/11/2026
++
++A confirmação de estorno pela reconsulta/webhook também conclui cancelamento_solicitado → cancelada, com
++pagamento, histórico e devolução de estoque na mesma transação. A conclusão reutiliza a mesma função interna
++da resposta de refund, sob locks venda → pagamento → produtos ordenados. Repetição não credita novamente;
++falha no crédito desfaz as alterações locais e permite repetir o evento. Estorno de pagamento indevido não
++cancela a venda válida. E-mail de cancelamento só depois do COMMIT. Não cria outra rota ou gateway.
+--- a/backend/docs/decisoes.md
++++ b/backend/docs/decisoes.md
+@@ -597,13 +597,13 @@
+   (`vendas.expira_em`, default `now() + interval '30 minutes'`): uma tarefa agendada do módulo `vendas` cancela a
+   venda e chama `estoqueService.estornarVenda`.
+ - **Integração:** a tarefa **já está ligada** (`venda.tarefas.ts`, iniciada pelo `server.ts`): a cada 5 minutos, com
+-  folga de 5 minutos depois do vencimento, cancela e devolve o estoque na mesma transação, venda por venda. Sem
++  sem tolerância adicional ao vencimento, revalida prazo/estado após lock e devolve estoque na mesma transação. Sem
+   reserva separada. Desde o Lote 11, antes de cancelar uma venda com Pix pendente ela **reconsulta** a cobrança no
+   gateway (o mesmo `processarCobranca` do webhook): pago → a venda vira `paga` em vez de cancelada. Gateway fora → não
+   cancela nesta rodada, a não ser que a venda tenha vencido há mais de 1 hora (aí cancela, e um Pix pago depois vira
+   devolução, D-21).
+-- **Motivo da folga e da reconsulta:** o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar atrasado
+-  ou se perder; sem elas, uma venda paga no último minuto seria cancelada. O limite de 1 hora impede que um gateway
++- **Motivo da reconsulta:** o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar atrasado
++  ou se perder; ela confere o recebimento antes de cancelar. O limite de 1 hora impede que um gateway
+   fora do ar segure o estoque para sempre.
+ - **Motivo:** o cliente não paga por um produto que acabou enquanto estava no checkout; o estoque preso volta sozinho.
+ - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
+@@ -883,3 +883,9 @@
+    significa só estorno pendente (D-17, D-22), também no comentário do `20_vendas.sql`.
+ 5. **Exclusão de endereço (D-14) × `api.md`, seção 3.** — **Resolvido em 19/10/2026:** a exceção de endereços
+    (excluídos de verdade) foi registrada na seção 3 do `api.md`.
++
++### Revisão pontual da integração de estorno — 14/11/2026
++
++Confirmação por webhook/reconsulta e resposta do refund compartilham a conclusão transacional de cancelamento
++e estoque. O pagamento confirmado como estornado não pode ficar com a venda em cancelamento_solicitado.
++Movimentos e operações originais continuam sendo a fonte das quantidades; nenhuma segunda devolução.

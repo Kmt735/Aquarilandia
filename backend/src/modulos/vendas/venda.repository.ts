@@ -248,13 +248,25 @@ export const vendaRepository = {
 
   // ---------- #32 expiração ----------
 
-  // Até `limite` vendas aguardando pagamento vencidas há mais de 5 minutos, as mais antigas primeiro (usa o índice
-  // parcial idx_vendas_expira_em). A folga de 5 minutos e a de 1 hora estão explicadas no venda.tarefas.ts
+  // O prazo é reavaliado DEPOIS de obter o lock, com o relógio real do banco (now() seria o início da transação).
+  // A seleção da rodada é só uma lista de candidatos; pode ficar antiga enquanto pagamento/cancelamento disputa a venda.
+  async podeExpirarSobLock(vendaId: number, executor: Queryable): Promise<boolean> {
+    await executor.query('SELECT id FROM vendas WHERE id = $1 FOR NO KEY UPDATE', [vendaId])
+    const { rows } = await executor.query<{ vencida: boolean }>(
+      `SELECT status = 'aguardando_pagamento' AND expira_em <= clock_timestamp() AS vencida
+         FROM vendas WHERE id = $1`, [vendaId],
+    )
+    return rows[0]?.vencida ?? false
+  },
+
+
+  // Até `limite` vendas vencidas, mais antigas primeiro. Cinco minutos é a periodicidade, não prazo adicional.
+  // A reconsulta financeira fora da transação permanece no serviço de pagamentos.
   async buscarVencidas(limite: number): Promise<VendaVencida[]> {
     const { rows } = await db.query<VendaVencida>(
       `SELECT id, expira_em < now() - interval '1 hour' AS "vencidaHaMaisDeUmaHora"
          FROM vendas
-        WHERE status = 'aguardando_pagamento' AND expira_em < now() - interval '5 minutes'
+        WHERE status = 'aguardando_pagamento' AND expira_em <= clock_timestamp()
         ORDER BY expira_em, id
         LIMIT $1`,
       [limite],

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { after, afterEach, before, describe, it, mock } from 'node:test'
+import { setTimeout as esperar } from 'node:timers/promises'
 import pg from 'pg'
 import { hashToken } from '../../src/modulos/auth/sessao.ts'
 
@@ -33,7 +34,11 @@ describe('Expiração de vendas (#32) — PostgreSQL real', { skip: !url && 'Def
     server = app.listen(0, '127.0.0.1'); await once(server, 'listening')
     api = `http://127.0.0.1:${server.address().port}/api`
   })
-  afterEach(() => mock.restoreAll())
+  afterEach(async () => {
+    mock.restoreAll()
+    if (criado) assert.deepEqual((await c.query(`SELECT p.id FROM produtos p LEFT JOIN movimentacoes_estoque m ON m.produto_id=p.id
+      GROUP BY p.id HAVING p.estoque::bigint <> COALESCE(sum(m.delta),0)`)).rows, [], 'Saldo deve reconciliar após cada cenário')
+  })
   after(async () => {
     try { if (server) await new Promise((r) => server.close(r)); if (pool) await pool.end() }
     finally { if (c) { try { if (criado) await c.query(`DROP SCHEMA ${schema} CASCADE`) } finally { await c.end() } } }
@@ -72,6 +77,14 @@ describe('Expiração de vendas (#32) — PostgreSQL real', { skip: !url && 'Def
   const estornos = async (id) => (await c.query("SELECT count(*)::int AS n FROM operacoes_estoque WHERE venda_id = $1 AND tipo_venda = 'estorno_venda'", [id])).rows[0].n
   const cancelamentos = async (id) => (await c.query("SELECT count(*)::int AS n FROM historico_status_venda WHERE venda_id = $1 AND status_novo = 'cancelada'", [id])).rows[0].n
   const silenciarLog = () => mock.method(console, 'error', () => {})
+  async function aguardarDisputa() {
+    for (let n = 0; n < 300; n++) {
+      const { rows } = await c.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM vendas WHERE id = $1%'", [schema])
+      if (rows.length) return
+      await esperar(10)
+    }
+    assert.fail('A expiração não aguardou o lock da venda')
+  }
 
   it('1. vencida há mais de 5 min → cancelada pelo sistema com a observação, estoque de volta, 1 operação de estorno', async () => {
     const quem = await cliente(), p = await produto(10)
@@ -89,16 +102,13 @@ describe('Expiração de vendas (#32) — PostgreSQL real', { skip: !url && 'Def
       alterado_por_id: null, observacao: 'Pagamento não recebido no prazo.' })
   })
 
-  it('2. vencida há 2 min (dentro da folga) → continua aguardando_pagamento', async () => {
+  it('2. vencida há 2 min → expira sem tolerância adicional', async () => {
     const quem = await cliente(), p = await produto(10)
     const id = await comprar(quem, [[p, 2]])
     await vencer(id, 2)
-    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 0, erros: 0 })
-    assert.equal(await status(id), 'aguardando_pagamento')
-    assert.equal(await saldo(p), 8)
-    // Fora da folga a rodada pega; deixa o schema sem vencidas para os próximos casos
-    await vencer(id, 6)
     assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
+    assert.equal(await status(id), 'cancelada')
+    assert.equal(await saldo(p), 10)
   })
 
   it('3. paga "no último segundo" (antes da rodada) → a rodada não mexe nela', async () => {
@@ -188,5 +198,93 @@ describe('Expiração de vendas (#32) — PostgreSQL real', { skip: !url && 'Def
     assert.deepEqual(tokens.map((l) => l.token_hash), [hashes.tokenValido])
     // A sessão do cliente da fixture (válida por 1 hora) continua
     assert.equal((await c.query('SELECT count(*)::int AS n FROM sessoes WHERE cliente_id = $1', [quem.id])).rows[0].n, 2)
+  })
+
+  it('8. prazo futuro permanece ativo; no limite expira sem esperar cinco minutos adicionais', async () => {
+    const p = await produto(), id = await comprar(await cliente(), [[p, 1]])
+    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 0, erros: 0 })
+    assert.equal(await saldo(p), 9)
+    await c.query('UPDATE vendas SET expira_em=clock_timestamp() WHERE id=$1', [id])
+    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
+    assert.equal(await saldo(p), 10); assert.equal(await estornos(id), 1)
+  })
+
+  it('9. candidato antigo cujo prazo mudou enquanto aguardava o lock não é cancelado', async () => {
+    const p = await produto(), id = await comprar(await cliente(), [[p, 2]]); await vencer(id, 10)
+    const gate = await pool.connect(); let rodada
+    try {
+      await gate.query('BEGIN'); await gate.query("UPDATE vendas SET expira_em=clock_timestamp()+interval '1 hour' WHERE id=$1", [id])
+      rodada = tarefas.executarExpiracao(); await aguardarDisputa()
+      await gate.query('COMMIT')
+      assert.deepEqual(await rodada, { canceladas: 0, erros: 0 })
+      assert.equal(await status(id), 'aguardando_pagamento'); assert.equal(await saldo(p), 8)
+      assert.equal(await estornos(id), 0); assert.equal(await cancelamentos(id), 0)
+    } finally { await gate.query('ROLLBACK'); if (rodada) await Promise.allSettled([rodada]); gate.release() }
+  })
+
+  it('10. pagamento que confirma antes de liberar o lock impede cancelamento e crédito', async () => {
+    const p = await produto(), id = await comprar(await cliente(), [[p, 2]]); await vencer(id, 10)
+    const gate = await pool.connect(); let rodada
+    try {
+      await gate.query('BEGIN'); await repo.mudarStatus(id, 'aguardando_pagamento', 'paga', { ator: 'gateway', clienteId: null }, gate)
+      rodada = tarefas.executarExpiracao(); await aguardarDisputa(); await gate.query('COMMIT')
+      assert.deepEqual(await rodada, { canceladas: 0, erros: 0 })
+      assert.equal(await status(id), 'paga'); assert.equal(await saldo(p), 8); assert.equal(await estornos(id), 0)
+    } finally { await gate.query('ROLLBACK'); if (rodada) await Promise.allSettled([rodada]); gate.release() }
+  })
+
+  it('11. cancelamento transacional concorrente à expiração não devolve duas vezes', async () => {
+    const p = await produto(), id = await comprar(await cliente(), [[p, 3]]); await vencer(id, 10)
+    const gate = await pool.connect(); let rodada
+    try {
+      await gate.query('BEGIN'); await repo.mudarStatus(id, 'aguardando_pagamento', 'cancelada', { ator: 'sistema', clienteId: null }, gate)
+      await estoque.estornarVenda(id, gate)
+      rodada = tarefas.executarExpiracao(); await aguardarDisputa(); await gate.query('COMMIT')
+      assert.deepEqual(await rodada, { canceladas: 0, erros: 0 })
+      await tarefas.executarExpiracao()
+      assert.equal(await saldo(p), 10); assert.equal(await estornos(id), 1); assert.equal(await cancelamentos(id), 1)
+    } finally { await gate.query('ROLLBACK'); if (rodada) await Promise.allSettled([rodada]); gate.release() }
+  })
+
+  it('12. prazo que vence após BEGIN e durante a espera usa clock_timestamp depois do lock', async () => {
+    const p = await produto(), id = await comprar(await cliente(), [[p, 1]])
+    await c.query("UPDATE vendas SET expira_em=clock_timestamp()+interval '200 milliseconds' WHERE id=$1", [id])
+    const gate = await pool.connect(); let verificacao
+    try {
+      await gate.query('BEGIN'); await gate.query('SELECT id FROM vendas WHERE id=$1 FOR NO KEY UPDATE', [id])
+      verificacao = tx((client) => repo.podeExpirarSobLock(id, client)); await aguardarDisputa()
+      for (let n = 0; n < 300; n++) {
+        if ((await c.query('SELECT expira_em <= clock_timestamp() AS vencida FROM vendas WHERE id=$1', [id])).rows[0].vencida) break
+        if (n === 299) assert.fail('Relógio do banco não alcançou o prazo')
+        await esperar(10)
+      }
+      await gate.query('COMMIT'); assert.equal(await verificacao, true)
+      assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
+    } finally { await gate.query('ROLLBACK'); if (verificacao) await Promise.allSettled([verificacao]); gate.release() }
+  })
+
+  it('13. venda com repetidos e vários produtos devolve a baixa, mesmo com itens alterados depois', async () => {
+    const a = await produto(), b = await produto(), id = await comprar(await cliente(), [[b, 2], [a, 1], [a, 2]])
+    assert.equal(await saldo(a), 7); assert.equal(await saldo(b), 8)
+    await c.query('UPDATE itens_venda SET quantidade=99,subtotal=preco_unitario*99 WHERE venda_id=$1', [id]); await vencer(id, 1)
+    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
+    assert.equal(await saldo(a), 10); assert.equal(await saldo(b), 10); assert.equal(await estornos(id), 1)
+    const linhas = (await c.query("SELECT produto_id,quantidade FROM movimentacoes_estoque WHERE tipo='estorno_venda' AND operacao_id IN (SELECT id FROM operacoes_estoque WHERE venda_id=$1) ORDER BY produto_id", [id])).rows
+    assert.deepEqual(linhas, [{ produto_id: a, quantidade: 3 }, { produto_id: b, quantidade: 2 }])
+  })
+
+  it('14. erro no segundo crédito desfaz status, histórico e primeiro crédito; próxima rodada recupera', async () => {
+    const a = await produto(), b = await produto(), id = await comprar(await cliente(), [[a, 2], [b, 3]]); await vencer(id, 1)
+    await c.query(`CREATE FUNCTION falhar_credito_expiracao() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.tipo='estorno_venda' AND NEW.produto_id=${b} THEN RAISE EXCEPTION 'NAO_EXIBIR_DADO'; END IF; RETURN NEW; END $$`)
+    await c.query('CREATE TRIGGER falhar_credito_expiracao BEFORE INSERT ON movimentacoes_estoque FOR EACH ROW EXECUTE FUNCTION falhar_credito_expiracao()')
+    const log = silenciarLog()
+    try {
+      assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 0, erros: 1 })
+      assert.equal(await status(id), 'aguardando_pagamento'); assert.equal(await saldo(a), 8); assert.equal(await saldo(b), 7)
+      assert.equal(await estornos(id), 0); assert.equal(await cancelamentos(id), 0)
+      assert.doesNotMatch(JSON.stringify(log.mock.calls), /NAO_EXIBIR_DADO|SELECT|INSERT|UPDATE/)
+    } finally { await c.query('DROP TRIGGER falhar_credito_expiracao ON movimentacoes_estoque'); await c.query('DROP FUNCTION falhar_credito_expiracao()') }
+    assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 }); assert.equal(await saldo(a), 10); assert.equal(await saldo(b), 10)
   })
 })

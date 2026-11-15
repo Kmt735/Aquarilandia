@@ -1,5 +1,13 @@
 # Testes do catálogo
 
+Revisão de integração (14/11/2026): `integracao/venda-expiracao.test.mjs` cria vendas pelo POST real e usa
+PostgreSQL descartável. Confere prazo sem tolerância extra, candidato antigo, prazo vencendo durante espera,
+pagamento/cancelamento concorrentes, produtos repetidos, quantidades originais apesar de itens alterados e
+rollback após primeiro crédito. Reconciliação é verificada após cada cenário. Não requer gateway real.
+O relatório e o patch para a base remota de B2 estão em
+[integração estoque/vendas](../docs/integracao-estoque-vendas-2026-11-14.md). A suíte de estorno da cópia combinada
+usa HTTP e PG reais, com gateway/e-mail controlados: não é homologação financeira externa.
+
 ## Variáveis de ambiente (D-52)
 
 O `config/env.ts` não sobe sem `NODE_ENV` e `DATABASE_URL`. Os scripts já definem as duas, e o valor do script

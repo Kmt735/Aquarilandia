@@ -41,6 +41,7 @@ function semBaixaDeEstoque(err: unknown): boolean {
 // true = cancelada nesta chamada; false = alguém mudou o status antes (foi paga ou cancelada nesse meio-tempo).
 async function expirarVenda(vendaId: number): Promise<boolean> {
   return comTransacao(async (client) => {
+    if (!(await vendaRepository.podeExpirarSobLock(vendaId, client))) return false
     // Sempre true pela tabela de transições; fica explícito para a regra não depender só de quem escreveu a tarefa
     if (!podeTransicionar('aguardando_pagamento', 'cancelada', 'sistema')) {
       throw new Error('Transição aguardando_pagamento → cancelada proibida para o sistema.')
@@ -91,8 +92,8 @@ async function reconsultarAntesDeExpirar(venda: { id: number; vencidaHaMaisDeUma
 
 // Exportada para os testes. Cada venda tem a sua transação: o erro numa não desfaz nem impede as outras.
 export async function executarExpiracao(): Promise<{ canceladas: number; erros: number }> {
-  // Folga de 5 minutos: o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar com atraso; a folga evita
-  // cancelar uma venda paga no último segundo. Além dela, a reconsulta acima confere o Pix antes de cancelar.
+  // expira_em é o prazo; cinco minutos é só a periodicidade. A reconsulta financeira permanece fora dos locks.
+  // Estado e prazo serão revalidados dentro da transação, depois de conseguir o lock da venda.
   const vencidas = await vendaRepository.buscarVencidas(vendasPorRodada)
   let canceladas = 0
   let erros = 0
