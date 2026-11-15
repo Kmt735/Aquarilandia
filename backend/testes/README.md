@@ -49,6 +49,27 @@ ainda seja de hoje em São Paulo; perto da meia-noite essa premissa não vale. A
 Não declarar a suíte geral de integração aprovada. Logs, EXPLAIN, comandos e limites:
 [relatório desta entrega](../docs/estoque-consultas-2026-11-15.md).
 
+## Conclusão financeira do estorno — 15/11/2026
+
+`integracao/vendas-admin.test.mjs` acrescenta os casos 17–26 (12 testes, contando as variações): reprodução do defeito,
+webhook repetido/concorrente, resposta direta concorrente, dois caminhos de rollback no segundo produto, recuperação
+de pagamento já estornado, consulta pendente/recusada, cobrança duplicada/manual, envio/entrega, vínculos/valor e
+releitura após espera por lock observado no PostgreSQL. Reconciliam saldo com ledger após **cada** teste da suíte.
+HTTP, PostgreSQL e devolução B1 são reais; gateway e e-mail são controlados, com rede externa bloqueada.
+Datas das novas fixtures são fixas. O caso 9 recebeu a correção temporal autorizada: três horários fixos no mesmo
+dia de São Paulo, sem mudar regras comerciais. O resultado histórico de 620/1 acima continua registrado como histórico;
+os resultados desta correção estão no [relatório](../docs/estorno-confirmacao-2026-11-15.md).
+
+```bash
+# backend/, apenas com PostgreSQL descartável próprio
+NODE_ENV=test TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste \
+  node --import tsx --test testes/integracao/vendas-admin.test.mjs
+```
+
+O teste 17 falhou antes da correção: pagamento estornado, venda ainda em cancelamento_solicitado e saldo 8 em vez de 10.
+O patch histórico de integração foi consultado; somente a conclusão de estorno e seus três cenários foram adaptados.
+Não reaplicado o trecho de expiração. Nenhuma cobrança, estorno ou mensagem real é feita por essas suítes.
+
 ## Imagem principal — 14/11/2026
 
 `imagem-config.test.mjs` (3), `imagem-processamento.test.mjs` (8) e `produto-imagem-http.test.mjs` (6)

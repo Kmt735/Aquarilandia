@@ -1553,7 +1553,10 @@ uma conta anonimizada continua visível para a loja). A query é conferida antes
   sido pago o webhook ou a próxima reconsulta faz a devolução.
 - **Devolução de pagamento indevido (Lote 11):** depois da expiração e das limpezas, com uma trava própria, a mesma
   rodada tenta de novo até **50** pagamentos `aprovado` com `estorno_solicitado_em` e menos de 5 tentativas, cada um
-  isolado (o erro num não para os outros). Ver "Pagamento Pix" abaixo.
+  isolado (o erro num não para os outros). Inclui também conclusões locais pendentes: pagamento `estornado`, venda
+  `cancelamento_solicitado`, pedido de estorno e cobrança vinculada, sem detalhe `pagamento indevido`/`estorno manual`.
+  Nesse segundo caso, reconsulta e conclui localmente, sem novo pedido financeiro, inclusive com 5 tentativas.
+  Ver "Pagamento Pix" abaixo.
 - **Política financeira pendente de aprovação:** a retenção sob falha de reconsulta e o corte de uma hora
   são comportamentos existentes preservados; a resolução do pull não aprova nem altera essa exceção.
 - Cada venda tem a **sua** transação: `aguardando_pagamento → cancelada` pelo `mudarStatus` (histórico com origem
@@ -1567,9 +1570,9 @@ uma conta anonimizada continua visível para a loja). A query é conferida antes
   erro e vai para o log com um código curto (`[expiracao] venda <id>: <código>`), sem dados pessoais; as outras vendas
   seguem, e a venda que falhou é tentada de novo na próxima rodada.
 - Revisão após o pull de 14/11/2026: criação, cancelamento e pagamentos de B2 estão incorporados da main,
-  com as correções locais de expiração preservadas. A correção adicional da confirmação de estorno via webhook
-  continua na worktree isolada/patch do [relatório anterior](docs/integracao-estoque-vendas-2026-11-14.md);
-  não foi aplicada como parte da resolução destes conflitos.
+  com as correções locais de expiração preservadas. Em 15/11/2026, a confirmação de estorno via webhook/reconsulta
+  passou a compartilhar a conclusão transacional com a resposta do gateway, conforme o
+  [relatório da correção](docs/estorno-confirmacao-2026-11-15.md). Não altera a política de expiração/pagamento tardio.
 - Consolidação exclusiva de B1: as correções locais de expiração e seus testes foram transportados para uma
   worktree baseada na main atual. Não altera pagamentos nem a exceção financeira de uma hora.
   Evidências, matriz de responsabilidades e pendências: [consolidação B1](docs/consolidacao-backend1-2026-11-14.md).
@@ -1638,11 +1641,11 @@ sem os ids).
 
 | Consulta | O que acontece |
 |---|---|
-| `aprovado`, valor ≠ `pagamentos.valor` | Não confirma: `status_detalhe 'valor divergente'` e log |
+| `aprovado` ou `estornado`, valor ≠ `pagamentos.valor` | Não confirma: log e `status_detalhe 'valor divergente'`, preservando a marca `pagamento indevido`/`estorno manual` quando existente |
 | `aprovado`, pagamento já aprovado | Nada (idempotente) |
 | `aprovado`, venda `aguardando_pagamento` (mesmo vencida, se a tarefa ainda não cancelou) | Pagamento `aprovado` (`gateway_pagamento_id` = id da cobrança); venda → `paga` (histórico com origem `gateway`). O estoque não muda |
 | `aprovado`, venda cancelada ou já paga por outro pagamento | Pagamento `aprovado` + `estorno_solicitado_em`: vira **devolução** (abaixo). A venda nunca é reaberta |
-| `estornado` | Pagamento `estornado` (se estava aprovado ou pendente) |
+| `estornado`, valor e cobrança conferidos | Pagamento `estornado` (se estava aprovado ou pendente). Se é o pagamento do cancelamento solicitado, conclui venda, histórico e devolução de estoque na mesma transação; também recupera estado local já `estornado`. Cobrança indevida/estorno manual não conclui automaticamente a venda |
 | `cancelado` / `recusado` | O pagamento pendente vira esse status; a venda não muda |
 | `em_disputa` | Pagamento `em_disputa` e log |
 | `pendente` | Nada |
@@ -1651,6 +1654,7 @@ sem os ids).
    código curto (`P0001`, `GATEWAY_INDISPONIVEL`, ...) e `500` genérico.
 
 **Devolução de pagamento indevido (#49, parte mínima)** — logo depois do COMMIT que pediu a devolução, uma tentativa:
+Reconsulta autenticada primeiro: se já estornada, aplica somente a conclusão local; se aprovada, chama
 `gatewayPix.estornar(cobrança, 'Pagamento recebido para compra já cancelada ou paga.')`. Aprovado ou "já reembolsada"
 → pagamento `estornado`; senão `estorno_tentativas + 1` e `estorno_ultimo_erro` com o código curto (ex.:
 `INSUFFICIENT_FUNDS`). A tarefa de 5 em 5 minutos tenta de novo (até 50 por rodada). Com **5** tentativas, para e
@@ -1697,11 +1701,25 @@ para o admin, o do `GET /api/vendas/:id`. Com o estorno pendente, `pagamento.men
 A devolução do pagamento está em andamento.'`. Outros erros: `401` sem login, `403` sem `Origin`, `422` motivo que
 não é texto ou com mais de 300 caracteres.
 
-**Conclusão automática:** quando o estorno é aprovado (na primeira tentativa ou numa da tarefa de 5 em 5 minutos), o
-`tentarEstornoPendente` trava a venda e o pagamento (venda → pagamento), marca o pagamento `estornado` e, se a venda
-está em `cancelamento_solicitado` e este é o pagamento que a confirmou, conclui: `cancelada` (ator `sistema`, observação
-`'Pagamento devolvido.'`) e `estornarVenda`. O pagamento **indevido** (em dobro, ou de venda já cancelada; marcado pelo
-webhook com `status_detalhe 'pagamento indevido'`) só muda o próprio status.
+**Conclusão automática (correção de 15/11/2026):** resposta do estorno e reconsulta/webhook convergem no mesmo helper.
+Na mesma `comTransacao`, trava venda → pagamento, relê estado/venda/cobrança após a espera, grava o estado financeiro
+e, somente com cancelamento solicitado e pagamento pertinente, conclui `cancelada` (ator `sistema`, observação
+`'Pagamento devolvido.'`), histórico e `estornarVenda(vendaId, client)`. Erro de banco desfaz todos esses efeitos locais.
+Preserva a exceção antiga de venda sem baixa: registra a inconsistência e cancela sem inventar crédito de estoque.
+Chamadas ao gateway ficam fora dos locks; notificações, depois do COMMIT.
+
+Antes de um novo pedido financeiro, `tentarEstornoPendente` reconsulta: confirmação de estorno já executado só conclui
+localmente; consulta pendente/recusada/divergente não autoriza novo estorno. O job recupera pagamentos já `estornado`
+com conclusão local pendente, mesmo com 5 tentativas. O limite continua valendo para novos pedidos financeiros.
+Retries simultâneos são agrupados por pagamento **neste processo**; não há lease distribuído. Em múltiplas instâncias,
+uma janela entre reconsulta e chamada externa permanece: a proteção financeira depende da recusa do segundo estorno
+pelo adaptador/gateway, sem prometer ausência de chamadas redundantes. Locks/estado/ledger impedem efeito local duplo.
+
+O pagamento **indevido** (em dobro, ou de venda já cancelada; `status_detalhe 'pagamento indevido'`) só muda o próprio
+status. `estorno manual` também é excluído da conclusão automática, pois a conclusão manual de cobrança indevida
+substituía esse detalhe; a conclusão manual da compra já cancela tudo atomicamente. Divergência de valor não apaga
+essas marcas. Dados legados com vínculos/classificação perdidos exigem reconciliação individual; não inferir o
+pagamento correto pelo último evento. Procedimento e limites no [relatório](docs/estorno-confirmacao-2026-11-15.md).
 
 **`POST /api/pagamentos/:id/concluir-estorno`** (admin; `exigirOrigem`, `autenticar`, `exigirAdmin`) — a conclusão
 manual de um pagamento indevido cujo estorno falhou 5 vezes. Body `{ motivo }` obrigatório (até 300) → senão `422`.

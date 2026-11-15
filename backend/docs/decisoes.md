@@ -824,6 +824,15 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   evita estorno em dobro na nova tentativa; o limite de tentativas evita insistir num erro que não se resolve sozinho.
 - **Impacto:** pagamentos, vendas.
 
+**Correção pontual da D-22 — 15/11/2026:** confirmação autenticada de estorno por webhook/reconsulta e resposta direta
+agora usam a mesma conclusão transacional (pagamento, cancelamento/histórico e devolução B1 no mesmo `PoolClient`).
+Retry reconsulta antes de pedir outro estorno; o job inclui conclusão local pendente de pagamento já `estornado`,
+mesmo com 5 tentativas. Cobrança indevida e `estorno manual` não cancelam automaticamente a compra, e suas marcas
+não são apagadas por divergência de valor. Não altera baixa na criação, helper de estoque, expiração, política de
+pagamento tardio nem contratos HTTP. Agrupamento de tentativas é por processo, sem lease distribuído; permanece a
+limitação financeira entre instâncias. A classificação legada continua exigindo evidência individual.
+Reprodução, testes, reconciliação proposta e localização revisável: [correção de estorno](estorno-confirmacao-2026-11-15.md).
+
 ### D-30 — Conta do gateway
 - **Data:** 19/10/2026
 - **Decisão:** a loja abre a própria conta no gateway escolhido (é ela quem recebe o dinheiro); até lá o time usa a
