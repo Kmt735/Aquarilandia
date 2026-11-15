@@ -1447,9 +1447,13 @@ uma conta anonimizada continua visível para a loja). A query é conferida antes
 
 - Roda a cada **5 minutos**, e uma primeira vez **30 s** depois de o servidor subir. Nunca duas rodadas ao mesmo tempo
   no mesmo processo; os timers não seguram o processo vivo (`unref`).
-- Cada rodada pega até **100** vendas `aguardando_pagamento` com `expira_em` vencido há **mais de 5 minutos** (as mais
-  antigas primeiro; o resto fica para a rodada seguinte). A folga existe porque o Pix vence junto com a venda, mas o
-  aviso da AbacatePay pode chegar com atraso: sem ela, uma venda paga no último segundo seria cancelada.
+- Cada rodada pega até **100** vendas `aguardando_pagamento` com `expira_em <= clock_timestamp()` (as mais
+  antigas primeiro; o resto fica para a rodada seguinte). Cinco minutos é a periodicidade, sem tolerância adicional
+  depois do prazo de 30 minutos. O atraso até a próxima rodada não renova a venda.
+- Antes de alterar estado, `podeExpirarSobLock` bloqueia a venda e revalida **estado e prazo**, com outra consulta
+  usando o relógio do banco depois da espera. `now()` representaria o começo da transação. Se um pagamento ou
+  cancelamento venceu a disputa, ou o candidato mudou de prazo, não há cancelamento nem crédito indevido.
+  A reconsulta financeira abaixo permanece fora dos locks.
 - **Reconsulta antes de cancelar (Lote 11):** se a venda tem um pagamento `pendente` com cobrança, a tarefa chama o
   mesmo `processarCobranca` do webhook antes de cancelar. Pago → a venda vira `paga` e não é cancelada; Pix expirado →
   o pagamento vira `cancelado` e a venda é cancelada. Gateway fora → a venda **não** é cancelada nesta rodada (conta
@@ -1458,6 +1462,8 @@ uma conta anonimizada continua visível para a loja). A query é conferida antes
 - **Devolução de pagamento indevido (Lote 11):** depois da expiração e das limpezas, com uma trava própria, a mesma
   rodada tenta de novo até **50** pagamentos `aprovado` com `estorno_solicitado_em` e menos de 5 tentativas, cada um
   isolado (o erro num não para os outros). Ver "Pagamento Pix" abaixo.
+- **Política financeira pendente de aprovação:** a retenção sob falha de reconsulta e o corte de uma hora
+  são comportamentos existentes preservados; a resolução do pull não aprova nem altera essa exceção.
 - Cada venda tem a **sua** transação: `aguardando_pagamento → cancelada` pelo `mudarStatus` (histórico com origem
   `sistema` e a observação `'Pagamento não recebido no prazo.'`) e `estoqueService.estornarVenda` na mesma transação —
   cancelada e estoque devolvido juntos, ou nenhum dos dois. A trava otimista (`WHERE status = 'aguardando_pagamento'`)
@@ -1468,6 +1474,10 @@ uma conta anonimizada continua visível para a loja). A query é conferida antes
   (`[expiracao] venda <id> sem baixa de estoque`). Qualquer outro erro desfaz só a transação daquela venda, conta como
   erro e vai para o log com um código curto (`[expiracao] venda <id>: <código>`), sem dados pessoais; as outras vendas
   seguem, e a venda que falhou é tentada de novo na próxima rodada.
+- Revisão após o pull de 14/11/2026: criação, cancelamento e pagamentos de B2 estão incorporados da main,
+  com as correções locais de expiração preservadas. A correção adicional da confirmação de estorno via webhook
+  continua na worktree isolada/patch do [relatório anterior](docs/integracao-estoque-vendas-2026-11-14.md);
+  não foi aplicada como parte da resolução destes conflitos.
 - **Limpezas**, na mesma rodada: `authService.limparSessoesVencidas()` e `authService.limparTokensVencidos()` apagam as
   linhas de `sessoes` e de `tokens_recuperacao_senha` com `expira_em` no passado. Elas já não valiam (as consultas
   conferem `expira_em > now()`); apagar só impede que as tabelas cresçam para sempre. A tarefa chama o service do auth,

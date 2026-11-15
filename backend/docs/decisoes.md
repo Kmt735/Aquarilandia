@@ -596,15 +596,21 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Decisão:** o estoque é baixado quando a venda é criada. Venda em `aguardando_pagamento` vence em 30 minutos
   (`vendas.expira_em`, default `now() + interval '30 minutes'`): uma tarefa agendada do módulo `vendas` cancela a
   venda e chama `estoqueService.estornarVenda`.
-- **Integração:** a tarefa **já está ligada** (`venda.tarefas.ts`, iniciada pelo `server.ts`): a cada 5 minutos, com
-  folga de 5 minutos depois do vencimento, cancela e devolve o estoque na mesma transação, venda por venda. Sem
+- **Integração:** a tarefa **já está ligada** (`venda.tarefas.ts`, iniciada pelo `server.ts`): a cada 5 minutos,
+  sem tolerância geral adicional depois do vencimento, cancela e devolve o estoque na mesma transação, venda por venda. Sem
   reserva separada. Desde o Lote 11, antes de cancelar uma venda com Pix pendente ela **reconsulta** a cobrança no
   gateway (o mesmo `processarCobranca` do webhook): pago → a venda vira `paga` em vez de cancelada. Gateway fora → não
   cancela nesta rodada, a não ser que a venda tenha vencido há mais de 1 hora (aí cancela, e um Pix pago depois vira
   devolução, D-21).
-- **Motivo da folga e da reconsulta:** o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar atrasado
-  ou se perder; sem elas, uma venda paga no último minuto seria cancelada. O limite de 1 hora impede que um gateway
+- **Motivo da reconsulta:** o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar atrasado
+  ou se perder; sem ela, uma venda paga no último minuto seria cancelada. O limite de 1 hora impede que um gateway
   fora do ar segure o estoque para sempre.
+- **Revisão de 14/11/2026:** cinco minutos é periodicidade, não tolerância além de expira_em. A seleção é só
+  de candidatos: estado e prazo são revalidados depois de obter o lock, usando clock_timestamp no mesmo client.
+  Nenhuma nova política de reserva; helpers, schema e unicidade por operação preservados. Histórico de homologação e patch
+  adicional: [integração estoque/vendas](integracao-estoque-vendas-2026-11-14.md).
+- **Após o pull de 14/11/2026:** criação, cancelamento e pagamento de B2 estão nesta branch. A exceção financeira
+  de retenção sob falha de reconsulta/corte de uma hora foi preservada e permanece pendente de aprovação conjunta.
 - **Motivo:** o cliente não paga por um produto que acabou enquanto estava no checkout; o estoque preso volta sozinho.
 - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
 
