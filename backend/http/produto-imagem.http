@@ -1,0 +1,30 @@
+@api = http://localhost:3333/api
+@origem = http://localhost:5173
+@produtoId = 42
+@sid = substitua-pela-sessao-admin-do-ambiente-local
+
+### Enviar/substituir: trocar o caminho do arquivo LOCAL ao cliente HTTP por uma fixture JPEG válida.
+# O caminho não é um campo aceito pela API. O servidor escolhe o identificador de destino.
+PUT {{api}}/produtos/{{produtoId}}/imagem
+Cookie: sid={{sid}}
+Origin: {{origem}}
+Content-Type: multipart/form-data; boundary=ImagemAquarilandia
+
+--ImagemAquarilandia
+Content-Disposition: form-data; name="imagem"; filename="fixture.jpg"
+Content-Type: image/jpeg
+
+< /caminho/local/fixture.jpg
+--ImagemAquarilandia--
+
+### Remover (repetição: mesmo 200/DTO com imagemUrl:null; nenhum corpo)
+DELETE {{api}}/produtos/{{produtoId}}/imagem
+Cookie: sid={{sid}}
+Origin: {{origem}}
+
+### Conferir DTO público (apenas ativo)
+GET {{api}}/produtos/{{produtoId}}
+
+### Conferir DTO administrativo, inclusive inativo
+GET {{api}}/produtos/{{produtoId}}?incluir_inativos=true
+Cookie: sid={{sid}}

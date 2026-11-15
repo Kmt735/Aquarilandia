@@ -1,5 +1,30 @@
 # Testes do catálogo
 
+## Imagem principal — 14/11/2026
+
+`imagem-config.test.mjs` (3), `imagem-processamento.test.mjs` (8) e `produto-imagem-http.test.mjs` (6)
+cobrem configuração, decoder real, metadados/formatos/limites e guardas anteriores ao multipart.
+`integracao/produto-imagem.test.mjs` (41) usa PostgreSQL e filesystem reais: ciclo completo, inativo,
+legado, erros, limites, concorrência observada por locks, COMMIT com resposta perdida e limpeza segura.
+`integracao/imagem-migracao.test.mjs` (1) executa os comandos npm contra uma base anterior à 32,
+reaplica a migração e limpa órfão antigo, preservando saldo/legado; simula falha sem expor SQL/URL.
+Todas as fixtures/schemas/pastas dessas suítes são próprias e removidas; nunca usar banco compartilhado.
+
+```bash
+# backend/: testes locais sem banco + integração com banco explicitamente descartável
+npm test
+TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste npm run test:integration
+npm run build
+# frontend/: requer build backend acima e Chromium disponível (ou conexão Playwright remota)
+NODE_ENV=test TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste npm run test:e2e
+```
+
+`frontend/testes/e2e/imagem.spec.mjs` adiciona uma verificação com HTTP/PG/arquivo reais, usando
+imagem sintética PNG que o backend converte: detalhe de peixe carrega bytes WebP e volta ao placeholder
+depois do DELETE. O teste guarda screenshots; não altera os componentes de produção.
+Resultado desta entrega: 1.216 backend + 614 PG + 89 frontend + 27 E2E, sem ignorados.
+Limites operacionais, implantação/migração e artefatos: [relatório](../docs/imagem-principal-2026-11-14.md).
+
 Revisão de integração (14/11/2026): `integracao/venda-expiracao.test.mjs` cria vendas pelo POST real e usa
 PostgreSQL descartável. Confere prazo sem tolerância extra, candidato antigo, prazo vencendo durante espera,
 pagamento/cancelamento concorrentes, produtos repetidos, quantidades originais apesar de itens alterados e
@@ -7,6 +32,28 @@ rollback após primeiro crédito. Reconciliação é verificada após cada cená
 O relatório e o patch para a base remota de B2 estão em
 [integração estoque/vendas](../docs/integracao-estoque-vendas-2026-11-14.md). A suíte de estorno da cópia combinada
 usa HTTP e PG reais, com gateway/e-mail controlados: não é homologação financeira externa.
+
+## Consolidação exclusiva do Backend 1 — 14/11/2026
+
+A [entrega B1](../docs/consolidacao-backend1-2026-11-14.md) combina a base atual com as correções locais de
+expiração. `integracao/venda-expiracao.test.mjs` contém 14 cenários, incluindo as sete regressões locais;
+não há dependência da worktree antiga para executar essa suíte. Ela usa o POST real de vendas e confere
+reconciliação após cada cenário. Os casos concorrentes observam locks no PostgreSQL, em vez de presumir a corrida.
+As suítes de estoque, migração, cadastro/edição, inativos e peixes já cobrem os demais contratos B1 e foram mantidas.
+
+Execute com as dependências do lockfile já disponíveis, em `backend/`, e PostgreSQL descartável:
+
+```bash
+npm run typecheck
+npm test
+TEST_DATABASE_URL=postgres://teste:teste@127.0.0.1:PORTA/teste npm run test:integration
+npm run build
+npm audit
+```
+
+O diagnóstico adicional de estorno por webhook continua pertencendo a B2 e não foi incluído como correção B1.
+Seu teste/patch e o resultado da reprodução estão identificados no relatório; aprovação destas suítes não encerra
+essa pendência. O runner `db:migrar-estoque` continua aplicando somente 30/31, sem reset nem migrações comerciais 21/22.
 
 ## Variáveis de ambiente (D-52)
 

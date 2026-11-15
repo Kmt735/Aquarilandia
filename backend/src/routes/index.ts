@@ -8,6 +8,7 @@ import { freteRoutes } from '../modulos/vendas/frete.routes.js'
 import { vendaRoutes } from '../modulos/vendas/venda.routes.js'
 import { pagamentoRoutes } from '../modulos/pagamentos/pagamento.routes.js'
 import { estoqueRoutes } from '../modulos/estoque/estoque.routes.js'
+import { imagemPublicaRoutes } from '../modulos/catalogo/imagem/imagem.controller.js'
 
 export const routes = Router()
 
@@ -27,3 +28,4 @@ routes.use('/frete', freteRoutes)
 routes.use('/vendas', vendaRoutes)
 routes.use('/pagamentos', pagamentoRoutes)
 routes.use('/estoque', estoqueRoutes)
+routes.use('/midias/produtos', imagemPublicaRoutes)

@@ -25,7 +25,7 @@ RUN npm run build
 # Os scripts também viram JavaScript (o tsx é dependência de desenvolvimento e não vai para a imagem final)
 RUN npx tsc --ignoreConfig --types node --outDir dist-scripts --rootDir . --module nodenext --moduleResolution nodenext \
       --target es2022 --strict --esModuleInterop --skipLibCheck --resolveJsonModule \
-      scripts/criar-admin.ts scripts/dados-demo.ts
+      scripts/criar-admin.ts scripts/dados-demo.ts scripts/limpar-imagens.ts
 
 # ---------- 3. só as dependências de produção ----------
 FROM ${NODE_IMAGE} AS dependencias
@@ -37,7 +37,8 @@ RUN npm ci --omit=dev --no-audit --no-fund
 FROM ${NODE_IMAGE}
 ENV NODE_ENV=production \
     PORT=3333 \
-    FRONTEND_DIST=/app/frontend-dist
+    FRONTEND_DIST=/app/frontend-dist \
+    IMAGENS_DIR=/var/lib/aquarilandia/imagens
 WORKDIR /app/backend
 # Os arquivos ficam do root e só para leitura do usuário node: o processo não consegue alterar o próprio código
 COPY --from=dependencias /build/backend/node_modules ./node_modules
@@ -45,6 +46,7 @@ COPY --from=backend /build/backend/dist ./dist
 COPY --from=backend /build/backend/dist-scripts ./dist-scripts
 COPY backend/package.json ./
 COPY --from=frontend /build/frontend/dist /app/frontend-dist
+RUN mkdir -p /var/lib/aquarilandia/imagens && chown node:node /var/lib/aquarilandia/imagens
 USER node
 EXPOSE 3333
 # O compose confere a saúde por aqui (sem curl na imagem: o próprio Node faz o pedido)
