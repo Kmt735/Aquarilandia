@@ -137,7 +137,8 @@ export interface FiltrosCliente { busca?: string; pagina: number; limite: number
 Exceções: endereços do cliente são excluídos de verdade (dado pessoal); a venda guarda cópia do endereço de entrega.
 Categorias também são excluídas de verdade, somente quando não há nenhum produto vinculado (ativo ou inativo).
 
-Não usamos `PUT`. Atualização é sempre `PATCH`.
+Atualização parcial de dados usa `PATCH`. Exceção: `PUT /api/produtos/:id/imagem` substitui integralmente
+a imagem principal por um único arquivo (contrato de 14/11/2026, abaixo).
 
 ### Mapa de rotas reservadas
 
@@ -210,6 +211,9 @@ GET    /api/produtos                 ?categoria=&busca=&preco_min=&preco_max=&or
 GET    /api/produtos/:id                                                      (público)
 POST   /api/produtos                                                          (admin)
 PATCH  /api/produtos/:id                                                      (admin)
+PUT    /api/produtos/:id/imagem                                               (admin — multipart, campo imagem)
+DELETE /api/produtos/:id/imagem                                               (admin — sem corpo, 200 com DTO)
+GET    /api/midias/produtos/:arquivo                                          (público — versão gerenciada de produto ativo)
 DELETE /api/produtos/:id                                                      (admin)
 GET    /api/peixes                   ?temperatura=&ph=&tamanho_max=&aquario_litros=&dificuldade=&temperamento=&tipo_agua=&busca=&pagina=&limite=   (público)
 GET    /api/peixes/:id                                                        (público)
@@ -225,7 +229,9 @@ POST   /api/estoque/movimentacoes    (entrada / ajuste positivo/negativo / saíd
 
 O POST administrativo tem contrato em [estoque administrativo](docs/estoque-admin-2026-11-03.md).
 As duas leituras por produto estão implementadas conforme a seção abaixo. A listagem geral `GET /api/estoque`
-e os filtros históricos `tipo`, `de` e `ate` continuam previstos, sem implementação. Reserva/venda dependem de acordo.
+e os filtros históricos `tipo`, `de` e `ate` continuam previstos, sem implementação. Os helpers de baixa/devolução
+por venda já estão implementados (D-50), sem reserva separada, e são consumidos por B2 no mesmo `PoolClient`.
+A orquestração financeira e suas pendências continuam sob responsabilidade de B2; ver a seção 8.
 
 ### Estoque — consultas administrativas de saldo e histórico (03/11/2026)
 
@@ -443,8 +449,9 @@ GET /api/produtos?categoria=filtros&ordem=preco&pagina=1&limite=1
 
 **DTO adotado:** somente os campos do exemplo. IDs são numéricos; `categoria` é o slug obtido pelo relacionamento
 com `categorias`; preço é o `INTEGER` do banco, sem conversão de unidade (`8990` = R$ 89,90).
-`descricao`, `marca` e `imagemUrl` preservam `null`. `emEstoque` deriva de `estoque > 0`; não expõe a quantidade
-nem implementa operações de estoque. Ler `imagem_url` não adiciona gerenciamento de imagens.
+`descricao`, `marca` e `imagemUrl` preservam `null`. `emEstoque` deriva de `estoque > 0`; não expõe a quantidade.
+O gerenciamento da imagem é exclusivo das rotas `/produtos/:id/imagem`, documentadas ao final;
+`POST` e `PATCH /produtos` continuam recusando `imagemUrl`.
 Não há `icone`, ficha técnica, `ativo` ou datas neste DTO público.
 
 | Parâmetro | Regra |
@@ -1478,6 +1485,9 @@ uma conta anonimizada continua visível para a loja). A query é conferida antes
   com as correções locais de expiração preservadas. A correção adicional da confirmação de estorno via webhook
   continua na worktree isolada/patch do [relatório anterior](docs/integracao-estoque-vendas-2026-11-14.md);
   não foi aplicada como parte da resolução destes conflitos.
+- Consolidação exclusiva de B1: as correções locais de expiração e seus testes foram transportados para uma
+  worktree baseada na main atual. Não altera pagamentos nem a exceção financeira de uma hora.
+  Evidências, matriz de responsabilidades e pendências: [consolidação B1](docs/consolidacao-backend1-2026-11-14.md).
 - **Limpezas**, na mesma rodada: `authService.limparSessoesVencidas()` e `authService.limparTokensVencidos()` apagam as
   linhas de `sessoes` e de `tokens_recuperacao_senha` com `expira_em` no passado. Elas já não valiam (as consultas
   conferem `expira_em > now()`); apagar só impede que as tabelas cresçam para sempre. A tarefa chama o service do auth,
@@ -2202,3 +2212,54 @@ clienteRoutes.get('/', autenticar, exigirAdmin, clienteController.listar)       
 - Tipos: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`.
 - Antes de abrir PR: `git pull --rebase origin main` e `npm run typecheck`.
 - PR que toca arquivo de outro dono ou arquivo compartilhado: marcar o outro como revisor obrigatório.
+
+## 13. Imagem principal do produto — 14/11/2026
+
+Uma imagem por produto, sem galeria. `PUT /api/produtos/:id/imagem` recebe **somente** um arquivo no campo
+multipart `imagem`; não recebe campos textuais, query, URLs, caminhos ou nomes de destino. `DELETE` no mesmo
+caminho não recebe corpo/query. Ambos exigem `sid` válido, papel **atual** de admin e `Origin` igual a
+`CORS_ORIGIN`, antes do multipart. Visitante `401`, cliente `403`, Origin ausente/incorreto `403`.
+
+ID numérico segue a validação do catálogo (`1..2147483647`); inválido `400`, inexistente `404`.
+Inativo existente pode receber/remover imagem e permanece inativo. As respostas são `200`, `no-store`, com
+o mesmo DTO de detalhe administrativo já utilizado por `GET /api/produtos/:id?incluir_inativos=true`,
+inclusive `ativo` e `ficha`. Exemplo abreviado de produto comum (os IDs dependem da base):
+
+```json
+{"id":42,"categoriaId":12,"categoria":"acessorios","nome":"Rede pequena","descricao":null,"marca":null,"preco":1999,"imagemUrl":"/api/midias/produtos/5b2c9174-799e-4384-a0ce-a55cf4e29e65.webp","emEstoque":false,"ativo":true,"ficha":null}
+```
+
+Remover retorna o mesmo DTO com `imagemUrl:null`. Remover de novo/produto sem imagem também retorna `200`,
+sem modificar `atualizado_em`. Não muda preço, categoria, ficha, saldo ou ativação. Referência legada é
+substituída/removida do produto, mas não vira caminho para exclusão de arquivo externo/asset.
+
+| Limite/regra | Valor/comportamento |
+|---|---|
+| Formatos de entrada | JPEG, PNG e WebP **estáticos**, assinatura + formato decodificado + MIME/extensão coerentes |
+| Arquivo | Até **5 MiB**, inclusive; excedente `413` |
+| Requisição multipart inteira | Até 5 MiB + 64 KiB; excedente `413`; sem compressão HTTP |
+| Dimensões/pixels | Até 4096 por eixo e 12.000.000 pixels, inclusive; excedente `400` |
+| Quantidade | Um arquivo `imagem`, zero campos extras; inválido `400` |
+| Saída | WebP reencodado, orientação aplicada, sRGB, sem metadados preservados; até 5 MiB |
+| Recepção/processamento | 20 s para receber (`408`), timeout sharp 5 s por etapa; 2 uploads em curso por processo (`503`) |
+| Frequência | 10 uploads/minuto/IP após guardas (`429`); não é quota distribuída |
+| Espera de banco | lock 3 s / statement 5 s nas escritas (`503` para ocupação/timeout) |
+
+SVG, GIF, APNG, WebP animado, bytes corrompidos e nomes maliciosos recebem `400` sem alterar a imagem atual.
+Content-Type fora de multipart/compressão recebem `415`. Erro de armazenamento/configuração `503`;
+falha inesperada do banco `500` genérico. Erros preservam `{erro,detalhes?}`, sem caminho/bytes/SQL/credenciais.
+Timeout do decoder é cooperativo; não é isolamento do processo nativo. Limites de container complementam a API.
+JSON global continua em 100 KiB, compressão rejeitada e corpo cru do webhook preservado.
+
+`GET`/`HEAD /api/midias/produtos/<uuid>.webp` serve somente ID gerenciado atualmente referenciado por produto
+**ativo**: `image/webp`, `nosniff`, `Cache-Control: public,max-age=31536000,immutable`. Não lista diretório;
+URL inválida/órfã/antiga/inativa `404`, `no-store`. Substituição gera UUID/URL novos. Desativação/remoção não
+revoga cópias já armazenadas em caches; admin não ganha endpoint de leitura de arquivo inativo neste incremento.
+
+Identificador privado `imagem_arquivo_id` (migração nova `32_produto_imagem.sql`) fica separado de `imagem_url`;
+nenhum DTO público ganha campo administrativo. Listas/detalhes/peixes preservam `imagemUrl` e `null`.
+O diretório `IMAGENS_DIR` é externo/persistente; a API existente inicia sem ele, mas upload responde `503`.
+Aplicar 32 **antes** do código novo, também em base existente; o runner de estoque continua somente 30/31.
+Volume, backup, limpeza segura, falhas ambíguas de COMMIT e homologação:
+[relatório de imagem principal](docs/imagem-principal-2026-11-14.md).
+Exemplos: [produto-imagem.http](http/produto-imagem.http).

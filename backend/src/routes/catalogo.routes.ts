@@ -6,6 +6,7 @@ import { exigirOrigem } from '../middlewares/exigirOrigem.js'
 import { categoriaController } from '../modulos/catalogo/categoria.controller.js'
 import { peixeController } from '../modulos/catalogo/peixe.controller.js'
 import { produtoController } from '../modulos/catalogo/produto.controller.js'
+import { imagemController, limiteUploadImagem } from '../modulos/catalogo/imagem/imagem.controller.js'
 
 export const catalogoRoutes = Router()
 
@@ -34,6 +35,8 @@ catalogoRoutes.post('/produtos/:id/reativar', semCache, autenticar, exigirAdmin,
 catalogoRoutes.post('/produtos', autenticar, exigirAdmin, exigirOrigem, produtoController.criar)
 catalogoRoutes.patch('/produtos/:id', autenticar, exigirAdmin, exigirOrigem, produtoController.atualizar)
 catalogoRoutes.delete('/produtos/:id', autenticar, exigirAdmin, exigirOrigem, produtoController.remover)
+catalogoRoutes.put('/produtos/:id/imagem', semCache, autenticar, exigirAdmin, exigirOrigem, limiteUploadImagem, imagemController.gravar)
+catalogoRoutes.delete('/produtos/:id/imagem', semCache, autenticar, exigirAdmin, exigirOrigem, imagemController.remover)
 catalogoRoutes.get('/peixes', peixeController.listar)
 catalogoRoutes.get('/peixes/:id', peixeController.buscarPorId)
 catalogoRoutes.get('/servicos', catalogoController.servicos)

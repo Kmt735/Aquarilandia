@@ -611,6 +611,9 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   adicional: [integração estoque/vendas](integracao-estoque-vendas-2026-11-14.md).
 - **Após o pull de 14/11/2026:** criação, cancelamento e pagamento de B2 estão nesta branch. A exceção financeira
   de retenção sob falha de reconsulta/corte de uma hora foi preservada e permanece pendente de aprovação conjunta.
+- **Consolidação B1:** correções de expiração/revalidação e testes em worktree baseada na main atual;
+  nenhuma nova regra financeira ou correção de pagamentos foi incorporada. Ver
+  [consolidação do Backend 1](consolidacao-backend1-2026-11-14.md). Os registros anteriores permanecem históricos.
 - **Motivo:** o cliente não paga por um produto que acabou enquanto estava no checkout; o estoque preso volta sozinho.
 - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
 
@@ -861,6 +864,15 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 ---
 
 ## Pendentes
+
+**Incremento de imagem principal — 14/11/2026:** uma imagem por produto, administrada por
+`PUT /api/produtos/:id/imagem` e `DELETE` no mesmo caminho, com sessão/papel atual/Origin. É a exceção
+de substituição integral ao uso geral de PATCH. Arquivos novos são WebP reencodados, ID privado separado
+da URL; armazenamento local em volume externo configurável, sem excluir assets/referências legadas.
+Migração incremental 32, limites, concorrência, limpeza e implantação estão no
+[contrato/relatório](imagem-principal-2026-11-14.md). Não altera decisões de estoque, vendas ou estorno;
+a pendência financeira B2 registrada na consolidação permanece fora deste incremento.
+Registro datado sem reservar número D adicional para evitar colisão com trabalho paralelo.
 
 | Pergunta | Com quem | Prazo | O que trava |
 |---|---|---|---|

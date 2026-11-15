@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // Configuração do backend: falhar cedo (D-52).
 //
@@ -96,6 +97,22 @@ function lerFrontendDist(): string | undefined {
 
 const frontendDist = lerFrontendDist()
 
+// Opcional para a API existente; as operações de imagem respondem 503 sem configuração.
+// Em operação, usar volume/diretório persistente fora do repositório, nunca /tmp.
+function lerImagensDir(): string | undefined {
+  const valor = opcional('IMAGENS_DIR')
+  if (!valor) return undefined
+  const raizProjeto = fileURLToPath(new URL('../../../', import.meta.url)).replace(/\/$/, '')
+  const pasta = resolve(valor)
+  if (!isAbsolute(valor) || pasta === '/' || pasta === raizProjeto || pasta.startsWith(raizProjeto + sep)
+    || (frontendDist && (pasta === frontendDist || pasta.startsWith(frontendDist + sep)))
+    || (producao && (pasta === '/tmp' || pasta.startsWith('/tmp/') || pasta === '/var/tmp' || pasta.startsWith('/var/tmp/')))) {
+    throw new Error('Variável de ambiente inválida: IMAGENS_DIR precisa ser um diretório persistente absoluto fora do projeto. Veja o .env.example.')
+  }
+  return pasta
+}
+const imagensDir = lerImagensDir()
+
 // PERMITIR_SIMULACAO_PIX (opcional, Lote 13): só 'true' liga a simulação de pagamento Pix pela API (a demonstração do
 // dia 19 roda em produção com a chave de TESTE da AbacatePay, porque a loja ainda não tem conta). Mesmo ligada, ela
 // só funciona com a chave de teste (gateway.ts). Qualquer valor que não seja true ou false é erro: um "sim" ou "1"
@@ -138,5 +155,6 @@ export const env = {
   emailRemetente: emailRemetente?.trim(),
   // Caminho absoluto da pasta do build do frontend, ou undefined (o site não é servido pelo backend)
   frontendDist,
+  imagensDir,
   permitirSimulacaoPix,
 }

@@ -37,6 +37,11 @@ services:
     # Todas as variáveis da app (NODE_ENV=production, DATABASE_URL com o host db, GATEWAY_*...). ENV_PRODUCAO só
     # existe para o teste local apontar para outro arquivo; no servidor fica o padrão
     env_file: ${ENV_PRODUCAO:-.env.producao}
+    volumes:
+      - imagens:/var/lib/aquarilandia/imagens
+    # Decoder nativo: limites de processo complementam pixels/timeout/concorrência da API.
+    mem_limit: 1g
+    cpus: 2.0
     depends_on:
       db:
         condition: service_healthy
@@ -74,5 +79,6 @@ networks:
 
 volumes:
   pgdata:
+  imagens:
   caddy_data:
   caddy_config:

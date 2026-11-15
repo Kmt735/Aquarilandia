@@ -114,6 +114,27 @@ Revisão de segurança: [`backend/docs/seguranca-backend-2026-10-26.md`](backend
 Contrato dos atalhos de peixes: [`backend/api.md`](backend/api.md#peixes--atalhos-públicos-implementados-em-25102026).
 Verificações dos incrementos: [`backend/testes/README.md`](backend/testes/README.md).
 
+### Imagem principal dos produtos
+
+Administração por `PUT`/`DELETE /api/produtos/:id/imagem`, sem tela administrativa nova. Contrato, limites,
+testes e implantação: [imagem principal](backend/docs/imagem-principal-2026-11-14.md).
+Defina `IMAGENS_DIR` absoluto, externo ao repositório/build, em diretório persistente gravável pelo processo;
+em produção, `/tmp` e `/var/tmp` são recusados. O compose de produção monta o volume `imagens` em
+`/var/lib/aquarilandia/imagens`; não use remoção de volumes para atualizar a aplicação.
+
+Banco novo executa `32_produto_imagem.sql` no bootstrap. Banco existente precisa de janela autorizada,
+backup e **migração 32 antes do código novo**: `npm run db:migrar-imagens` em `backend/` com dependências
+de desenvolvimento, ou `psql --set ON_ERROR_STOP=1 --single-transaction -f backend/db/init/32_produto_imagem.sql`
+apontando explicitamente para a base autorizada. O comando não faz reset nem executa migrações comerciais.
+Faça backup/restauração coordenados de PostgreSQL **e** arquivos do volume; backup só do banco não guarda imagens.
+
+Agende limpeza, por exemplo horária: `npm run imagens:limpar` fora do container ou
+`docker compose --env-file .env.producao -f docker-compose.prod.yml exec -T app node dist-scripts/scripts/limpar-imagens.js`
+em `backend/`. Ela considera somente nomes gerados há mais de 24h, consulta referências no banco e coordena
+locks com uploads; não percorre assets externos. Monitore `limpeza pendente`, contagens e exit code.
+Todas as réplicas precisam do **mesmo banco e volume**; armazenamento local não oferece replicação entre hosts.
+Limites de produção do compose: 1 GiB/2 CPUs para a app inteira; homologar capacidade antes de escalar.
+
 ### Desenvolvimento e diagnóstico da vitrine
 
 Mantenha **dois terminais abertos**: `npm run dev` em `backend/` (3333), depois `npm run dev` em
