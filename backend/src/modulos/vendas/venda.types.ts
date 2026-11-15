@@ -133,22 +133,125 @@ export interface PaginaVendas {
   limite: number
 }
 
+// ---------- Admin de vendas (#39, #40) ----------
+
+export const listaTiposEntrega = ['correios', 'propria', 'retirada'] as const
+
+// ?clienteId, ?status, ?tipoEntrega, ?de, ?ate (AAAA-MM-DD, no fuso da loja), ?problemaPagamento e a paginação
+export interface FiltrosVendaAdmin {
+  clienteId: number | null
+  status: StatusVenda | null
+  tipoEntrega: TipoEntrega | null
+  de: string | null
+  ate: string | null
+  problemaPagamento: boolean
+  pagina: number
+  limite: number
+}
+
+export interface ResumoVendaAdmin {
+  id: number
+  status: StatusVenda
+  tipoEntrega: TipoEntrega
+  total: number
+  clienteNome: string
+  quantidadeItens: number
+  criadoEm: Date
+}
+
+export interface PaginaVendasAdmin {
+  dados: ResumoVendaAdmin[]
+  total: number
+  pagina: number
+  limite: number
+}
+
+// Todos os pagamentos da venda, para o admin. cobrancaInicio = o começo do id da cobrança (para achar no painel da
+// AbacatePay), NUNCA o id inteiro
+export interface PagamentoAdmin {
+  id: number
+  status: StatusPagamento
+  metodo: string | null
+  valor: number
+  cobrancaInicio: string | null
+  estornoSolicitadoEm: Date | null
+  estornoTentativas: number
+  estornoUltimoErro: string | null
+  statusDetalhe: string | null
+  criadoEm: Date
+}
+
+export interface ClienteDaVenda {
+  id: number
+  nome: string
+  email: string | null
+  telefone: string | null
+}
+
+// GET /api/vendas/:id (#40): o detalhe do cliente mais a conta e todos os pagamentos
+export interface DetalheVendaAdmin extends DetalheVenda {
+  cliente: ClienteDaVenda
+  pagamentos: PagamentoAdmin[]
+}
+
+// GET /api/vendas/:id/historico: com a autoria (origem, quem e a observação), que o cliente não vê
+export interface EtapaHistoricoAdmin {
+  statusAnterior: StatusVenda | null
+  status: StatusVenda
+  origem: 'cliente' | 'admin' | 'sistema' | 'gateway'
+  alteradoPor: { id: number; nome: string } | null
+  observacao: string | null
+  data: Date
+}
+
 // Os mesmos valores do CHECK de pagamentos.status (db/init/20_vendas.sql)
 export type StatusPagamento = 'pendente' | 'aprovado' | 'recusado' | 'estornado' | 'cancelado' | 'em_disputa'
 
-// Linha de pagamentos lida para o detalhe. Só estas colunas saem do banco: nenhum id do gateway, código Pix,
-// valor, status_detalhe ou dado de estorno. O id serve só para desempatar a ordem e não vai para a resposta
+// Linha de pagamentos lida para o detalhe (pagamentoRepository.listarPorVenda). Só estas colunas saem do banco:
+// nenhum id do gateway, código Pix, valor, status_detalhe ou erro de estorno. O id serve só para desempatar a ordem
+// e o estornoSolicitadoEm só para a escolha do pagamento (#48); nenhum dos dois vai para a resposta
 export interface LinhaPagamento {
   id: number
   status: StatusPagamento
   metodo: string | null
   criadoEm: Date
+  estornoSolicitadoEm: Date | null
 }
 
-export interface PagamentoDaVenda {
+// O pagamento como o escolherPagamento devolve (sem a mensagem, que depende também do status da venda)
+export interface PagamentoEscolhido {
   status: StatusPagamento
   metodo: string | null
   criadoEm: Date
+}
+
+// O pagamento no detalhe da compra: o escolhido mais a mensagem para o cliente (#48)
+export interface PagamentoDaVenda extends PagamentoEscolhido {
+  mensagem: string
+}
+
+// Resposta do POST /api/vendas/:id/pagamentos (#44). O código Pix e a imagem só existem nesta resposta: não são
+// gravados no banco (pedir de novo com o mesmo pagamento devolve a mesma cobrança)
+export interface PixGerado {
+  pagamentoId: number
+  codigoPix: string
+  qrCodeImagem: string
+  expiraEm: Date
+}
+
+// Venda travada para gerar o Pix: podePagar = expira_em pelo menos 60 s no futuro (relógio do banco)
+export interface VendaParaPix {
+  status: StatusVenda
+  total: number
+  expiraEm: Date
+  podePagar: boolean
+}
+
+// Venda vencida para a tarefa de expiração. vencidaHaMaisDeUmaHora decide se um gateway fora do ar ainda adia o
+// cancelamento (PASSO 6 do Lote 11)
+export interface VendaVencida {
+  id: number
+  vencidaHaMaisDeUmaHora: boolean
 }
 
 // Histórico como o cliente vê: sem origem nem alterado_por_id (quem mudou é dado interno da loja)

@@ -93,3 +93,13 @@ export const limiteFrete = rateLimit({
   legacyHeaders: false,
   handler: responderLimite,
 })
+
+// Gerar o Pix (POST /api/vendas/:id/pagamentos): conta todos os pedidos, por IP. Cada pedido pode chamar a AbacatePay;
+// o limite segura quem tenta gerar cobranças em massa (20 em 10 minutos dá e sobra para um cliente de verdade)
+export const limitePagamento = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: responderLimite,
+})

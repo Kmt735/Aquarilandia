@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import type { NextFunction, Request, Response } from 'express'
+import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { autenticar } from '../../middlewares/autenticar.js'
 import { exigirAdmin } from '../../middlewares/exigirAdmin.js'
 import { exigirOrigem } from '../../middlewares/exigirOrigem.js'
@@ -36,12 +36,22 @@ clienteRoutes.delete('/me/enderecos/:enderecoId', exigirOrigem, autenticar, ende
 clienteRoutes.get('/me/vendas', autenticar, clienteController.listarMinhasVendas)
 clienteRoutes.get('/me/vendas/:id', autenticar, clienteController.buscarMinhaVenda)
 
-// Daqui para baixo, só admin; rota nova já nasce protegida (D-41).
+// R-06 (Lote 14a): nas escritas de admin o exigirOrigem vem ANTES da guarda, como em toda escrita da API: um pedido de
+// outro site é recusado sem nem consultar a sessão no banco. As leituras de admin continuam sem Origin
+const origemNasEscritas: RequestHandler = (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    next()
+    return
+  }
+  exigirOrigem(req, res, next)
+}
+
+// Daqui para baixo, só admin; rota nova já nasce protegida (D-41), e escrita nova já nasce com o exigirOrigem.
 // Por isso qualquer rota /me nova (ex.: /me/vendas) precisa ser registrada ACIMA desta linha.
-clienteRoutes.use(autenticar, exigirAdmin)
+clienteRoutes.use(origemNasEscritas, autenticar, exigirAdmin)
 clienteRoutes.get('/', clienteController.listarParaAdmin)
 clienteRoutes.get('/:id', clienteController.buscarParaAdmin)
 clienteRoutes.get('/:id/vendas', clienteController.listarVendasDoCliente)
-// Escritas de admin: exigirOrigem (CSRF) depois da guarda, como em orçamentos
-clienteRoutes.patch('/:id', exigirOrigem, clienteController.definirAtivoPeloAdmin)
-clienteRoutes.delete('/:id', exigirOrigem, clienteController.removerPeloAdmin)
+// Escritas de admin: o exigirOrigem (CSRF) já rodou na guarda acima (origemNasEscritas)
+clienteRoutes.patch('/:id', clienteController.definirAtivoPeloAdmin)
+clienteRoutes.delete('/:id', clienteController.removerPeloAdmin)

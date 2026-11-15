@@ -6,6 +6,9 @@ dist
 # Qualquer variação do .env (.env.production, .env.teste...) fica fora do Git; só os modelos entram
 .env.*
 !.env.example
+# Produção (Lote 13): o .env.producao NUNCA entra (tem as senhas e a chave do gateway); só o modelo
+.env.producao
+!.env.producao.example
 *.log
 .DS_Store
 API_Aquarilandia_Rotas.pdf

@@ -3,18 +3,22 @@ import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
 import { authService } from '../auth/auth.service.js'
 import { estoqueService } from '../estoque/estoque.service.js'
+import { pagamentoService } from '../pagamentos/pagamento.service.js'
 import { vendaRepository } from './venda.repository.js'
 import { podeTransicionar } from './venda.transicoes.js'
 
 // Tarefas agendadas do módulo vendas (#32, D-16): a cada 5 minutos, cancela as vendas não pagas vencidas e devolve o
-// estoque, e apaga as sessões e os links de recuperação de senha vencidos.
+// estoque (reconsultando o Pix antes, Lote 11), apaga as sessões e os links de recuperação de senha vencidos e tenta
+// de novo a devolução dos pagamentos indevidos.
 
 const intervaloMs = 5 * 60 * 1000
 const primeiraRodadaMs = 30 * 1000
 const vendasPorRodada = 100
+const estornosPorRodada = 50
 const observacaoExpiracao = 'Pagamento não recebido no prazo.'
 
 let rodando = false
+let estornando = false
 
 // O log leva só um código curto: o código do PostgreSQL, a mensagem de um AppError (textos nossos, sem dados) ou
 // 'erro inesperado'. Nunca a mensagem crua de outro erro, que pode trazer dados da linha
@@ -63,28 +67,88 @@ async function expirarVenda(vendaId: number): Promise<boolean> {
   })
 }
 
+// Rede de proteção (Lote 11): antes de cancelar, se a venda tem um Pix pendente com cobrança, reconsulta no gateway
+// (o mesmo pagamentoService.processarCobranca do webhook). Pago → a venda vira paga ali mesmo, e o mudarStatus do
+// expirarVenda deixa de casar (não cancela). true = pode seguir para o cancelamento.
+// Gateway fora do ar: não cancela nesta rodada (o aviso pode estar a caminho), a não ser que a venda tenha vencido há
+// mais de 1 hora. Aí cancela: se o Pix tiver sido pago, o webhook ou a próxima reconsulta devolve o dinheiro (o
+// pagamento aprovado de venda cancelada vira devolução, no processarCobranca)
+async function reconsultarAntesDeExpirar(venda: { id: number; vencidaHaMaisDeUmaHora: boolean }): Promise<boolean> {
+  const cobrancaId = await pagamentoService.buscarCobrancaPendente(venda.id)
+  if (!cobrancaId) return true
+  try {
+    await pagamentoService.processarCobranca(cobrancaId)
+    return true
+  } catch (err) {
+    if (venda.vencidaHaMaisDeUmaHora) {
+      const codigo = descreverErro(err)
+      console.error(`[expiracao] venda ${venda.id}: reconsulta do Pix falhou (${codigo}); vencida há mais de 1 h, cancelando`)
+      return true
+    }
+    throw err
+  }
+}
+
 // Exportada para os testes. Cada venda tem a sua transação: o erro numa não desfaz nem impede as outras.
 export async function executarExpiracao(): Promise<{ canceladas: number; erros: number }> {
   // Folga de 5 minutos: o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar com atraso; a folga evita
-  // cancelar uma venda paga no último segundo. A reconsulta do pagamento no gateway antes de cancelar entra na #47.
-  const ids = await vendaRepository.buscarVencidas(vendasPorRodada)
+  // cancelar uma venda paga no último segundo. Além dela, a reconsulta acima confere o Pix antes de cancelar.
+  const vencidas = await vendaRepository.buscarVencidas(vendasPorRodada)
   let canceladas = 0
   let erros = 0
-  for (const id of ids) {
+  for (const venda of vencidas) {
     try {
-      if (await expirarVenda(id)) canceladas++
+      // Reconsulta que falhou (gateway fora, venda vencida há menos de 1 h) conta como erro: a venda fica para a
+      // próxima rodada
+      if ((await reconsultarAntesDeExpirar(venda)) && (await expirarVenda(venda.id))) canceladas++
     } catch (err) {
       erros++
-      console.error(`[expiracao] venda ${id}: ${descreverErro(err)}`)
+      console.error(`[expiracao] venda ${venda.id}: ${descreverErro(err)}`)
     }
   }
   return { canceladas, erros }
+}
+
+// Devolução de pagamento indevido (#49, parte mínima): até 50 pagamentos aprovados com estorno pedido e menos de 5
+// tentativas, os mais antigos primeiro. Cada um isolado: o erro num não para os outros. Com 5 tentativas o
+// pagamentoService para e avisa no log que o admin precisa agir (a tela do admin entra no Lote 12).
+// Exportada para os testes.
+export async function executarEstornos(): Promise<{ estornados: number; falhas: number; erros: number }> {
+  const ids = await pagamentoService.listarEstornosPendentes(estornosPorRodada)
+  let estornados = 0
+  let falhas = 0
+  let erros = 0
+  for (const id of ids) {
+    try {
+      const resultado = await pagamentoService.tentarEstornoPendente(id)
+      if (resultado === 'estornado') estornados++
+      if (resultado === 'falhou') falhas++
+    } catch (err) {
+      erros++
+      console.error(`[estorno] pagamento ${id}: ${descreverErro(err)}`)
+    }
+  }
+  return { estornados, falhas, erros }
 }
 
 // Pela seção 8 do api.md, a tarefa chama o service do auth, nunca os repositories dele
 export async function executarLimpezas(): Promise<void> {
   await authService.limparSessoesVencidas()
   await authService.limparTokensVencidos()
+}
+
+// Os estornos rodam DEPOIS da rodada de expiração e limpezas, com a trava própria: uma chamada lenta ao gateway na
+// devolução não segura a próxima expiração, e a expiração (que pode marcar devoluções) vem antes. Nunca rejeita
+async function rodarEstornos(): Promise<void> {
+  if (estornando) return
+  estornando = true
+  try {
+    await executarEstornos()
+  } catch (err) {
+    console.error(`[estorno] rodada falhou: ${descreverErro(err)}`)
+  } finally {
+    estornando = false
+  }
 }
 
 // Uma rodada nunca rejeita: cada parte tem o próprio catch, e um erro numa não impede a outra
@@ -114,6 +178,7 @@ async function rodarTarefas(): Promise<void> {
 // unref(): os timers não seguram o processo vivo sozinhos (o servidor HTTP é que segura).
 export function iniciarTarefasVendas(): void {
   if (env.nodeEnv === 'test') return
-  setTimeout(() => void rodarTarefas(), primeiraRodadaMs).unref()
-  setInterval(() => void rodarTarefas(), intervaloMs).unref()
+  const rodada = (): void => void rodarTarefas().then(rodarEstornos)
+  setTimeout(rodada, primeiraRodadaMs).unref()
+  setInterval(rodada, intervaloMs).unref()
 }

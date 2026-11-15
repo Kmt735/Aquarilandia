@@ -8,6 +8,59 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ## Arquitetura
 
+### D-54 — E-mail em produção: Resend via HTTP, só texto, falha de e-mail nunca desfaz a operação
+- **Data:** 14/11/2026 (Lote 14a, R-01 da revisão de base)
+- **Decisão:**
+  - **Provedor: Resend**, pela API HTTP (`POST https://api.resend.com/emails`, `Authorization: Bearer EMAIL_API_KEY`)
+    com o `fetch` nativo: **nenhum pacote novo**. Corpo `{ from: EMAIL_REMETENTE, to: [destinatário], subject, text }`
+    e timeout de 10 s.
+  - **Só texto:** nenhum e-mail sai em HTML (o `enviarEmail` recusa `html`). O nome e o endereço de um cliente nunca
+    viram marcação dentro de um e-mail.
+  - **Variáveis:** `EMAIL_API_KEY` e `EMAIL_REMETENTE` são **obrigatórias em produção** (o servidor não sobe sem elas,
+    D-52), e o remetente precisa ser `email@dominio` ou `Nome <email@dominio>`. Fora de produção são opcionais: sem a
+    chave, o e-mail aparece no terminal (`[email:dev]`); com a chave, o remetente passa a ser obrigatório.
+  - **Erros:** rede, timeout ou HTTP fora de 2xx viram um `Error` curto com o status (ex.: `Provedor de e-mail recusou o
+    envio: HTTP 422.`), nunca com a chave, o destinatário, o texto nem o corpo da resposta.
+  - **Falha de e-mail nunca desfaz a operação:** todo ponto que envia (esqueci-senha, troca de e-mail, mudança de status
+    da venda) manda **depois do COMMIT e sem esperar** (`void enviarEmail(...).catch(...)`). A resposta da rota não muda
+    (o esqueci-senha continua com o mesmo `202` exista a conta ou não), e o log não leva o e-mail do cliente.
+  - **Remetente:** o domínio do `EMAIL_REMETENTE` precisa estar verificado no Resend (passo no `docs/deploy.md`).
+- **Motivo:** sem provedor, a recuperação de senha (D-09) e os avisos de status (item 1 do PDF) não funcionavam em
+  produção. O Resend tem plano gratuito, API HTTP simples (dispensa SDK) e aceita só texto.
+- **Impacto:** `utils/email.ts` e `config/env.ts` (compartilhados), `.env.example`, `.env.producao.example`,
+  `docs/deploy.md`. Fecha a pendência "Qual provedor de e-mail?".
+
+### D-53 — Deploy: VPS + Docker + Caddy, mesmo endereço para site e API, simulação de Pix só em demonstração
+- **Data:** 14/11/2026 (Lote 13)
+- **Decisão:**
+  - **Onde:** um VPS Linux (Ubuntu, Hostinger) com domínio próprio, tudo em Docker (`docker-compose.prod.yml`): o
+    Caddy na frente (HTTPS automático, Let's Encrypt), a app (uma imagem só com o site e a API) e o Postgres.
+  - **Mesmo endereço:** o backend serve o build do frontend (`FRONTEND_DIST`), e o site e a API ficam em
+    `https://DOMINIO` e `https://DOMINIO/api`. Rota de API desconhecida continua 404 em JSON.
+  - **Portas:** só o Caddy publica (80 e 443). A app e o Postgres não publicam nenhuma, e o Postgres fica numa rede
+    `internal` com o gateway `isolated` (sem internet e sem endereço do host nela). O ufw libera só 22, 80 e 443.
+  - **Imagem:** multi-stage (build do frontend, `tsc` do backend e dos scripts, só as dependências de produção),
+    `NODE_ENV=production`, usuário `node` (não root), código só para leitura.
+  - **Log de acesso do Caddy** sem a query string (o webhook traz o `webhookSecret` na URL), sem cookie e sem a
+    assinatura do webhook.
+  - **Cabeçalhos:** helmet com CSP restrita (só as origens do Google Fonts que o frontend usa, e o hash do script
+    inline do tema em vez de `'unsafe-inline'`), HSTS só em produção (180 dias, sem preload).
+  - **Simulação de Pix:** `POST /api/pagamentos/:id/simular` (admin) só existe com `PERMITIR_SIMULACAO_PIX=true` **e**
+    a chave de teste da AbacatePay (prefixo `abc_dev_`); senão 404, como se não existisse. Com a variável ligada e uma
+    chave de produção, o servidor avisa na subida e a rota continua desligada. O `simularPagamentoPix` do `gateway.ts`
+    passou de "nunca em produção" para "em produção só com as duas travas".
+  - **Segredos:** `.env.producao` fora do Git (modelo `.env.producao.example` só com placeholders), gerados no próprio
+    servidor (`openssl rand -hex 32`).
+- **Motivo:**
+  - O cookie de sessão é `httpOnly`, `SameSite=Lax` e, em produção, `Secure` (D-07, D-52): com o site e a API em
+    endereços diferentes, ele não iria nos pedidos do site.
+  - A AbacatePay exige `https` no webhook, e o HTTPS automático do Caddy dispensa configurar e renovar certificado.
+  - A loja ainda não tem conta na AbacatePay: a demonstração do dia 19 roda em produção com a chave de teste, e a
+    simulação permite mostrar a compra paga sem um Pix de verdade. As duas travas impedem que ela exista com a chave
+    da loja: simular numa conta real confirmaria uma venda sem dinheiro nenhum.
+- **Impacto:** `app.ts` e `env.ts` (compartilhados), `gateway.ts`, `Dockerfile`, `docker-compose.prod.yml`,
+  `Caddyfile`, `.env.producao.example`, `.gitignore`, `.dockerignore`, `scripts/dados-demo.ts` e `docs/deploy.md`.
+
 ### D-52 — Configuração: falhar cedo, sem padrões perigosos
 - **Data:** 09/11/2026
 - **Decisão:**
@@ -22,7 +75,10 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   - Continuam com padrão: `PORT` (3333, em qualquer ambiente; se vier, precisa ser um número de 0 a 65535) e
     `CORS_ORIGIN` (`http://localhost:5173`, só fora de produção). `FRONTEND_URL`, `API_URL` e `GATEWAY_*` são
     opcionais fora de produção (sem token o gateway recusa a chamada; sem segredo o webhook recusa tudo).
-    `EMAIL_API_KEY` e `EMAIL_REMETENTE` são opcionais também em produção: o `email.ts` avisa e recusa enviar.
+    `EMAIL_API_KEY` e `EMAIL_REMETENTE` eram opcionais também em produção; desde o Lote 14a (D-54) são obrigatórias em
+    produção.
+  - Lote 13 (D-53): `FRONTEND_DIST` (opcional; definida, precisa ter o `index.html`) e `PERMITIR_SIMULACAO_PIX`
+    (opcional; só `true` ou `false`, qualquer outro valor para o servidor na subida).
   - `npm test` e `npm run test:integration` definem `NODE_ENV=test` e uma `DATABASE_URL` que não aponta para
     banco nenhum (porta 1). A integração continua usando só o `TEST_DATABASE_URL` do PostgreSQL descartável.
   - `docker-compose.yml`: o Postgres é publicado só em `127.0.0.1`, e `DB_USER`, `DB_PASSWORD` e `DB_NAME` não
@@ -431,8 +487,8 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   - as travas seguem a ordem das outras operações da conta: primeiro o cliente, depois o token (sem deadlock);
   - sem `FRONTEND_URL`, nenhum token é criado (log `[esqueci-senha] FRONTEND_URL ausente`) e a resposta continua
     `202`;
-  - **sem provedor de e-mail** (pendente): em desenvolvimento o e-mail aparece no terminal (`[email:dev]`, com o
-    link e o token, só para testes locais); em produção o envio falha, nenhum e-mail sai e a resposta continua
+  - **provedor (D-54, desde 14/11/2026): Resend.** Sem a chave, em desenvolvimento, o e-mail aparece no terminal
+    (`[email:dev]`, com o link e o token, só para testes locais). Uma falha do provedor não muda a resposta: continua
     `202` (o token fica no banco até vencer ou até o próximo pedido);
   - sem limpeza periódica de tokens vencidos na entrega de 19/11: ficam até o cliente pedir outro link, redefinir
     a senha, trocar a senha ou o e-mail, ou ser anonimizado.
@@ -535,23 +591,38 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Impacto:** vendas (Celio), catálogo e estoque (Dev 2).
 
 ### D-16 — Estoque baixado na criação; venda não paga expira em 30 minutos
-- **Data:** 15/10/2026 (aplicação do contrato interno em 04/11/2026, D-50)
+- **Data:** 15/10/2026 (aplicação do contrato interno em 04/11/2026, D-50; tarefa ligada em 09/11/2026, #32;
+  reconsulta do Pix antes de cancelar em 14/11/2026, Lote 11)
 - **Decisão:** o estoque é baixado quando a venda é criada. Venda em `aguardando_pagamento` vence em 30 minutos
   (`vendas.expira_em`, default `now() + interval '30 minutes'`): uma tarefa agendada do módulo `vendas` cancela a
   venda e chama `estoqueService.estornarVenda`.
-- **Integração:** job do Backend 2 a cada cinco minutos; cancelar e devolver na mesma transação. Sem reserva
-  separada. Helpers B1 implementados, job/criação/cancelamento ainda não conectados.
+- **Integração:** a tarefa **já está ligada** (`venda.tarefas.ts`, iniciada pelo `server.ts`): a cada 5 minutos, com
+  folga de 5 minutos depois do vencimento, cancela e devolve o estoque na mesma transação, venda por venda. Sem
+  reserva separada. Desde o Lote 11, antes de cancelar uma venda com Pix pendente ela **reconsulta** a cobrança no
+  gateway (o mesmo `processarCobranca` do webhook): pago → a venda vira `paga` em vez de cancelada. Gateway fora → não
+  cancela nesta rodada, a não ser que a venda tenha vencido há mais de 1 hora (aí cancela, e um Pix pago depois vira
+  devolução, D-21).
+- **Motivo da folga e da reconsulta:** o Pix vence junto com a venda, mas o aviso da AbacatePay pode chegar atrasado
+  ou se perder; sem elas, uma venda paga no último minuto seria cancelada. O limite de 1 hora impede que um gateway
+  fora do ar segure o estoque para sempre.
 - **Motivo:** o cliente não paga por um produto que acabou enquanto estava no checkout; o estoque preso volta sozinho.
 - **Impacto:** vendas (tarefa agendada, usa `idx_vendas_expira_em`), estoque.
 
 ### D-17 — Cancelamento direto pelo cliente até antes do envio
-- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10)
+- **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10;
+  implementada em 14/11/2026 no Lote 12, #35)
 - **Decisão:** o cliente cancela a própria venda em `POST /api/vendas/:id/cancelar` enquanto ela não foi enviada,
   com estorno automático se já estiver paga (D-22). Não existe "solicitar cancelamento" para o admin aprovar.
   O status `cancelamento_solicitado` significa "estorno em andamento ou pendente" (não só "o gateway falhou"):
   toda venda paga cancelada passa por ele. Enquanto a venda está nele, nenhuma outra transição é permitida, só a
   conclusão para `cancelada`, que é sempre registrada como `sistema` (ou `admin`, só depois de 5 tentativas de
   estorno, D-22).
+- **Implementação (14/11/2026, Lote 12):** a mesma rota serve o cliente (só a própria venda; outra → 404) e o admin
+  (qualquer venda), com `{ motivo }` opcional para o histórico. `aguardando_pagamento` → `cancelada` na hora (o
+  estoque volta e o Pix pendente vira cancelado); `paga`, `em_separacao` e `pronta_retirada` → os três passos da D-22;
+  `enviada`, `entregue` e `cancelada` → 409. Em `cancelamento_solicitado`, o cliente recebe 409 e o admin só conclui
+  depois das 5 tentativas, com o motivo. O status é lido com a venda travada, e toda mudança passa pelo
+  `podeTransicionar`. Depois do COMMIT, o cliente recebe o e-mail de compra cancelada.
 - **Motivo:** depois de enviada, o produto já saiu da loja; com o estorno automático, não há pedido para o admin
   aprovar.
 - **Impacto:** rotas de vendas; tela de "minhas compras" no frontend; pagamentos.
@@ -576,8 +647,9 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 - **Data:** 19/10/2026
 - **Decisão:** responsabilidade do Dev 2 (catálogo/estoque). Para 19/11 o pedido de aviso é salvo e a loja vê a
   lista no painel; o e-mail automático entra depois. O serviço de e-mail (`utils/email.ts`) entra na entrega (D-09),
-  mas os e-mails de venda, de boas-vindas e o aviso de chegada ficam fora por decisão de escopo, não por falta de
-  infraestrutura.
+  mas os e-mails de boas-vindas e o aviso de chegada ficam fora por decisão de escopo, não por falta de
+  infraestrutura. **Atualizado em 14/11/2026:** os e-mails de mudança de status da venda entraram (Lote 12, D-24, D-54);
+  o aviso de chegada continua com o Dev 2 (achado R-05 da revisão de base: ainda não existe no backend).
 - **Motivo:** o aviso depende do estoque, e esses e-mails estão fora do escopo da entrega de 19/11 (D-24).
 - **Impacto:** catálogo e estoque (Dev 2); painel do admin no frontend.
 
@@ -656,12 +728,32 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
   - **Códigos de resposta:** `401` para segredo ou assinatura inválidos (a AbacatePay não reenvia 4xx, e o pedido
     não ficaria certo numa nova tentativa); `5xx` para falha nossa (ela reenvia até 7 vezes em cerca de 18 h);
     `200` para evento aceito ou ignorado. Nunca `410`, que desativa o webhook na AbacatePay.
+  - **Processamento (14/11/2026, Lote 11, #46 e #47):**
+    - Do corpo, só o id do aviso (`log_...`) e o id da cobrança (`data.transparent.id`, `pix_char_...`). Status, valor
+      e dados do pagador são ignorados; o que vale é a reconsulta (`gatewayPix.consultarCobranca`).
+    - **Idempotência:** `eventos_webhook` com `ON CONFLICT DO NOTHING` pelo id do aviso; o `payload` guarda **só**
+      `{ cobrancaId }` (nunca o corpo, que traz nome, e-mail e CPF mascarado). Processado → `200` e para; gravado sem
+      `processado_em` → reprocessa. Falha → `tentativas + 1`, `ultimo_erro` com um código curto e `500`.
+    - O pagamento é achado no **nosso** banco pelo `gateway_cobranca_id`. Única exceção: o pagamento que ficou sem a
+      cobrança gravada (a etapa 3 do #44 falhou), aceito só se o metadata da consulta apontar esse pagamento, sem
+      cobrança, da mesma venda e com o mesmo valor. Cobrança desconhecida → log e o evento fica processado.
+    - O valor da consulta é comparado com `pagamentos.valor` antes de confirmar; diferente → não confirma
+      (`status_detalhe 'valor divergente'`).
+    - **Ordem das travas:** a venda (`FOR UPDATE`) e depois o pagamento (`FOR UPDATE`). O #44 trava cliente → venda e a
+      expiração trava a venda (e depois itens e produtos, no `estornarVenda`): ninguém trava o pagamento antes da
+      venda, então não há deadlock. A chamada ao gateway fica sempre **fora** da transação.
+    - **Pagamento indevido:** aprovado de venda cancelada, ou de venda já paga por outro pagamento (em dobro) → fica
+      `aprovado` com `estorno_solicitado_em` e é devolvido (D-22). A venda nunca é reaberta e o estoque não muda.
+    - **Rede de proteção:** a mesma função de processamento roda na expiração (D-16) e no detalhe da compra (no
+      máximo 1 consulta a cada 20 s por pagamento), então um aviso perdido não deixa uma venda paga sem confirmação.
 - **Motivo:** o corpo do webhook pode ser forjado ou repetido; o estoque já foi resolvido na criação/cancelamento.
-- **Impacto:** módulo `pagamentos`.
+  A reconsulta fora da transação não segura trava de venda nem conexão do pool durante a chamada de rede.
+- **Impacto:** módulos `pagamentos` e `vendas` (tarefa de expiração e detalhe da compra); `db/init/22_pagamentos_estorno.sql`.
 
 ### D-22 — Estorno automático no cancelamento de venda paga
 - **Data:** 15/10/2026 (atualizado em 19/10/2026; alterada em 02/11/2026 no Lote 5, conforme a revisão de 24/10;
-  atualizada em 02/11/2026 no Lote 7, com a AbacatePay)
+  atualizada em 02/11/2026 no Lote 7, com a AbacatePay; devolução de pagamento indevido em 14/11/2026, Lote 11;
+  cancelamento com estorno, conclusão automática e manual em 14/11/2026, Lote 12)
 - **Decisão:**
   - Cancelar venda paga dispara estorno automático pela API do gateway, sempre do valor total.
   - A AbacatePay **não tem chave de idempotência** no estorno e só faz **estorno total**. Repetir é seguro: o
@@ -670,7 +762,8 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
     Pix ainda não estiver disponível, o estorno falha com "Saldo insuficiente para realizar o reembolso.". O modelo
     da #35 cobre isso: a venda fica em `cancelamento_solicitado` e a #49 tenta de novo; depois de 5 tentativas, o
     admin conclui à mão. A loja precisa saber que estornos dependem de manter saldo na conta.
-  - O estorno é controlado por pagamento, pela coluna `pagamentos.estorno_solicitado_em` (entra na #35), em três
+  - O estorno é controlado por pagamento, pela coluna `pagamentos.estorno_solicitado_em` (criada no Lote 11,
+    `22_pagamentos_estorno.sql`), em três
     etapas: **travar** (numa transação, a venda vai para `cancelamento_solicitado` e o pagamento é marcado com
     `estorno_solicitado_em`), **estornar** (chamada ao gateway, fora da transação) e **concluir** (numa nova
     transação, a venda vai para `cancelada`, registrada como `sistema`).
@@ -678,6 +771,32 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
     de novo, até 5 vezes. Contador em `pagamentos.estorno_tentativas` e último erro em
     `pagamentos.estorno_ultimo_erro`. Esgotadas as tentativas, a venda continua em `cancelamento_solicitado` e o
     admin resolve manualmente (só então o admin pode concluir para `cancelada`).
+  - **Devolução de pagamento indevido (14/11/2026, Lote 11, parte mínima da #49):** um pagamento aprovado de venda já
+    cancelada, ou o segundo pagamento de uma venda já paga, fica `aprovado` com `estorno_solicitado_em`. Logo depois
+    do COMMIT do webhook, uma tentativa de `estornar` (fora da transação); aprovado ou "já reembolsada" → `estornado`;
+    falhou → `estorno_tentativas + 1` e `estorno_ultimo_erro` com o código curto (ex.: `INSUFFICIENT_FUNDS`). A tarefa
+    de 5 em 5 minutos tenta de novo até 50 por rodada, cada um isolado, até **5 tentativas** (o `CHECK` de
+    `estorno_tentativas` vai até 5). Com 5, para e registra `[estorno] pagamento <id> precisa de ação do admin`; a
+    tela do admin entra no Lote 12. Esse fluxo não muda a venda: ela continua cancelada (ou paga, pelo outro
+    pagamento). O cancelamento de venda paga pelo cliente (#35, com `cancelamento_solicitado`) continua para depois.
+  - **Implementado (14/11/2026, Lote 12):**
+    1. **Travar** (`vendaService.cancelar`): numa transação, a venda (`FOR UPDATE`) e o pagamento que a confirmou
+       (`aprovado` sem `estorno_solicitado_em`, `FOR UPDATE`), nesta ordem; a venda vai para `cancelamento_solicitado`
+       (ator cliente ou admin) e o pagamento ganha `estorno_solicitado_em`.
+    2. **Estornar**: fora da transação, `pagamentoService.tentarEstornoPendente` (uma tentativa já).
+    3. **Concluir** (no próprio `tentarEstornoPendente`, quando o gateway aprova ou responde "já reembolsada"): numa
+       nova transação, venda → pagamento; o pagamento vira `estornado` e, se a venda está em `cancelamento_solicitado`
+       e este é o pagamento que a confirmou, ela vai para `cancelada` (ator `sistema`, `'Pagamento devolvido.'`) com o
+       `estornarVenda`. Por isso a tarefa de 5 em 5 minutos, que já tentava os estornos pendentes, **conclui sozinha**
+       os cancelamentos cujo estorno falhou da primeira vez.
+    - **Qual é o pagamento da compra:** o banco não liga a venda ao pagamento que a confirmou. O webhook marca o
+      pagamento indevido (em dobro, ou de venda já cancelada) com `status_detalhe 'pagamento indevido'` quando pede a
+      devolução; o estorno dele nunca conclui o cancelamento da venda.
+    - **Conclusão manual (admin):** só com as **5 tentativas** esgotadas e com um **motivo**. Venda em
+      `cancelamento_solicitado`: o próprio `POST /api/vendas/:id/cancelar` (pagamento `estornado` com `status_detalhe
+      'estorno manual'`, venda `cancelada` com ator admin e o motivo no histórico, estoque de volta). Pagamento
+      indevido de venda não cancelada: `POST /api/pagamentos/:id/concluir-estorno` (só o pagamento muda; o motivo fica
+      em `estorno_ultimo_erro`). O admin vê esses casos no `GET /api/vendas?problemaPagamento=true`.
 - **Motivo:** o cliente não depende de ação manual para receber de volta; a recusa do segundo estorno pela AbacatePay
   evita estorno em dobro na nova tentativa; o limite de tentativas evita insistir num erro que não se resolve sozinho.
 - **Impacto:** pagamentos, vendas.
@@ -726,9 +845,10 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 ### D-24 — Fora da entrega
 - **Data:** 15/10/2026 (atualizado em 19/10/2026)
-- **Decisão:** ficam fora da entrega de 19/11/2026: e-mails automáticos de venda, integração com transportadora,
-  exportação dos dados do cliente, CI no GitHub Actions e logger estruturado. A recuperação de senha por e-mail
-  entra na entrega (D-09).
+- **Decisão:** ficam fora da entrega de 19/11/2026: integração com transportadora, exportação dos dados do cliente,
+  CI no GitHub Actions e logger estruturado. A recuperação de senha por e-mail entra na entrega (D-09).
+  **Atualizado em 14/11/2026:** os e-mails automáticos de mudança de status da venda **entraram** (Lote 12, item 1 do
+  PDF; envio pelo Resend, D-54). Continuam fora os e-mails de boas-vindas e o aviso de chegada por e-mail (D-28).
 - **Motivo:** prazo.
 - **Impacto:** D-28 (aviso de chegada sem e-mail).
 
@@ -738,11 +858,9 @@ Convenções de código, rotas e banco ficam no [`api.md`](../api.md); aqui fica
 
 | Pergunta | Com quem | Prazo | O que trava |
 |---|---|---|---|
-| Qual provedor de e-mail? | grupo | 22/10/2026 (vencido) | envio real da recuperação de senha (#19a, passo 3, e #19b). Falta: escolher o provedor, combinar o SDK no `package.json`, a chave `EMAIL_API_KEY` e o remetente verificado `EMAIL_REMETENTE` |
 | Valores do frete | loja | a definir | valores definitivos do frete (#4). Falta: preço e prazo para o resto do Brasil, valor e prazo locais e frete grátis; só o `frete.config.ts` muda |
 
-Requisitos do provedor de e-mail: plano gratuito suficiente para testes, envio a partir de um remetente verificado
-sem exigir domínio próprio, SDK para Node.js.
+O provedor de e-mail foi escolhido em 14/11/2026: Resend (D-54).
 
 As regras de entrega já estão confirmadas; só os valores do frete são provisórios (ver D-29).
 

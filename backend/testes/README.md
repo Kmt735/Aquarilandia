@@ -20,7 +20,7 @@ NODE_ENV=test DATABASE_URL=postgres://testes-sem-banco@127.0.0.1:1/testes_sem_ba
 que ele não sobe sem `NODE_ENV`/`DATABASE_URL` (ausentes ou vazias), com `NODE_ENV` ou `PORT` inválidas, nem em
 produção sem `CORS_ORIGIN`, `FRONTEND_URL`, `API_URL` e `GATEWAY_*`, com o segredo do webhook abaixo de 32
 caracteres ou com endereço em `http://`. Nenhuma mensagem pode repetir valor de variável. Controle positivo:
-produção completa (sem `EMAIL_API_KEY`) e o segredo de exatamente 32 caracteres carregam; fora de produção bastam
+produção completa (com `EMAIL_API_KEY` e `EMAIL_REMETENTE`, obrigatórias desde o Lote 14a) e o segredo de exatamente 32 caracteres carregam; fora de produção bastam
 as duas obrigatórias, com `PORT` 3333 e `CORS_ORIGIN` `http://localhost:5173`. `ciclo0-producao.test.mjs` define
 no próprio processo as variáveis fictícias que a produção exige.
 

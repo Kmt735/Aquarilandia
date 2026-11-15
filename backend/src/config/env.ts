@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+
 // Configuração do backend: falhar cedo (D-52).
 //
 // O ambiente é validado UMA vez, quando este módulo é carregado. Faltou uma variável obrigatória, ou ela veio
@@ -77,6 +80,47 @@ if (producao && gatewayWebhookSecret !== undefined && gatewayWebhookSecret.lengt
   throw new Error('Variável de ambiente inválida: GATEWAY_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em produção. Veja o .env.example.')
 }
 
+// FRONTEND_DIST (opcional, Lote 13): a pasta do build do frontend (vite build). Com ela, o backend serve o site no
+// MESMO endereço da API (o cookie de sessão SameSite=Lax depende disso). Sem ela, nada muda: em desenvolvimento o
+// site vem do Vite. Definida, a pasta precisa ter o index.html: um caminho errado para o servidor na subida, e não
+// num 404 no meio da demonstração. A mensagem não repete o caminho
+function lerFrontendDist(): string | undefined {
+  const valor = opcional('FRONTEND_DIST')
+  if (valor === undefined) return undefined
+  const pasta = resolve(valor)
+  if (!existsSync(join(pasta, 'index.html'))) {
+    throw new Error('Variável de ambiente inválida: FRONTEND_DIST precisa apontar para a pasta do build do frontend (com o index.html). Veja o .env.example.')
+  }
+  return pasta
+}
+
+const frontendDist = lerFrontendDist()
+
+// PERMITIR_SIMULACAO_PIX (opcional, Lote 13): só 'true' liga a simulação de pagamento Pix pela API (a demonstração do
+// dia 19 roda em produção com a chave de TESTE da AbacatePay, porque a loja ainda não tem conta). Mesmo ligada, ela
+// só funciona com a chave de teste (gateway.ts). Qualquer valor que não seja true ou false é erro: um "sim" ou "1"
+// não liga nada por engano
+function lerPermitirSimulacaoPix(): boolean {
+  const valor = opcional('PERMITIR_SIMULACAO_PIX')
+  if (valor === undefined || valor === 'false') return false
+  if (valor === 'true') return true
+  throw new Error('Variável de ambiente inválida: PERMITIR_SIMULACAO_PIX precisa ser true ou false. Veja o .env.example.')
+}
+
+const permitirSimulacaoPix = lerPermitirSimulacaoPix()
+
+// E-mail (Lote 14a, D-54): o envio é pelo Resend (utils/email.ts). Em produção, EMAIL_API_KEY e EMAIL_REMETENTE são
+// obrigatórias: sem elas a recuperação de senha e os avisos de compra não saem, e isso tem que aparecer na subida, não
+// no dia em que um cliente pedir o link. Fora de produção são opcionais (sem a chave, o e-mail aparece no terminal);
+// com a chave, o remetente passa a ser obrigatório também. O remetente é "email@dominio" ou "Nome <email@dominio>",
+// sem quebra de linha. Nenhuma mensagem repete o valor
+const emailApiKey = obrigatoriaEmProducao('EMAIL_API_KEY')
+const emailRemetente = emailApiKey === undefined ? opcional('EMAIL_REMETENTE') : obrigatoria('EMAIL_REMETENTE')
+const padraoRemetente = /^(?:[^<>\r\n]{1,80} <[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+>|[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+)$/
+if (emailRemetente !== undefined && !padraoRemetente.test(emailRemetente.trim())) {
+  throw new Error('Variável de ambiente inválida: EMAIL_REMETENTE precisa ser um e-mail (email@dominio ou Nome <email@dominio>). Veja o .env.example.')
+}
+
 export const env = {
   nodeEnv,
   databaseUrl,
@@ -89,7 +133,10 @@ export const env = {
   // Sem token, o gateway.ts recusa a chamada ('sem chave'); sem segredo, o webhook.ts recusa toda notificação
   gatewayAccessToken,
   gatewayWebhookSecret,
-  // Opcional também em produção: o email.ts avisa no log e recusa enviar sem a chave
-  emailApiKey: opcional('EMAIL_API_KEY'),
-  emailRemetente: opcional('EMAIL_REMETENTE'),
+  // Obrigatórias em produção (D-54); fora dela, sem a chave o email.ts imprime o e-mail no terminal
+  emailApiKey,
+  emailRemetente: emailRemetente?.trim(),
+  // Caminho absoluto da pasta do build do frontend, ou undefined (o site não é servido pelo backend)
+  frontendDist,
+  permitirSimulacaoPix,
 }

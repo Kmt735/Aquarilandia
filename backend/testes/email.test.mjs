@@ -7,7 +7,7 @@ import { enviarEmail } from '../src/utils/email.ts'
 // objeto env (o mesmo que o módulo importa). Só o aviso de carga roda uma vez, no import: para testá-lo, o
 // módulo é importado de novo com um parâmetro de busca diferente na URL, o que cria uma instância nova do
 // módulo (o env.ts, com a URL de sempre, continua o mesmo objeto).
-const original = { nodeEnv: env.nodeEnv, emailApiKey: env.emailApiKey }
+const original = { nodeEnv: env.nodeEnv, emailApiKey: env.emailApiKey, emailRemetente: env.emailRemetente, fetch: globalThis.fetch }
 const mensagem = {
   para: 'cliente.teste@exemplo.com',
   assunto: 'Redefinir sua senha',
@@ -23,11 +23,13 @@ afterEach(() => {
   mock.restoreAll()
   env.nodeEnv = original.nodeEnv
   env.emailApiKey = original.emailApiKey
+  env.emailRemetente = original.emailRemetente
+  globalThis.fetch = original.fetch
 })
 const chamadas = (nome) => espioes[nome].mock.calls.map((chamada) => chamada.arguments.join(' '))
 const tudoQueFoiImpresso = () => metodos.flatMap(chamadas).join('\n')
 
-describe('E-mail — enviarEmail (#19a, sem provedor)', () => {
+describe('E-mail — enviarEmail (#19a; desde o Lote 14a, com o Resend)', () => {
   it('desenvolvimento sem chave: imprime o e-mail com [email:dev] e resolve', async () => {
     env.nodeEnv = 'development'; env.emailApiKey = undefined
     await enviarEmail(mensagem)
@@ -54,10 +56,14 @@ describe('E-mail — enviarEmail (#19a, sem provedor)', () => {
     }
   })
 
+  // Lote 14a: antes, "com chave: lança 'provedor ainda não escolhido' sem imprimir". Agora a chave envia pelo Resend
   for (const nodeEnv of ['development', 'production']) {
-    it(`com chave (${nodeEnv}): lança "provedor ainda não escolhido" sem imprimir`, async () => {
-      env.nodeEnv = nodeEnv; env.emailApiKey = 'chave-ficticia-de-teste'
-      await assert.rejects(enviarEmail(mensagem), { message: 'Provedor de e-mail ainda não escolhido (#19a, passo 3).' })
+    it(`com chave (${nodeEnv}): envia pelo Resend (fetch falso) sem imprimir`, async () => {
+      env.nodeEnv = nodeEnv; env.emailApiKey = 'chave-ficticia-de-teste'; env.emailRemetente = 'Loja <loja@remetente.example>'
+      const pedidos = []
+      globalThis.fetch = async (url, opcoes) => { pedidos.push({ url, opcoes }); return new Response('{"id":"x"}', { status: 200 }) }
+      await enviarEmail(mensagem)
+      assert.equal(pedidos.length, 1)
       assert.equal(tudoQueFoiImpresso(), '')
     })
   }
@@ -115,5 +121,68 @@ describe('E-mail — enviarEmail (#19a, sem provedor)', () => {
       await carregar()
       assert.equal(espioes.warn.mock.callCount(), 0)
     })
+  })
+})
+
+describe('E-mail — Resend pela API HTTP (Lote 14a, D-54)', () => {
+  const chave = 're_CHAVE_FICTICIA_DE_TESTE_123456'
+  const remetente = 'Aquarilândia <nao-responda@loja.example>'
+  let pedidos
+  beforeEach(() => {
+    env.nodeEnv = 'production'; env.emailApiKey = chave; env.emailRemetente = remetente
+    pedidos = []
+  })
+  const responder = (status, corpo = '{"id":"4ef9a417-02e9-4d39-ad75-9611e0fcc33c"}') => {
+    globalThis.fetch = async (url, opcoes) => { pedidos.push({ url, opcoes }); return new Response(corpo, { status }) }
+  }
+
+  it('POST https://api.resend.com/emails com Bearer, JSON { from, to: [para], subject, text } e mais nada (sem html)', async () => {
+    responder(200)
+    const timeout = mock.method(AbortSignal, 'timeout')
+    await enviarEmail(mensagem)
+    assert.equal(pedidos.length, 1)
+    const [{ url, opcoes }] = pedidos
+    assert.equal(url, 'https://api.resend.com/emails')
+    assert.equal(opcoes.method, 'POST')
+    assert.equal(opcoes.headers.Authorization, `Bearer ${chave}`)
+    assert.equal(opcoes.headers['Content-Type'], 'application/json')
+    assert.deepEqual(JSON.parse(opcoes.body), { from: remetente, to: [mensagem.para], subject: mensagem.assunto, text: mensagem.texto })
+    assert.ok(opcoes.signal instanceof AbortSignal)
+    assert.deepEqual(timeout.mock.calls.map((c) => c.arguments), [[10000]], 'timeout de 10 s')
+    assert.equal(tudoQueFoiImpresso(), '')
+  })
+
+  for (const status of [400, 401, 403, 422, 429, 500, 503]) {
+    it(`HTTP ${status} → Error curto com o status, sem a chave, o destinatário, o texto nem o corpo da resposta`, async () => {
+      responder(status, JSON.stringify({ name: 'validation_error', message: `chave ${chave} inválida para ${mensagem.para}` }))
+      await assert.rejects(enviarEmail(mensagem), (err) => {
+        assert.equal(err.message, `Provedor de e-mail recusou o envio: HTTP ${status}.`)
+        for (const proibido of [chave, mensagem.para, 'TOKEN-SECRETO-DE-TESTE', 'validation_error']) {
+          assert.equal(err.message.includes(proibido), false, proibido)
+        }
+        return true
+      })
+      assert.equal(tudoQueFoiImpresso(), '')
+    })
+  }
+
+  it('timeout (o fetch aborta) → "sem resposta em 10 s"; falha de rede → "inacessível"; sem dados', async () => {
+    globalThis.fetch = async () => { throw new DOMException('The operation timed out.', 'TimeoutError') }
+    await assert.rejects(enviarEmail(mensagem), { message: 'Provedor de e-mail sem resposta em 10 s.' })
+    globalThis.fetch = async () => { throw new TypeError(`fetch failed ${chave}`) }
+    await assert.rejects(enviarEmail(mensagem), (err) => err.message === 'Provedor de e-mail inacessível.' && !err.message.includes(chave))
+  })
+
+  it('com a chave e sem o remetente → Error, sem chamar o fetch', async () => {
+    responder(200)
+    env.emailRemetente = undefined
+    await assert.rejects(enviarEmail(mensagem), { message: 'Remetente de e-mail não configurado.' })
+    assert.equal(pedidos.length, 0)
+  })
+
+  it('mensagem com html → recusada antes do envio (só texto)', async () => {
+    responder(200)
+    await assert.rejects(enviarEmail({ ...mensagem, html: '<b>oi</b>' }), /só texto/)
+    assert.equal(pedidos.length, 0)
   })
 })

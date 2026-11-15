@@ -3,14 +3,18 @@ import type { Queryable } from '../../utils/transacao.js'
 import type { AutoriaVenda } from './venda.transicoes.js'
 import type {
   EtapaHistorico,
+  EtapaHistoricoAdmin,
   FiltroVendas,
-  LinhaPagamento,
+  FiltrosVendaAdmin,
   LinhaResumoVenda,
   NovaVenda,
   NovoItemVenda,
+  ResumoVendaAdmin,
   StatusVenda,
   TipoEntrega,
   VendaCriada,
+  VendaParaPix,
+  VendaVencida,
 } from './venda.types.js'
 
 // Linha de vendas lida pelo buscarCompleta: os entrega_* de endereço são NULL na retirada
@@ -33,6 +37,44 @@ interface LinhaVenda {
   bairro: string | null
   cidade: string | null
   uf: string | null
+}
+
+// A venda completa por id; com clienteId, só a do próprio cliente (null = admin, sem filtro de dono)
+async function buscarVenda(
+  id: number,
+  clienteId: number | null,
+  executor: Queryable,
+): Promise<(VendaCriada & { clienteId: number }) | null> {
+  const { rows } = await executor.query<LinhaVenda & { clienteId: number }>(
+    `SELECT id, cliente_id AS "clienteId", status, tipo_entrega AS "tipoEntrega", subtotal, frete, total,
+            prazo_entrega_dias AS "prazoEntregaDias", expira_em AS "expiraEm", criado_em AS "criadoEm",
+            entrega_destinatario AS destinatario, entrega_telefone AS telefone, entrega_cep AS cep,
+            entrega_logradouro AS logradouro, entrega_numero AS numero, entrega_complemento AS complemento,
+            entrega_bairro AS bairro, entrega_cidade AS cidade, entrega_uf AS uf
+       FROM vendas
+      WHERE id = $1 AND ($2::integer IS NULL OR cliente_id = $2)`,
+    [id, clienteId],
+  )
+  const venda = rows[0]
+  if (!venda) return null
+
+  // ORDER BY id = a ordem em que os itens foram gravados (a da primeira aparição de cada produto no body)
+  const { rows: itens } = await executor.query<NovoItemVenda>(
+    `SELECT produto_id AS "produtoId", nome_produto AS "nomeProduto", preco_unitario AS "precoUnitario",
+            quantidade, subtotal
+       FROM itens_venda
+      WHERE venda_id = $1
+      ORDER BY id`,
+    [id],
+  )
+
+  const { destinatario, telefone, cep, logradouro, numero, complemento, bairro, cidade, uf, ...resumo } = venda
+  // Na retirada não há endereço: entrega null. Fora dela, o CHECK ck_vendas_endereco_entrega garante cep,
+  // logradouro, numero, bairro, cidade e uf preenchidos (só o complemento pode ser NULL)
+  const entrega = resumo.tipoEntrega === 'retirada'
+    ? null
+    : { cep, logradouro, numero, complemento, bairro, cidade, uf, destinatario, telefone } as VendaCriada['entrega']
+  return { ...resumo, itens, entrega }
 }
 
 export const vendaRepository = {
@@ -95,38 +137,21 @@ export const vendaRepository = {
     return rows[0] ?? null
   },
 
-  // A venda completa, como o cliente vê (resposta da criação, da repetição e, depois, do detalhe da #34).
+  // A venda completa, como o cliente vê (resposta da criação, da repetição e do detalhe da #34).
   // Filtra por id E cliente_id: venda de outro cliente não é encontrada (quem chama responde 404)
   async buscarCompleta(id: number, clienteId: number, executor: Queryable = db): Promise<VendaCriada | null> {
-    const { rows } = await executor.query<LinhaVenda>(
-      `SELECT id, status, tipo_entrega AS "tipoEntrega", subtotal, frete, total, prazo_entrega_dias AS "prazoEntregaDias",
-              expira_em AS "expiraEm", criado_em AS "criadoEm", entrega_destinatario AS destinatario,
-              entrega_telefone AS telefone, entrega_cep AS cep, entrega_logradouro AS logradouro, entrega_numero AS numero,
-              entrega_complemento AS complemento, entrega_bairro AS bairro, entrega_cidade AS cidade, entrega_uf AS uf
-         FROM vendas
-        WHERE id = $1 AND cliente_id = $2`,
-      [id, clienteId],
-    )
-    const venda = rows[0]
+    const venda = await buscarVenda(id, clienteId, executor)
     if (!venda) return null
+    const { clienteId: _dono, ...semDono } = venda
+    return semDono
+  },
 
-    // ORDER BY id = a ordem em que os itens foram gravados (a da primeira aparição de cada produto no body)
-    const { rows: itens } = await executor.query<NovoItemVenda>(
-      `SELECT produto_id AS "produtoId", nome_produto AS "nomeProduto", preco_unitario AS "precoUnitario",
-              quantidade, subtotal
-         FROM itens_venda
-        WHERE venda_id = $1
-        ORDER BY id`,
-      [id],
-    )
-
-    const { destinatario, telefone, cep, logradouro, numero, complemento, bairro, cidade, uf, ...resumo } = venda
-    // Na retirada não há endereço: entrega null. Fora dela, o CHECK ck_vendas_endereco_entrega garante cep,
-    // logradouro, numero, bairro, cidade e uf preenchidos (só o complemento pode ser NULL)
-    const entrega = resumo.tipoEntrega === 'retirada'
-      ? null
-      : { cep, logradouro, numero, complemento, bairro, cidade, uf, destinatario, telefone } as VendaCriada['entrega']
-    return { ...resumo, itens, entrega }
+  // A mesma venda para o admin (#35, #40): qualquer cliente, e com o clienteId (para buscar a conta)
+  async buscarCompletaParaAdmin(
+    id: number,
+    executor: Queryable = db,
+  ): Promise<(VendaCriada & { clienteId: number }) | null> {
+    return buscarVenda(id, null, executor)
   },
 
   // Um INSERT só para todos os itens: cada array é uma coluna, e o unnest junta as posições em linhas
@@ -224,16 +249,71 @@ export const vendaRepository = {
   // ---------- #32 expiração ----------
 
   // Até `limite` vendas aguardando pagamento vencidas há mais de 5 minutos, as mais antigas primeiro (usa o índice
-  // parcial idx_vendas_expira_em). A folga de 5 minutos está explicada no venda.tarefas.ts
-  async buscarVencidas(limite: number): Promise<number[]> {
-    const { rows } = await db.query<{ id: number }>(
-      `SELECT id FROM vendas
+  // parcial idx_vendas_expira_em). A folga de 5 minutos e a de 1 hora estão explicadas no venda.tarefas.ts
+  async buscarVencidas(limite: number): Promise<VendaVencida[]> {
+    const { rows } = await db.query<VendaVencida>(
+      `SELECT id, expira_em < now() - interval '1 hour' AS "vencidaHaMaisDeUmaHora"
+         FROM vendas
         WHERE status = 'aguardando_pagamento' AND expira_em < now() - interval '5 minutes'
         ORDER BY expira_em, id
         LIMIT $1`,
       [limite],
     )
-    return rows.map((linha) => linha.id)
+    return rows
+  },
+
+  // ---------- #44 e #47 pagamento ----------
+  // As duas travam a linha da venda (FOR UPDATE) até o COMMIT de quem chama. A ordem das travas está no
+  // pagamento.service.ts: cliente → venda → pagamento no #44, venda → pagamento no webhook
+
+  // Filtra por id E cliente_id: venda de outro cliente não é encontrada (quem chama responde 404)
+  async travarDoCliente(vendaId: number, clienteId: number, client: Queryable): Promise<VendaParaPix | null> {
+    const { rows } = await client.query<VendaParaPix>(
+      `SELECT status, total, expira_em AS "expiraEm", expira_em >= now() + interval '60 seconds' AS "podePagar"
+         FROM vendas
+        WHERE id = $1 AND cliente_id = $2
+          FOR UPDATE`,
+      [vendaId, clienteId],
+    )
+    return rows[0] ?? null
+  },
+
+  // #35: o cliente só acha a própria venda (clienteId); o admin, qualquer uma (null)
+  async travarParaCancelar(vendaId: number, clienteId: number | null, client: Queryable): Promise<StatusVenda | null> {
+    const { rows } = await client.query<{ status: StatusVenda }>(
+      'SELECT status FROM vendas WHERE id = $1 AND ($2::integer IS NULL OR cliente_id = $2) FOR UPDATE',
+      [vendaId, clienteId],
+    )
+    return rows[0]?.status ?? null
+  },
+
+  // #41: o status e o tipo de entrega, com a venda travada (a regra de enviada/pronta_retirada depende do tipo)
+  async travarParaStatus(
+    vendaId: number,
+    client: Queryable,
+  ): Promise<{ status: StatusVenda; tipoEntrega: TipoEntrega } | null> {
+    const { rows } = await client.query<{ status: StatusVenda; tipoEntrega: TipoEntrega }>(
+      'SELECT status, tipo_entrega AS "tipoEntrega" FROM vendas WHERE id = $1 FOR UPDATE',
+      [vendaId],
+    )
+    return rows[0] ?? null
+  },
+
+  // Gravado ANTES do mudarStatus para 'enviada': o CHECK ck_vendas_rastreio_obrigatorio é conferido a cada comando,
+  // e a venda enviada pelos Correios sem rastreio seria recusada no meio do caminho
+  async definirRastreio(vendaId: number, codigoRastreio: string, client: Queryable): Promise<void> {
+    await client.query(
+      'UPDATE vendas SET codigo_rastreio = $2, atualizado_em = now() WHERE id = $1',
+      [vendaId, codigoRastreio],
+    )
+  },
+
+  async travarParaPagamento(vendaId: number, client: Queryable): Promise<StatusVenda | null> {
+    const { rows } = await client.query<{ status: StatusVenda }>(
+      'SELECT status FROM vendas WHERE id = $1 FOR UPDATE',
+      [vendaId],
+    )
+    return rows[0]?.status ?? null
   },
 
   // ---------- #33 e #37 compras do cliente ----------
@@ -271,7 +351,8 @@ export const vendaRepository = {
   },
 
   // ---------- #34 detalhe da compra ----------
-  // As três leituras abaixo filtram só pela venda: quem chama já conferiu o dono com o buscarCompleta(id, clienteId)
+  // As duas leituras abaixo (e o pagamentoRepository.listarPorVenda) filtram só pela venda: quem chama já conferiu o
+  // dono com o buscarCompleta(id, clienteId)
 
   async buscarCodigoRastreio(vendaId: number): Promise<string | null> {
     const { rows } = await db.query<{ codigoRastreio: string | null }>(
@@ -293,15 +374,101 @@ export const vendaRepository = {
     return rows
   },
 
-  // Só id, status, método e data: nenhum id do gateway, código Pix, valor, detalhe ou dado de estorno sai do banco
-  async listarPagamentos(vendaId: number): Promise<LinhaPagamento[]> {
-    const { rows } = await db.query<LinhaPagamento>(
-      `SELECT id, status, metodo, criado_em AS "criadoEm"
-         FROM pagamentos
-        WHERE venda_id = $1
-        ORDER BY criado_em DESC, id DESC`,
+  // Os pagamentos da venda saíram daqui no Lote 11: estão no pagamentoRepository.listarPorVenda (seção 8)
+
+  // ---------- #39 e #40 admin de vendas ----------
+
+  // Uma consulta para a página inteira, sem N+1: o JOIN traz o nome do cliente e o LATERAL conta os itens. A contagem
+  // usa o MESMO WHERE. Tudo entra como parâmetro (inclusive o LIMIT e o OFFSET); a direção da ordem é um de dois
+  // textos fixos. As datas são dias inteiros no fuso da loja (America/Sao_Paulo), comparadas com criado_em.
+  // problemaPagamento: algum pagamento com o estorno automático esgotado (aprovado, estorno pedido, 5 tentativas), em
+  // disputa, ou com o valor divergente (pagamentos é do mesmo dono; o EXISTS evita uma consulta por venda)
+  async listarParaAdmin(
+    filtro: FiltrosVendaAdmin,
+    maxTentativasEstorno: number,
+  ): Promise<{ linhas: ResumoVendaAdmin[]; total: number }> {
+    const valores: unknown[] = []
+    const condicoes: string[] = []
+    const parametro = (valor: unknown): string => {
+      valores.push(valor)
+      return `$${valores.length}`
+    }
+    if (filtro.clienteId !== null) condicoes.push(`v.cliente_id = ${parametro(filtro.clienteId)}`)
+    if (filtro.status !== null) condicoes.push(`v.status = ${parametro(filtro.status)}`)
+    if (filtro.tipoEntrega !== null) condicoes.push(`v.tipo_entrega = ${parametro(filtro.tipoEntrega)}`)
+    if (filtro.de !== null) {
+      condicoes.push(`v.criado_em >= (${parametro(filtro.de)}::date::timestamp AT TIME ZONE 'America/Sao_Paulo')`)
+    }
+    if (filtro.ate !== null) {
+      condicoes.push(`v.criado_em < ((${parametro(filtro.ate)}::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')`)
+    }
+    if (filtro.problemaPagamento) {
+      condicoes.push(`EXISTS (
+        SELECT 1 FROM pagamentos p
+         WHERE p.venda_id = v.id
+           AND ((p.status = 'aprovado' AND p.estorno_solicitado_em IS NOT NULL
+                 AND p.estorno_tentativas >= ${parametro(maxTentativasEstorno)})
+                OR p.status = 'em_disputa'
+                OR p.status_detalhe = 'valor divergente'))`)
+    }
+    const where = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : ''
+    // Fila de separação: com status=paga, as mais antigas primeiro (a que espera há mais tempo)
+    const direcao = filtro.status === 'paga' ? 'ASC' : 'DESC'
+
+    const { rows: contagem } = await db.query<{ total: number }>(
+      `SELECT count(*)::int AS total FROM vendas v ${where}`,
+      valores,
+    )
+    const { rows } = await db.query<ResumoVendaAdmin>(
+      `SELECT v.id, v.status, v.tipo_entrega AS "tipoEntrega", v.total, c.nome AS "clienteNome",
+              i.quantidade AS "quantidadeItens", v.criado_em AS "criadoEm"
+         FROM vendas v
+         JOIN clientes c ON c.id = v.cliente_id
+        CROSS JOIN LATERAL (SELECT count(*)::int AS quantidade FROM itens_venda iv WHERE iv.venda_id = v.id) i
+        ${where}
+        ORDER BY v.criado_em ${direcao}, v.id ${direcao}
+        LIMIT $${valores.length + 1} OFFSET $${valores.length + 2}`,
+      [...valores, filtro.limite, (filtro.pagina - 1) * filtro.limite],
+    )
+    return { linhas: rows, total: contagem[0].total }
+  },
+
+  // O histórico com a autoria: origem, o nome de quem mudou (cliente ou admin; NULL no sistema e no gateway) e a
+  // observação. Ordem cronológica, desempate pelo id
+  async listarHistoricoParaAdmin(vendaId: number): Promise<EtapaHistoricoAdmin[]> {
+    type Linha = Omit<EtapaHistoricoAdmin, 'alteradoPor'> & { autorId: number | null; autorNome: string | null }
+    const { rows } = await db.query<Linha>(
+      `SELECT h.status_anterior AS "statusAnterior", h.status_novo AS status, h.origem, h.alterado_por_id AS "autorId",
+              c.nome AS "autorNome", h.observacao, h.criado_em AS data
+         FROM historico_status_venda h
+         LEFT JOIN clientes c ON c.id = h.alterado_por_id
+        WHERE h.venda_id = $1
+        ORDER BY h.criado_em, h.id`,
       [vendaId],
     )
-    return rows
+    return rows.map(({ autorId, autorNome, ...etapa }) => ({
+      ...etapa,
+      alteradoPor: autorId === null ? null : { id: autorId, nome: autorNome ?? '' },
+    }))
+  },
+
+  // E-mail de mudança de status (vendaNotificacoes.ts): o dono, o rastreio e se algum pagamento foi devolvido
+  async buscarParaNotificacao(
+    vendaId: number,
+  ): Promise<{ clienteId: number; codigoRastreio: string | null; pagamentoDevolvido: boolean } | null> {
+    const { rows } = await db.query<{ clienteId: number; codigoRastreio: string | null; pagamentoDevolvido: boolean }>(
+      `SELECT v.cliente_id AS "clienteId", v.codigo_rastreio AS "codigoRastreio",
+              EXISTS (SELECT 1 FROM pagamentos p WHERE p.venda_id = v.id AND p.status = 'estornado')
+                AS "pagamentoDevolvido"
+         FROM vendas v
+        WHERE v.id = $1`,
+      [vendaId],
+    )
+    return rows[0] ?? null
+  },
+
+  async existe(vendaId: number): Promise<boolean> {
+    const { rows } = await db.query('SELECT 1 FROM vendas WHERE id = $1', [vendaId])
+    return rows.length > 0
   },
 }

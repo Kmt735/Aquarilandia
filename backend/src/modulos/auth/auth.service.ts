@@ -16,7 +16,7 @@ import {
   normalizarEmail,
   normalizarTelefone,
 } from '../clientes/cliente.validacao.js'
-import { gerarHash, verificarSenha } from '../clientes/senha.js'
+import { gerarHash, verificarSenha, verificarSenhaFicticia } from '../clientes/senha.js'
 import type { DadosCadastro, DadosLogin } from './auth.types.js'
 import { gerarToken, hashToken } from './sessao.js'
 import { sessaoRepository } from './sessao.repository.js'
@@ -213,7 +213,12 @@ export const authService = {
     const dados = validarLogin(body)
 
     const encontrado = await clienteRepository.buscarParaLogin(dados.email)
-    if (!encontrado || !encontrado.ativo) throw new AppError(MSG_LOGIN_INVALIDO, 401)
+    // E-mail que não existe, conta desativada ou anonimizada: o MESMO 401 e o MESMO custo de uma senha errada (um
+    // argon2.verify contra o hash fictício), para o tempo da resposta não revelar quem tem conta (R-03)
+    if (!encontrado || !encontrado.ativo) {
+      await verificarSenhaFicticia(dados.senha)
+      throw new AppError(MSG_LOGIN_INVALIDO, 401)
+    }
 
     const senhaConfere = await verificarSenha(encontrado.senhaHash, dados.senha)
     if (!senhaConfere) throw new AppError(MSG_LOGIN_INVALIDO, 401)
