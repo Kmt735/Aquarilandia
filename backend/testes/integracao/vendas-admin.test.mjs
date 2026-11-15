@@ -19,7 +19,7 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
   const chavePublica = 't9dXRhHHo3yDEj5pVDYz0frf7q6bMKyMRmxxCPIPp3RCplBfXRxqlC6ZpiWmOqj4L63qEaeUOtrCI8P0VMUgo6iIga2ri9ogaHFs0WIIywSMg0q7RmBfybe1E5XJcfC4IW3alNqym0tXoAKkzvfEjZxV6bE0oG2zJrNNYmUCKZyV0KZ3JS8Votf9EAWWYdiDkMkpbMdPggfh1EqHlVkMiTady6jOR3hyzGEHrIz2Ret0xHKMbiqkr9HS1JhNHDX9'
   const prefixoCodigoPix = `00020126PIXSEGREDO${tag}`
   const motivoEstorno = 'Pagamento recebido para compra já cancelada ou paga.'
-  let c, pool, server, api, origem, estoque, tarefas, limites, gatewayPix, canalEmail, AppError, adminId, admin, criado = false
+  let c, pool, server, api, origem, estoque, tarefas, limites, gatewayPix, pagamentoService, canalEmail, AppError, adminId, admin, criado = false
   const saida = []
   let emails = [], bloqueados = []
   let n = 0
@@ -77,6 +77,7 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     tarefas = await import('../../src/modulos/vendas/venda.tarefas.ts')
     limites = await import('../../src/middlewares/rateLimit.ts')
     gatewayPix = (await import('../../src/modulos/pagamentos/gateway.ts')).gatewayPix
+    pagamentoService = (await import('../../src/modulos/pagamentos/pagamento.service.ts')).pagamentoService
     canalEmail = (await import('../../src/modulos/vendas/vendaNotificacoes.ts')).canalEmail
     AppError = (await import('../../src/utils/AppError.ts')).AppError
     server = app.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -98,6 +99,9 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     await new Promise((r) => setTimeout(r, 100))
     mock.restoreAll()
     assert.deepEqual(bloqueados, [], 'houve chamada de rede para fora da aplicação')
+    const divergencias = await c.query(`SELECT p.id FROM produtos p LEFT JOIN movimentacoes_estoque m ON m.produto_id = p.id
+      GROUP BY p.id HAVING p.estoque::bigint <> COALESCE(sum(m.delta), 0)`)
+    assert.deepEqual(divergencias.rows, [], 'saldo deve reconciliar com o ledger após cada cenário')
     await c.query("UPDATE vendas SET expira_em = now() + interval '1 day' WHERE status = 'aguardando_pagamento' AND expira_em < now() + interval '5 minutes'")
   })
   after(async () => {
@@ -129,10 +133,10 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     return { status: r.status, cache: r.headers.get('cache-control'), texto, corpo: texto ? JSON.parse(texto) : null }
   }
   // entrega: 'retirada' | 'propria' (CEP de São João del Rei) | 'correios' (outro CEP de MG). 2 unidades de 1000
-  async function comprar({ dono = null, entrega = 'retirada' } = {}) {
+  async function comprar({ dono = null, entrega = 'retirada', itensPreparados } = {}) {
     const quem = dono ?? await conta()
-    const p = await produto(10)
-    const itens = [{ produtoId: p, quantidade: 2 }]
+    const itens = itensPreparados ?? [{ produtoId: await produto(10), quantidade: 2 }]
+    const p = itens[0].produtoId
     let destino = { retirada: true }, cep = null
     if (entrega !== 'retirada') {
       cep = entrega === 'propria' ? '36300000' : '30100000'
@@ -154,8 +158,8 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     return { vendaId: corpo.id, produtoId: p, dono: quem, total: corpo.total }
   }
   const assinar = (corpo) => createHmac('sha256', chavePublica).update(corpo).digest('base64')
-  async function aviso(cobrancaId) {
-    const corpo = JSON.stringify({ id: novoEvento(), event: 'transparent.completed', data: { transparent: { id: cobrancaId } } })
+  async function aviso(cobrancaId, eventoId = novoEvento()) {
+    const corpo = JSON.stringify({ id: eventoId, event: 'transparent.completed', data: { transparent: { id: cobrancaId } } })
     const r = await fetch(`${api}/pagamentos/webhook?webhookSecret=${encodeURIComponent(segredo)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Webhook-Signature': assinar(corpo) }, body: corpo,
     })
@@ -194,6 +198,19 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
   async function esgotarEstorno() {
     gw.estorno = () => ({ aprovado: false, jaEstornado: false, erro: 'INSUFFICIENT_FUNDS' })
     for (let i = 0; i < 4; i++) await tarefas.executarEstornos()
+  }
+
+  // Datas fixas só para a nova família de regressões; sessão/prazo operacional continuam validados pela API.
+  async function pagaParaEstorno(opcoes) {
+    const compra = await paga(opcoes)
+    await c.query("UPDATE vendas SET criado_em='2026-01-15T12:00:00Z', expira_em='2099-01-01T00:00:00Z' WHERE id=$1", [compra.vendaId])
+    return compra
+  }
+  async function solicitarSemConcluir(compra) {
+    gw.estorno = () => ({ aprovado: false, jaEstornado: false, erro: 'INSUFFICIENT_FUNDS' })
+    const r = await cancelar(compra.dono, compra.vendaId)
+    assert.equal(r.status, 200, r.texto)
+    assert.equal(r.corpo.status, 'cancelamento_solicitado')
   }
 
   // ======================= #35 cancelar =======================
@@ -380,10 +397,12 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     const a = await paga({ dono: dona, entrega: 'retirada' })
     const b = await paga({ dono: dona, entrega: 'propria' })
     const cc = await comprar({ dono: dona, entrega: 'retirada' })
-    await c.query("UPDATE vendas SET criado_em = now() - interval '3 hours' WHERE id = $1", [a.vendaId])
-    await c.query("UPDATE vendas SET criado_em = now() - interval '2 hours' WHERE id = $1", [b.vendaId])
-    const hoje = (await c.query("SELECT to_char(now() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0].d
-    const ontem = (await c.query("SELECT to_char((now() AT TIME ZONE 'America/Sao_Paulo') - interval '2 days', 'YYYY-MM-DD') AS d")).rows[0].d
+    // Mesmo dia comercial, independente do horário da execução (inclusive perto da meia-noite).
+    await c.query("UPDATE vendas SET criado_em = '2026-01-15T12:00:00Z' WHERE id = $1", [a.vendaId])
+    await c.query("UPDATE vendas SET criado_em = '2026-01-15T13:00:00Z' WHERE id = $1", [b.vendaId])
+    await c.query("UPDATE vendas SET criado_em = '2026-01-15T14:00:00Z' WHERE id = $1", [cc.vendaId])
+    const hoje = '2026-01-15'
+    const ontem = '2026-01-13'
 
     const todas = await pedir(`/vendas?clienteId=${dona.id}`, admin)
     assert.equal(todas.status, 200)
@@ -611,6 +630,278 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
       assert.equal(todos.includes(proibido), false, `e-mail com ${proibido}`)
     }
     for (const e of emails) assert.match(e.para, /@vendasadmin\.example$/)
+  })
+
+  it('17. confirmação financeira pelo webhook conclui pagamento, cancelamento e estoque', async (t) => {
+    const { vendaId, produtoId, dono, cobrancaId, pagamentoId } = await paga()
+    await c.query("UPDATE vendas SET criado_em='2026-01-15T12:00:00Z',expira_em='2099-01-01T00:00:00Z' WHERE id=$1", [vendaId])
+    gw.estorno = () => ({ aprovado: false, jaEstornado: false, erro: 'INSUFFICIENT_FUNDS' })
+    assert.equal((await cancelar(dono, vendaId)).corpo.status, 'cancelamento_solicitado')
+    assert.equal(await saldo(produtoId), 8)
+    gw.cobrancas.get(cobrancaId).status = 'estornado'
+    assert.equal(await aviso(cobrancaId), 200)
+    const estado = { pagamento: (await pagamentos(vendaId)).find((p) => p.id === pagamentoId).status,
+      venda: await statusVenda(vendaId), saldo: await saldo(produtoId), devolucoes: await devolucoesEstoque(vendaId) }
+    t.diagnostic(JSON.stringify(estado))
+    assert.deepEqual(estado, { pagamento: 'estornado', venda: 'cancelada', saldo: 10, devolucoes: 1 })
+    assert.equal((await historico(vendaId)).filter((h) => h.status_novo === 'cancelada').length, 1)
+  })
+
+  it('18. mesmo evento e eventos distintos da mesma confirmação não duplicam histórico, crédito ou e-mail', async () => {
+    const compra = await pagaParaEstorno()
+    await solicitarSemConcluir(compra)
+    gw.cobrancas.get(compra.cobrancaId).status = 'estornado'
+    const evento = novoEvento()
+    assert.equal(await aviso(compra.cobrancaId, evento), 200)
+    const quantidadeConsultas = gw.consultar.length
+    assert.equal(await aviso(compra.cobrancaId, evento), 200)
+    assert.equal(gw.consultar.length, quantidadeConsultas, 'evento processado não consulta outra vez')
+    assert.deepEqual(await Promise.all([aviso(compra.cobrancaId), aviso(compra.cobrancaId)]), [200, 200])
+    assert.equal(await saldo(compra.produtoId), 10)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 1)
+    assert.equal((await historico(compra.vendaId)).filter((h) => h.status_novo === 'cancelada').length, 1)
+    assert.equal(gw.estornar.length, 1, 'nenhum novo pedido financeiro')
+    assert.ok(await esperar(() => emailsDa(compra.vendaId).filter((e) => e.assunto.startsWith('Compra cancelada')).length === 1))
+  })
+
+  it('19. webhook × resposta do estorno e retries simultâneos convergem; rede sem locks e aviso após COMMIT', async () => {
+    const compra = await pagaParaEstorno()
+    assert.ok(await esperar(() => emailsDa(compra.vendaId).length === 1))
+    const observados = []
+    mock.method(canalEmail, 'enviar', async (mensagem) => {
+      if (mensagem.assunto.startsWith('Compra cancelada')) {
+        observados.push({ venda: await statusVenda(compra.vendaId), saldo: await saldo(compra.produtoId) })
+      }
+      emails.push(mensagem)
+    })
+    let liberar, entrou
+    const porta = new Promise((r) => { liberar = r })
+    const iniciado = new Promise((r) => { entrou = r })
+    gw.estorno = async () => {
+      // Conexão independente consegue as mesmas linhas enquanto a requisição externa está em andamento.
+      await c.query('BEGIN')
+      try {
+        await c.query('SELECT id FROM vendas WHERE id=$1 FOR UPDATE NOWAIT', [compra.vendaId])
+        await c.query('SELECT id FROM pagamentos WHERE id=$1 FOR UPDATE NOWAIT', [compra.pagamentoId])
+        await c.query('SELECT id FROM produtos WHERE id=$1 FOR UPDATE NOWAIT', [compra.produtoId])
+      } finally { await c.query('ROLLBACK') }
+      entrou()
+      await porta
+      return { aprovado: true, jaEstornado: false }
+    }
+    const cancelamento = cancelar(compra.dono, compra.vendaId)
+    try {
+      await iniciado
+      const retries = [pagamentoService.tentarEstornoPendente(compra.pagamentoId), pagamentoService.tentarEstornoPendente(compra.pagamentoId)]
+      gw.cobrancas.get(compra.cobrancaId).status = 'estornado'
+      assert.equal(await aviso(compra.cobrancaId), 200)
+      assert.equal(await statusVenda(compra.vendaId), 'cancelada')
+      liberar()
+      assert.deepEqual(await Promise.all(retries), ['estornado', 'estornado'])
+      assert.equal((await cancelamento).corpo.status, 'cancelada')
+    } finally { liberar(); await cancelamento }
+    assert.equal(gw.estornar.length, 1)
+    assert.equal(await saldo(compra.produtoId), 10)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 1)
+    assert.equal((await historico(compra.vendaId)).filter((h) => h.status_novo === 'cancelada').length, 1)
+    assert.ok(await esperar(() => observados.length === 1))
+    assert.deepEqual(observados, [{ venda: 'cancelada', saldo: 10 }], 'outra conexão já vê o COMMIT ao enviar')
+  })
+
+  for (const caminho of ['webhook', 'resposta']) {
+    it(`20.${caminho}. falha no segundo produto desfaz pagamento, venda, histórico e saldo; retry só reconcilia`, async () => {
+      const p1 = await produto(10), p2 = await produto(20)
+      const compra = await pagaParaEstorno({ itensPreparados: [{ produtoId: p2, quantidade: 3 }, { produtoId: p1, quantidade: 2 }] })
+      await solicitarSemConcluir(compra)
+      const antes = await historico(compra.vendaId)
+      const funcao = `falha_estorno_${caminho}`, gatilho = `falha_estorno_${caminho}`
+      await c.query(`CREATE FUNCTION ${funcao}() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'falha controlada no segundo produto'; END $$`)
+      await c.query(`CREATE TRIGGER ${gatilho} BEFORE INSERT ON movimentacoes_estoque FOR EACH ROW
+        WHEN (NEW.tipo = 'estorno_venda' AND NEW.produto_id = ${p2}) EXECUTE FUNCTION ${funcao}()`)
+      const evento = novoEvento()
+      try {
+        if (caminho === 'webhook') {
+          gw.cobrancas.get(compra.cobrancaId).status = 'estornado'
+          assert.equal(await aviso(compra.cobrancaId, evento), 500)
+          const falhou = (await c.query('SELECT processado_em, tentativas FROM eventos_webhook WHERE gateway_notificacao_id=$1', [evento])).rows[0]
+          assert.deepEqual(falhou, { processado_em: null, tentativas: 1 })
+        } else {
+          gw.estorno = () => {
+            gw.cobrancas.get(compra.cobrancaId).status = 'estornado' // dinheiro já voltou, mesmo que o banco falhe
+            return { aprovado: true, jaEstornado: false }
+          }
+          await assert.rejects(pagamentoService.tentarEstornoPendente(compra.pagamentoId), { code: 'P0001' })
+        }
+        assert.equal((await pagamentos(compra.vendaId))[0].status, 'aprovado')
+        assert.equal(await statusVenda(compra.vendaId), 'cancelamento_solicitado')
+        assert.deepEqual([await saldo(p1), await saldo(p2)], [8, 17])
+        assert.equal(await devolucoesEstoque(compra.vendaId), 0)
+        assert.deepEqual(await historico(compra.vendaId), antes)
+        await new Promise((r) => setTimeout(r, 100))
+        assert.equal(emailsDa(compra.vendaId).filter((e) => e.assunto.startsWith('Compra cancelada')).length, 0)
+      } finally {
+        await c.query(`DROP TRIGGER ${gatilho} ON movimentacoes_estoque`)
+        await c.query(`DROP FUNCTION ${funcao}()`)
+      }
+      const pedidosFinanceiros = gw.estornar.length
+      if (caminho === 'webhook') assert.equal(await aviso(compra.cobrancaId, evento), 200)
+      else assert.equal(await pagamentoService.tentarEstornoPendente(compra.pagamentoId), 'estornado')
+      assert.equal(gw.estornar.length, pedidosFinanceiros, 'retry reconsulta e não pede outro estorno')
+      assert.equal((await pagamentos(compra.vendaId))[0].status, 'estornado')
+      assert.equal(await statusVenda(compra.vendaId), 'cancelada')
+      assert.deepEqual([await saldo(p1), await saldo(p2)], [10, 20])
+      assert.equal(await devolucoesEstoque(compra.vendaId), 1)
+      const movimentos = (await c.query(`SELECT produto_id, quantidade FROM movimentacoes_estoque m
+        JOIN operacoes_estoque o ON o.id=m.operacao_id WHERE o.venda_id=$1 AND m.tipo='estorno_venda' ORDER BY produto_id`, [compra.vendaId])).rows
+      assert.deepEqual(movimentos, [{ produto_id: p1, quantidade: 2 }, { produto_id: p2, quantidade: 3 }])
+      assert.ok(await esperar(() => emailsDa(compra.vendaId).filter((e) => e.assunto.startsWith('Compra cancelada')).length === 1))
+    })
+  }
+
+  it('21. pagamento antigo já estornado e cancelamento pendente entra na fila e recupera mesmo com cinco tentativas', async () => {
+    const compra = await pagaParaEstorno()
+    await solicitarSemConcluir(compra)
+    await c.query("UPDATE pagamentos SET status='estornado', estorno_tentativas=5 WHERE id=$1", [compra.pagamentoId])
+    gw.cobrancas.get(compra.cobrancaId).status = 'estornado'
+    assert.ok((await pagamentoService.listarEstornosPendentes(50)).includes(compra.pagamentoId))
+    const pedidos = gw.estornar.length
+    await tarefas.executarEstornos()
+    assert.equal(gw.estornar.length, pedidos)
+    assert.equal(await statusVenda(compra.vendaId), 'cancelada')
+    assert.equal(await saldo(compra.produtoId), 10)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 1)
+    assert.equal((await pagamentoService.listarEstornosPendentes(50)).includes(compra.pagamentoId), false)
+  })
+
+  it('22. consulta pendente/recusada e estorno negado mantêm o estoque baixado; não presumir confirmação', async () => {
+    const compra = await pagaParaEstorno()
+    await solicitarSemConcluir(compra)
+    const pedidos = gw.estornar.length
+    for (const estado of ['pendente', 'recusado']) {
+      gw.cobrancas.get(compra.cobrancaId).status = estado
+      assert.equal(await aviso(compra.cobrancaId), 200)
+      assert.equal(await pagamentoService.tentarEstornoPendente(compra.pagamentoId), 'nada')
+    }
+    assert.equal(gw.estornar.length, pedidos, 'sem prova de aprovação não pedir reembolso')
+    gw.cobrancas.get(compra.cobrancaId).status = 'aprovado'
+    assert.equal(await pagamentoService.tentarEstornoPendente(compra.pagamentoId), 'falhou')
+    assert.equal((await pagamentos(compra.vendaId))[0].status, 'aprovado')
+    assert.equal(await statusVenda(compra.vendaId), 'cancelamento_solicitado')
+    assert.equal(await saldo(compra.produtoId), 8)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 0)
+  })
+
+  it('23. cobrança duplicada estornada não conclui a venda, inclusive durante cancelamento do pagamento correto', async () => {
+    const compra = await comPix()
+    await c.query("UPDATE vendas SET criado_em='2026-01-15T12:00:00Z', expira_em='2099-01-01T00:00:00Z' WHERE id=$1", [compra.vendaId])
+    gw.cobrancas.get(compra.cobrancaId).status = 'cancelado'
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    const outro = await pedir(`/vendas/${compra.vendaId}/pagamentos`, compra.dono, { metodo: 'POST' })
+    assert.equal(outro.status, 201, outro.texto)
+    const correta = gw.porPagamento.get(outro.corpo.pagamentoId)
+    gw.cobrancas.get(correta).status = 'aprovado'
+    assert.equal(await aviso(correta), 200)
+    gw.estorno = () => ({ aprovado: false, jaEstornado: false, erro: 'INSUFFICIENT_FUNDS' })
+    gw.cobrancas.get(compra.cobrancaId).status = 'aprovado'
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    // Dados divergentes de uma consulta não podem apagar a marca de cobrança indevida.
+    const valor = gw.cobrancas.get(compra.cobrancaId).valor
+    gw.cobrancas.get(compra.cobrancaId).valor = valor + 1
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    assert.equal((await pagamentos(compra.vendaId)).find((p) => p.id === compra.pagamentoId).status_detalhe, 'pagamento indevido')
+    gw.cobrancas.get(compra.cobrancaId).valor = valor
+    gw.cobrancas.get(compra.cobrancaId).status = 'estornado'
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    assert.equal(await statusVenda(compra.vendaId), 'paga')
+    await solicitarSemConcluir(compra)
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    assert.equal(await statusVenda(compra.vendaId), 'cancelamento_solicitado')
+    assert.equal(await saldo(compra.produtoId), 8)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 0)
+    // A conclusão manual antiga substituía o detalhe da cobrança indevida. Não a classificar como confirmadora.
+    await c.query("UPDATE pagamentos SET status_detalhe='estorno manual' WHERE id=$1", [compra.pagamentoId])
+    assert.equal((await pagamentoService.listarEstornosPendentes(50)).includes(compra.pagamentoId), false)
+    gw.cobrancas.get(compra.cobrancaId).valor++
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    assert.equal((await pagamentos(compra.vendaId)).find((p) => p.id === compra.pagamentoId).status_detalhe, 'estorno manual')
+    gw.cobrancas.get(compra.cobrancaId).valor--
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    assert.equal(await statusVenda(compra.vendaId), 'cancelamento_solicitado')
+    gw.cobrancas.get(correta).status = 'estornado'
+    assert.equal(await aviso(correta), 200)
+    assert.equal(await statusVenda(compra.vendaId), 'cancelada')
+    assert.equal(await saldo(compra.produtoId), 10)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 1)
+  })
+
+  for (const estado of ['enviada', 'entregue']) {
+    it(`24.${estado}. estorno espontâneo não cancela nem devolve; histórico de envio impede estado adulterado`, async () => {
+      const compra = await pagaParaEstorno({ entrega: 'correios' })
+      assert.equal((await mudarStatus(compra.vendaId, { status: 'em_separacao' })).status, 200)
+      assert.equal((await mudarStatus(compra.vendaId, { status: 'enviada', codigoRastreio: 'BR123456789BR' })).status, 200)
+      if (estado === 'entregue') assert.equal((await mudarStatus(compra.vendaId, { status: 'entregue' })).status, 200)
+      assert.equal((await cancelar(compra.dono, compra.vendaId)).status, 409)
+      gw.cobrancas.get(compra.cobrancaId).status = 'estornado'
+      assert.equal(await aviso(compra.cobrancaId), 200)
+      assert.equal(await statusVenda(compra.vendaId), estado)
+      assert.equal(await saldo(compra.produtoId), 8)
+      assert.equal(await devolucoesEstoque(compra.vendaId), 0)
+      // Simula inconsistência legada: não basta forçar cancelamento_solicitado para superar a guarda B1.
+      await c.query("UPDATE vendas SET status='cancelamento_solicitado' WHERE id=$1", [compra.vendaId])
+      await c.query("UPDATE pagamentos SET status='aprovado', estorno_solicitado_em='2026-01-15T13:00:00Z' WHERE id=$1", [compra.pagamentoId])
+      assert.equal(await aviso(compra.cobrancaId), 500)
+      assert.equal((await pagamentos(compra.vendaId))[0].status, 'aprovado', 'falha da guarda desfaz estado financeiro local')
+      assert.equal(await statusVenda(compra.vendaId), 'cancelamento_solicitado')
+      assert.equal(await saldo(compra.produtoId), 8)
+      assert.equal(await devolucoesEstoque(compra.vendaId), 0)
+      assert.equal((await historico(compra.vendaId)).filter((h) => h.status_novo === 'cancelada').length, 0)
+    })
+  }
+
+  it('25. valor ou cobrança divergente não comprova estorno e não libera estoque', async () => {
+    const compra = await pagaParaEstorno()
+    await solicitarSemConcluir(compra)
+    gw.cobrancas.get(compra.cobrancaId).status = 'estornado'
+    gw.cobrancas.get(compra.cobrancaId).valor++
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    assert.equal((await pagamentos(compra.vendaId))[0].status, 'aprovado')
+    const original = gatewayPix.consultarCobranca
+    const substituicao = mock.method(gatewayPix, 'consultarCobranca', async (id) => ({ ...await original(id), cobrancaId: 'pix_char_OUTRA' }))
+    assert.equal(await aviso(compra.cobrancaId), 500)
+    substituicao.mock.restore()
+    assert.equal(await statusVenda(compra.vendaId), 'cancelamento_solicitado')
+    assert.equal(await saldo(compra.produtoId), 8)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 0)
+    assert.equal(gw.estornar.length, 1)
+    gw.cobrancas.get(compra.cobrancaId).valor--
+    assert.equal(await aviso(compra.cobrancaId), 200)
+    assert.equal(await statusVenda(compra.vendaId), 'cancelada')
+  })
+
+  it('26. reconsulta aguardando lock relê a classificação do pagamento antes de decidir sobre estoque', async () => {
+    const compra = await pagaParaEstorno()
+    await solicitarSemConcluir(compra)
+    gw.cobrancas.get(compra.cobrancaId).status = 'estornado'
+    await c.query('BEGIN')
+    await c.query('SELECT id FROM pagamentos WHERE id=$1 FOR UPDATE', [compra.pagamentoId])
+    const requisicao = aviso(compra.cobrancaId)
+    try {
+      assert.ok(await esperar(async () => {
+        // A conexão observadora mantém uma transação aberta: descartar o snapshot das estatísticas entre sondagens.
+        await c.query('SELECT pg_stat_clear_snapshot()')
+        return (await c.query(`SELECT 1 FROM pg_stat_activity
+          WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM pagamentos%'`, [schema])).rowCount > 0
+      }, 5000),
+      'a consulta deve estar realmente bloqueada no PostgreSQL')
+      await c.query("UPDATE pagamentos SET status_detalhe='pagamento indevido' WHERE id=$1", [compra.pagamentoId])
+      await c.query('COMMIT')
+    } finally { await c.query('ROLLBACK'); await requisicao }
+    assert.equal(await requisicao, 200)
+    assert.equal((await pagamentos(compra.vendaId))[0].status, 'estornado')
+    assert.equal(await statusVenda(compra.vendaId), 'cancelamento_solicitado')
+    assert.equal(await saldo(compra.produtoId), 8)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 0)
   })
 
   it('99. nenhum token, cookie, segredo, código Pix ou id de cobrança no log da suíte', () => {

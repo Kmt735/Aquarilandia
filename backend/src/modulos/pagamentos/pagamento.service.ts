@@ -1,4 +1,5 @@
 import { AppError } from '../../utils/AppError.js'
+import type { PoolClient } from 'pg'
 import { comTransacao } from '../../utils/transacao.js'
 import type { Queryable } from '../../utils/transacao.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
@@ -45,7 +46,7 @@ const folgaMinimaMs = 60 * 1000
 export type ResultadoCobranca =
   | 'confirmado' // a venda virou paga
   | 'devolucao' // pagamento aprovado de venda cancelada ou já paga: estorno pedido
-  | 'atualizado' // só o pagamento mudou (estornado, cancelado, recusado, em disputa)
+  | 'atualizado' // estado financeiro atualizado; estorno também pode concluir o cancelamento
   | 'sem_mudanca'
   | 'valor_divergente'
   | 'desconhecida' // nenhuma cobrança nossa com esse id
@@ -153,14 +154,16 @@ async function aplicarConsulta(
   client: Queryable,
 ): Promise<ResultadoCobranca> {
   const { id } = pagamento
+  if ((consulta.status === 'aprovado' || consulta.status === 'estornado') && consulta.valor !== pagamento.valor) {
+    // Não apagar a classificação que impede um estorno de cobrança excedente de cancelar a compra válida.
+    if (pagamento.statusDetalhe !== detalheIndevido && pagamento.statusDetalhe !== 'estorno manual') {
+      await pagamentoRepository.marcarDetalhe(id, 'valor divergente', client)
+    }
+    console.error(`[pagamento] pagamento ${id}: valor divergente`)
+    return 'valor_divergente'
+  }
   switch (consulta.status) {
     case 'aprovado': {
-      // O valor que vale é o gravado no banco (vendas.total no #44). Diferente → não confirma: alguém precisa olhar
-      if (consulta.valor !== pagamento.valor) {
-        await pagamentoRepository.marcarDetalhe(id, 'valor divergente', client)
-        console.error(`[pagamento] pagamento ${id}: valor divergente`)
-        return 'valor_divergente'
-      }
       // Já aprovado (outro aviso da mesma cobrança, ou a reconsulta chegou antes): nada a fazer
       if (pagamento.status === 'aprovado') return 'sem_mudanca'
       // Estornado ou em disputa é um estado posterior ao aprovado: um aviso velho não volta o pagamento para trás
@@ -218,6 +221,25 @@ async function aplicarConsulta(
 async function processarCobranca(cobrancaId: string): Promise<ResultadoCobranca> {
   // a) Fora de transação
   const consulta = await gatewayPix.consultarCobranca(cobrancaId)
+  const resultado = await aplicarCobrancaConsultada(cobrancaId, consulta)
+
+  // A primeira tentativa de devolução acontece depois do COMMIT. O job reprocessa falhas.
+  if (resultado === 'devolucao') {
+    const pagamento = await pagamentoRepository.buscarPorCobranca(cobrancaId)
+    if (pagamento) {
+      try {
+        await tentarEstornoPendente(pagamento.id)
+      } catch (err) {
+        console.error(`[estorno] pagamento ${pagamento.id}: ${codigoDoErro(err)}`)
+      }
+    }
+  }
+  return resultado
+}
+
+// Só recebe a consulta autenticada do adaptador, nunca confirmação enviada pelo cliente.
+async function aplicarCobrancaConsultada(cobrancaId: string, consulta: ConsultaCobranca): Promise<ResultadoCobranca> {
+  if (consulta.cobrancaId !== cobrancaId) throw new AppError(msgIndisponivel, 502)
 
   // b) Cobrança que não é nossa: registra e para (o evento fica processado, para não ser reenviado para sempre)
   const pagamento = await acharPagamento(cobrancaId, consulta)
@@ -227,26 +249,25 @@ async function processarCobranca(cobrancaId: string): Promise<ResultadoCobranca>
   }
 
   // c) Trava NESTA ORDEM: a venda e depois o pagamento. É a mesma ordem do #44 (cliente → venda) e da expiração
-  // (venda), então nenhuma delas espera pela outra em círculo: sem deadlock
-  const resultado = await comTransacao(async (client) => {
+  // (venda). Releia também os vínculos depois de esperar pelas travas.
+  const { resultado, cancelou } = await comTransacao(async (client) => {
     const statusVenda = await vendaRepository.travarParaPagamento(pagamento.vendaId, client)
     const travado = await pagamentoRepository.travar(pagamento.id, client)
     if (!statusVenda || !travado) throw new Error('Venda ou pagamento não encontrado durante o processamento.')
-    // d) Conforme a consulta
-    return aplicarConsulta(consulta, pagamento.vendaId, statusVenda, travado, client)
+    if (travado.vendaId !== pagamento.vendaId || travado.cobrancaId !== cobrancaId) {
+      throw new Error('Vínculo do pagamento mudou durante o processamento.')
+    }
+    const resultado = await aplicarConsulta(consulta, pagamento.vendaId, statusVenda, travado, client)
+    const atualizado = consulta.status === 'estornado' && resultado !== 'valor_divergente'
+      ? await pagamentoRepository.travar(pagamento.id, client) : null
+    const cancelou = atualizado !== null
+      && await concluirCancelamentoComEstoque(pagamento.vendaId, statusVenda, atualizado, client)
+    return { resultado, cancelou }
   })
 
   // Depois do COMMIT: o e-mail de pagamento confirmado (webhook, expiração ou detalhe da compra)
   if (resultado === 'confirmado') notificarMudancaStatus(pagamento.vendaId, 'paga')
-
-  // e) Depois do COMMIT: a primeira tentativa de devolução já. Falhou? A tarefa de 5 em 5 minutos tenta de novo
-  if (resultado === 'devolucao') {
-    try {
-      await tentarEstornoPendente(pagamento.id)
-    } catch (err) {
-      console.error(`[estorno] pagamento ${pagamento.id}: ${codigoDoErro(err)}`)
-    }
-  }
+  if (cancelou) notificarMudancaStatus(pagamento.vendaId, 'cancelada')
   return resultado
 }
 
@@ -289,54 +310,83 @@ function semBaixaDeEstoque(err: unknown): boolean {
   return err instanceof AppError && err.statusCode === 409 && err.message === 'Venda sem baixa original de estoque'
 }
 
-// O estorno foi aprovado no gateway (ou já tinha sido): numa transação, trava a venda e o pagamento (ordem venda →
-// pagamento) e marca o pagamento como estornado. Se a venda está em cancelamento_solicitado e ESTE é o pagamento que
-// a confirmou (não o indevido), conclui o cancelamento: cancelada (ator sistema) e o estoque de volta, juntos.
-// Venda em outro status (o pagamento em dobro de uma venda paga, ou o de uma venda já cancelada): só o pagamento muda.
-// É por aqui que a tarefa de 5 em 5 minutos conclui sozinha os cancelamentos cujo estorno falhou da primeira vez: ela
-// chama o tentarEstornoPendente de novo e, quando o gateway aprova, cai aqui.
-// true = a venda foi cancelada nesta chamada
-async function concluirEstorno(vendaId: number, pagamentoId: number): Promise<boolean> {
+// Conclusão compartilhada por resposta direta e reconsulta/webhook. Quem chama já confirmou financeiramente,
+// travou venda → pagamento e gravou o estado financeiro no MESMO client. Não abre/comita outra transação.
+async function concluirCancelamentoComEstoque(
+  vendaId: number, statusVenda: StatusVenda, pagamento: PagamentoTravado, client: PoolClient,
+): Promise<boolean> {
+  if (statusVenda !== 'cancelamento_solicitado' || pagamento.vendaId !== vendaId
+    || pagamento.status !== 'estornado' || !pagamento.estornoSolicitadoEm
+    || pagamento.statusDetalhe === detalheIndevido || pagamento.statusDetalhe === 'estorno manual') {
+    return false
+  }
+  if (!podeTransicionar('cancelamento_solicitado', 'cancelada', 'sistema')) {
+    throw new Error('Transição cancelamento_solicitado → cancelada proibida para o sistema.')
+  }
+  const cancelou = await vendaRepository.mudarStatus(vendaId, 'cancelamento_solicitado', 'cancelada', {
+    ator: 'sistema', clienteId: null, observacao: 'Pagamento devolvido.',
+  }, client)
+  if (!cancelou) throw new Error('A venda travada mudou de status.')
+  try {
+    await estoqueService.estornarVenda(vendaId, client)
+  } catch (err) {
+    if (!semBaixaDeEstoque(err)) throw err
+    console.error(`[cancelamento] venda ${vendaId} sem baixa de estoque`)
+  }
+  return true
+}
+
+async function concluirEstorno(vendaId: number, pagamentoId: number, cobrancaId: string): Promise<boolean> {
   return comTransacao(async (client) => {
     const statusVenda = await vendaRepository.travarParaPagamento(vendaId, client)
     const travado = await pagamentoRepository.travar(pagamentoId, client)
     // Outra chamada (o cancelamento e a tarefa ao mesmo tempo) já concluiu: nada a fazer
-    if (!statusVenda || !travado || travado.status !== 'aprovado' || !travado.estornoSolicitadoEm) return false
-    await pagamentoRepository.marcarEstornado(pagamentoId, client)
-    if (statusVenda !== 'cancelamento_solicitado' || travado.statusDetalhe === detalheIndevido) return false
-
-    if (!podeTransicionar('cancelamento_solicitado', 'cancelada', 'sistema')) {
-      throw new Error('Transição cancelamento_solicitado → cancelada proibida para o sistema.')
-    }
-    await vendaRepository.mudarStatus(vendaId, 'cancelamento_solicitado', 'cancelada', {
-      ator: 'sistema',
-      clienteId: null,
-      observacao: 'Pagamento devolvido.',
-    }, client)
-    try {
-      await estoqueService.estornarVenda(vendaId, client)
-    } catch (err) {
-      if (!semBaixaDeEstoque(err)) throw err
-      console.error(`[cancelamento] venda ${vendaId} sem baixa de estoque`)
-    }
-    return true
+    if (!statusVenda || !travado || travado.vendaId !== vendaId || travado.cobrancaId !== cobrancaId
+      || !['aprovado', 'estornado'].includes(travado.status) || !travado.estornoSolicitadoEm) return false
+    if (travado.status === 'aprovado') await pagamentoRepository.marcarEstornado(pagamentoId, client)
+    return concluirCancelamentoComEstoque(vendaId, statusVenda, { ...travado, status: 'estornado' }, client)
   })
 }
 
-// Uma tentativa de devolver um pagamento aprovado com estorno pedido. O gatewayPix.estornar nunca lança por falha do
-// gateway; repetir é seguro, porque a AbacatePay recusa o segundo estorno com "já reembolsada" (= jaEstornado).
-// Só o código curto do erro é gravado (ex.: INSUFFICIENT_FUNDS: a loja sem saldo disponível na conta, D-22)
+// Coalesce chamadas simultâneas neste processo; a idempotência local continua nos locks/estado/ledger do banco.
+// Não é lease distribuído nem substitui a reconciliação financeira após reinício.
+const estornosEmCurso = new Map<number, Promise<ResultadoEstorno>>()
 async function tentarEstornoPendente(pagamentoId: number): Promise<ResultadoEstorno> {
+  const emCurso = estornosEmCurso.get(pagamentoId)
+  if (emCurso) return emCurso
+  const tentativa = executarEstornoPendente(pagamentoId)
+  estornosEmCurso.set(pagamentoId, tentativa)
+  try {
+    return await tentativa
+  } finally {
+    estornosEmCurso.delete(pagamentoId)
+  }
+}
+
+async function executarEstornoPendente(pagamentoId: number): Promise<ResultadoEstorno> {
   const pagamento = await pagamentoRepository.buscarParaEstorno(pagamentoId)
-  if (!pagamento || pagamento.status !== 'aprovado' || !pagamento.estornoSolicitadoEm || !pagamento.cobrancaId) {
+  if (!pagamento || !['aprovado', 'estornado'].includes(pagamento.status)
+    || !pagamento.estornoSolicitadoEm || !pagamento.cobrancaId) {
     return 'nada'
   }
-  if (pagamento.tentativas >= maxTentativasEstorno) return 'esgotado'
+
+  // Rede fora de locks. Se um estorno externo já teve sucesso e o COMMIT local falhou, só conclui localmente.
+  // Também recupera registros antigos já marcados estornados, que antes saíam da fila sem concluir a venda.
+  const consulta = await gatewayPix.consultarCobranca(pagamento.cobrancaId)
+  const resultado = await aplicarCobrancaConsultada(pagamento.cobrancaId, consulta)
+  if (resultado === 'valor_divergente' || resultado === 'desconhecida') return 'nada'
+  const atual = await pagamentoRepository.buscarParaEstorno(pagamentoId)
+  if (atual?.status === 'estornado') return consulta.status === 'estornado' ? 'estornado' : 'nada'
+  if (!atual || atual.vendaId !== pagamento.vendaId || atual.cobrancaId !== pagamento.cobrancaId
+    || atual.status !== 'aprovado' || !atual.estornoSolicitadoEm || consulta.status !== 'aprovado') return 'nada'
+  if (atual.tentativas >= maxTentativasEstorno) return 'esgotado'
 
   const resposta = await gatewayPix.estornar(pagamento.cobrancaId, motivoEstorno)
   if (resposta.aprovado || resposta.jaEstornado) {
     // Concluiu o cancelamento (depois do COMMIT): o e-mail de compra cancelada, com o valor devolvido
-    if (await concluirEstorno(pagamento.vendaId, pagamentoId)) notificarMudancaStatus(pagamento.vendaId, 'cancelada')
+    if (await concluirEstorno(pagamento.vendaId, pagamentoId, pagamento.cobrancaId)) {
+      notificarMudancaStatus(pagamento.vendaId, 'cancelada')
+    }
     return 'estornado'
   }
 

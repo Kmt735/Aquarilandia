@@ -21,6 +21,8 @@ export interface PagamentoDaCobranca {
 
 export interface PagamentoTravado {
   id: number
+  vendaId: number
+  cobrancaId: string | null
   status: StatusPagamento
   valor: number
   estornoSolicitadoEm: Date | null
@@ -138,7 +140,8 @@ export const pagamentoRepository = {
   // Quem chama já travou a venda: a ordem é sempre venda → pagamento (ver pagamento.service.ts)
   async travar(pagamentoId: number, client: Queryable): Promise<PagamentoTravado | null> {
     const { rows } = await client.query<PagamentoTravado>(
-      `SELECT id, status, valor, estorno_solicitado_em AS "estornoSolicitadoEm", status_detalhe AS "statusDetalhe",
+      `SELECT id, venda_id AS "vendaId", gateway_cobranca_id AS "cobrancaId",
+              status, valor, estorno_solicitado_em AS "estornoSolicitadoEm", status_detalhe AS "statusDetalhe",
               estorno_tentativas AS tentativas
          FROM pagamentos
         WHERE id = $1
@@ -225,7 +228,8 @@ export const pagamentoRepository = {
   // O indevido (status_detalhe 'pagamento indevido') fica de fora: ele não é o pagamento da compra
   async travarConfirmadorEmEstorno(vendaId: number, client: Queryable): Promise<PagamentoTravado | null> {
     const { rows } = await client.query<PagamentoTravado>(
-      `SELECT id, status, valor, estorno_solicitado_em AS "estornoSolicitadoEm", status_detalhe AS "statusDetalhe",
+      `SELECT id, venda_id AS "vendaId", gateway_cobranca_id AS "cobrancaId",
+              status, valor, estorno_solicitado_em AS "estornoSolicitadoEm", status_detalhe AS "statusDetalhe",
               estorno_tentativas AS tentativas
          FROM pagamentos
         WHERE venda_id = $1 AND status = 'aprovado' AND estorno_solicitado_em IS NOT NULL
@@ -328,14 +332,20 @@ export const pagamentoRepository = {
     return rows[0]?.tentativas ?? null
   },
 
-  // Usa o índice parcial idx_pagamentos_estorno_pendente; os mais antigos primeiro
+  // Inclui a conclusão local pendente de estorno já confirmado. Não recoloca cobranças indevidas nessa fila.
   async listarEstornosPendentes(maxTentativas: number, limite: number): Promise<number[]> {
     const { rows } = await db.query<{ id: number }>(
-      `SELECT id FROM pagamentos
-        WHERE status = 'aprovado' AND estorno_solicitado_em IS NOT NULL AND estorno_tentativas < $1
-        ORDER BY estorno_solicitado_em, id
+      `SELECT p.id FROM pagamentos p
+        JOIN vendas v ON v.id = p.venda_id
+        WHERE p.estorno_solicitado_em IS NOT NULL AND (
+          (p.status = 'aprovado' AND p.estorno_tentativas < $1)
+          OR (p.status = 'estornado' AND v.status = 'cancelamento_solicitado'
+              AND p.gateway_cobranca_id IS NOT NULL AND p.status_detalhe IS DISTINCT FROM $3
+              AND p.status_detalhe IS DISTINCT FROM 'estorno manual')
+        )
+        ORDER BY p.estorno_solicitado_em, p.id
         LIMIT $2`,
-      [maxTentativas, limite],
+      [maxTentativas, limite, detalheIndevido],
     )
     return rows.map((linha) => linha.id)
   },
