@@ -37,10 +37,10 @@ export default function EntrarPage() {
       <form
         ref={formRef}
         noValidate
-        onSubmit={enviar(async (d) => {
-          await entrar(d)
+         onSubmit={enviar(async (d) => {
+          const logado = await entrar(d)
           toast('Você entrou na sua conta.', { tipo: 'sucesso' })
-          navigate(voltar)
+          navigate(logado.papel === 'admin' && !params.get('voltar') ? ROTAS.admin : voltar)
         })}
       >
         {erroGeral && (

@@ -13,6 +13,9 @@ export const STATUS_PEDIDO = {
     icone: 'relogio',
   },
   cancelada: { rotulo: 'Cancelada', tom: 'neutro', icone: 'x' },
+  em_separacao: { rotulo: 'Preparando o pedido', tom: 'info', icone: 'caixa' },
+  enviada: { rotulo: 'Saiu para entrega', tom: 'info', icone: 'caminhao' },
+  entregue: { rotulo: 'Chegou', tom: 'sucesso', icone: 'check' },
 }
 
 // O cliente cancela até antes do envio (D-11: aguardando_pagamento, paga, em_separacao e pronta_retirada → cancelada)

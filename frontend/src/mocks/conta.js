@@ -4,6 +4,7 @@ export const USUARIO_EXEMPLO = {
   nome: 'Cliente de Exemplo',
   email: 'cliente@exemplo.com',
   telefone: '(32) 99999-0000',
+  papel: 'cliente',
 }
 
 export const ENDERECOS_EXEMPLO = [
@@ -32,3 +33,12 @@ export const ENDERECOS_EXEMPLO = [
     principal: false,
   },
 ]
+
+
+export const ADMIN_EXEMPLO = {
+  id: 'admin-exemplo',
+  nome: 'Administrador de Exemplo',
+  email: 'admin@aquarilandia.exemplo',
+  telefone: '(32) 99999-0001',
+  papel: 'admin',
+}
