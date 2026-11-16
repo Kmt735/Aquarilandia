@@ -1,7 +1,8 @@
 import Toast from '../molecules/Toast'
 import useToast from '../../hooks/useToast'
 
-// Região viva: leitores de tela anunciam cada aviso (aria-live)
+// Região viva: leitores de tela anunciam cada aviso (aria-live). Não bloqueia a página:
+// o contêiner deixa os cliques passarem e só os próprios avisos recebem clique.
 export default function ToastStack() {
   const { toasts, dispensar } = useToast()
 
@@ -14,6 +15,7 @@ export default function ToastStack() {
       {toasts.map((t) => (
         <Toast
           key={t.id}
+          titulo={t.titulo}
           mensagem={t.mensagem}
           tipo={t.tipo}
           acao={t.acao}

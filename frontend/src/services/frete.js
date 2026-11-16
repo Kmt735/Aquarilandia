@@ -1,14 +1,15 @@
 // INTEGRAÇÃO: POST /api/frete/calcular (D-29). Hoje usa a regra provisória de mocks/frete.js.
-import { FRETE_EXEMPLO } from '../mocks/frete'
-import { ErroApi, simularRede } from './http'
-import { cepValido } from '../utils/cep'
+import { FRETE_EXEMPLO } from '../mocks/frete.js'
+import { ErroApi, simularRede } from './http.js'
+import { cepValido } from '../utils/cep.js'
+import { MENSAGENS } from '../utils/validacao.js'
 
 export const AVISO_PEIXE =
   'Peixes vivos são entregues só em São João del Rei. Fora daqui, você pode retirar na loja.'
 
 export async function calcularFrete(cep, linhas) {
   await simularRede(500)
-  if (!cepValido(cep)) throw new ErroApi('CEP inválido.', { cep: 'Digite um CEP com 8 números. Exemplo: 36300-000.' })
+  if (!cepValido(cep)) throw new ErroApi('CEP inválido.', { cep: MENSAGENS.cep })
 
   const numero = Number(cep.replace(/\D/g, ''))
   const [min, max] = FRETE_EXEMPLO.faixaCepLocal
