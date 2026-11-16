@@ -23,13 +23,13 @@ test('home → categoria real → produto → detalhe com preço em centavos e f
 
 test('listagem pagina e aplica busca e faixa em centavos no backend', async ({ page }) => {
   await page.goto('/loja?categoria=aquarios')
-  await expect(page.getByText('12 produtos encontrados', { exact: true })).toBeVisible()
+  await expect(page.getByText('12 produtos', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Página 2', exact: true }).click()
   await expect(page).toHaveURL(/pagina=2/)
   await expect(page.getByRole('link', { name: 'Aquário Paginação 11', exact: true })).toBeVisible()
   await page.goto('/loja?categoria=aquarios&preco=50-200&ordem=menor-preco&busca=Ciclo')
   await expect(page.getByRole('link', { name: 'Aquário API Ciclo 1', exact: true })).toBeVisible()
-  await expect(page.getByText('1 produto encontrado', { exact: true })).toBeVisible()
+  await expect(page.getByText('1 produto', { exact: true })).toBeVisible()
 })
 
 test('ausência de ficha, imagem e estoque é explícita; inativo e link inexistente retornam 404', async ({ page, sistema }) => {
@@ -139,4 +139,22 @@ test('endereço textual antigo é tratado como link inválido sem mock de detalh
   await expect(page.getByText('Não encontramos esse peixe', { exact: true })).toBeVisible()
   await page.goto('/loja/aquario-exemplo')
   await expect(page.getByText('Não encontramos esse produto', { exact: true })).toBeVisible()
+})
+
+test('loja: filtros combinados ficam na URL, viram chips removíveis e sobrevivem ao recarregar', async ({ page }) => {
+  await page.goto('/loja?categoria=aquarios')
+  await expect(page.getByText('12 produtos', { exact: true })).toBeVisible()
+  await page.getByRole('complementary').getByText('Doce', { exact: true }).click()
+  await expect(page).toHaveURL(/agua=doce/)
+  await page.getByRole('complementary').getByLabel('Mínimo').fill('100')
+  await page.getByRole('complementary').getByLabel('Mínimo').press('Enter')
+  await expect(page).toHaveURL(/min=100/)
+  await expect(page.getByText('1 produto', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Remover filtro: A partir de R$ 100' })).toBeVisible()
+  await expect(page.getByText('1 produto', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Remover filtro: A partir de R$ 100' }).click()
+  await expect(page).not.toHaveURL(/min=/)
+  await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click()
+  await expect(page).toHaveURL(/\/loja$/)
 })

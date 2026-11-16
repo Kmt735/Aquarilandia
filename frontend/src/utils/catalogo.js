@@ -16,3 +16,12 @@ export function paginar(itens, paginaTexto, porPagina) {
 
 // Opções de filtro tiradas dos próprios dados (nada inventado)
 export const opcoesDe = (itens, ler) => [...new Set(itens.map(ler).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+// Texto do filtro de preço (chip e resumo da seção): campos em reais ou a faixa pronta dos links antigos (?preco=)
+export function rotuloPreco({ min, max, preco }, faixas = []) {
+  const reais = (v) => `R$ ${String(v).replace('.', ',')}`
+  if (min && max) return `${reais(min)} a ${reais(max)}`
+  if (min) return `A partir de ${reais(min)}`
+  if (max) return `Até ${reais(max)}`
+  return faixas.find((x) => x.valor === preco)?.rotulo ?? ''
+}
