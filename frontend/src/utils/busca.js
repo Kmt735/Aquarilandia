@@ -5,6 +5,7 @@ import { ROTAS, urlCategoria, urlItem } from './rotas.js'
 
 const PAGINAS = [
   { tipo: 'Página', rotulo: 'Meu Primeiro Aquário', sub: 'Guia passo a passo para iniciantes', to: ROTAS.primeiroAquario },
+  { tipo: 'Página', rotulo: 'Montar o meu aquário', sub: 'Meu Primeiro Aquário: escolha os itens e veja o preço estimado', to: ROTAS.montarAquario },
   { tipo: 'Página', rotulo: 'Serviços e orçamento', sub: 'Montagem, manutenção, plantados, empresas', to: ROTAS.servicos },
   { tipo: 'Página', rotulo: 'Perguntas frequentes', sub: 'Entrega, trocas e formas de pagamento', to: ROTAS.perguntas },
 ]

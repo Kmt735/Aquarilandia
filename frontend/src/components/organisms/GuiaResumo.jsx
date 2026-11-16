@@ -18,7 +18,7 @@ export default function GuiaResumo({ passos }) {
         acoes={
           <div className="flex flex-col gap-3">
             <Button tamanho="lg" asChild>
-              <Link to={ROTAS.monteSeuAquario}>Monte seu aquário</Link>
+              <Link to={ROTAS.montarAquario}>Montar o meu aquário</Link>
             </Button>
             <Button
               tamanho="lg"

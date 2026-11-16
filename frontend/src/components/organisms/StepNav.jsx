@@ -58,7 +58,7 @@ export default function StepNav({ passos, ativo, entendidos, onIr }) {
 
   return (
     <>
-      <nav aria-label="Passos do guia" className="sticky top-[calc(72px+1.5rem)] mt-14 hidden self-start desk:block">
+      <nav aria-label="Passos do guia" className="sticky top-[calc(72px+var(--altura-abas,0px)+1.5rem)] mt-14 hidden self-start desk:block">
         <p className="mb-3 px-2.5 text-pequeno font-bold">{legenda}</p>
         <ListaPassos passos={passos} ativo={ativo ?? passos[0].id} entendidos={entendidos} onEscolher={onIr} />
         <div className="mt-4 px-2.5">
@@ -66,7 +66,7 @@ export default function StepNav({ passos, ativo, entendidos, onIr }) {
         </div>
       </nav>
 
-      <nav aria-label="Passos do guia" className="sticky top-16 z-30 -mx-4 border-b border-border bg-surface/95 backdrop-blur sm:-mx-6 desk:hidden">
+      <nav aria-label="Passos do guia" className="sticky top-[calc(4rem+var(--altura-abas,0px))] z-30 -mx-4 border-b border-border bg-surface/95 backdrop-blur sm:-mx-6 desk:hidden">
         <Sheet open={aberto} onOpenChange={setAberto}>
           <SheetTrigger className="flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left text-pequeno font-bold sm:px-6">
             <span className="min-w-0 truncate">

@@ -1,4 +1,4 @@
-// Textos das etapas do "Monte seu Aquário" (a ordem segue lib/montagem.js › ETAPAS)
+// Textos das etapas do montador (Meu Primeiro Aquário › aba "Montar o meu") (a ordem segue lib/montagem.js › ETAPAS)
 export const etapasMontagem = [
   { id: 'aquario', rotulo: 'Aquário', titulo: 'Escolha o aquário', descricao: 'O tamanho do aquário define o resto: equipamentos, quantidade de substrato e quantos peixes cabem.' },
   { id: 'equipamentos', rotulo: 'Equipamentos', titulo: 'Equipamentos', descricao: 'Filtro, aquecedor e luz. Os que servem para o seu aquário aparecem primeiro.' },

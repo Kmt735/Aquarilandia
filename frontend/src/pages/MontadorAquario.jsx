@@ -1,5 +1,6 @@
 import { ListChecks, RotateCcw } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import Button from '../components/atoms/Button'
@@ -7,16 +8,15 @@ import Preco from '../components/atoms/Preco'
 import { SeloNivel } from '../components/molecules/CompatibilityWarning'
 import { CardItemSkeleton } from '../components/molecules/CardItem'
 import EmptyState from '../components/molecules/EmptyState'
-import IlustracaoAquario from '../components/molecules/IlustracaoAquario'
+import Callout from '../components/molecules/Callout'
 import BuilderStep from '../components/organisms/BuilderStep'
 import BuilderStepper from '../components/organisms/BuilderStepper'
 import BuilderSummary from '../components/organisms/BuilderSummary'
 import { EtapaAquario, EtapaDecoracao, EtapaEquipamentos, EtapaPeixes, EtapaPlantas, EtapaSubstrato } from '../components/organisms/BuilderEtapas'
-import PageTemplate from '../components/templates/PageTemplate'
+import SaibaMaisEtapa from '../components/organisms/SaibaMaisEtapa'
 import { etapasMontagem, rotulosEtapas } from '../data/montagem'
 import useCart from '../hooks/useCart'
 import useConsulta from '../hooks/useConsulta'
-import useMontagem from '../hooks/useMontagem'
 import useReducedMotion from '../hooks/useReducedMotion'
 import useToast from '../hooks/useToast'
 import useUI from '../hooks/useUI'
@@ -40,12 +40,16 @@ function textoResultado({ adicionados, limitados, ignorados }) {
   const noMaximo = ignorados.filter((i) => i.motivo === 'estoque' || i.motivo === 'limite')
   if (esgotados.length) partes.push(`Ficaram de fora por estarem esgotados: ${nomes(esgotados)}.`)
   if (noMaximo.length) partes.push(`Já estavam no carrinho na quantidade máxima: ${nomes(noMaximo)}.`)
-  return { texto: partes.join(' '), problema: limitados.length + ignorados.length > 0, nada: unidades === 0 }
+  return { texto: partes.join(' '), titulo: partes[0].replace(/\.$/, ''), detalhe: partes.slice(1).join(' '), problema: limitados.length + ignorados.length > 0, nada: unidades === 0 }
 }
 
-export default function MonteSeuAquarioPage() {
+// Aba "Montar o meu" da página Meu Primeiro Aquário. O estado (useMontagem) vem da página, que também mostra
+// o progresso na própria aba. ?etapa=peixes (links do guia) abre direto na etapa pedida.
+export default function MontadorAquario({ montagemApi }) {
   const consulta = useConsulta(carregarCatalogoMontagem, [])
-  const { montagem, irPara, avancar, concluirUltima, escolherAquario, usarAquarioProprio, alternar, definirQtd, remover, recomecar } = useMontagem()
+  const { montagem, irPara, avancar, concluirUltima, escolherAquario, usarAquarioProprio, alternar, definirQtd, remover, recomecar } = montagemApi
+  const [params, setParams] = useSearchParams()
+  const etapaPedida = params.get('etapa')
   const { adicionarVarios } = useCart()
   const { toast } = useToast()
   const { abrirPainel } = useUI()
@@ -68,6 +72,14 @@ export default function MonteSeuAquarioPage() {
   const qtdItens = ETAPAS.reduce((s, e) => s + linhas[e].reduce((t, l) => t + l.qtd, 0), 0)
   const etapa = etapasMontagem[montagem.etapa]
   const ultima = montagem.etapa === etapasMontagem.length - 1
+
+  // Link do guia (?etapa=peixes): vai para a etapa e limpa a URL (recarregar não força a etapa de novo)
+  useEffect(() => {
+    if (!etapaPedida) return
+    const i = ETAPAS.indexOf(etapaPedida)
+    if (i >= 0) irPara(i)
+    setParams((p) => { p.delete('etapa'); return p }, { replace: true })
+  }, [etapaPedida, irPara, setParams])
 
   // Ao trocar de etapa: volta ao topo do montador e põe o foco no título da etapa
   useEffect(() => {
@@ -92,9 +104,10 @@ export default function MonteSeuAquarioPage() {
       toast('Seu carrinho salvo está num formato desconhecido. Limpe o carrinho e tente de novo.', { tipo: 'erro', acao: 'Ver carrinho', onAcao: () => abrirPainel('carrinho') })
       return
     }
-    const { texto, problema, nada } = textoResultado(r)
+    const { texto, titulo, detalhe, problema, nada } = textoResultado(r)
     setResultadoCarrinho({ tipo: nada ? 'erro' : problema ? 'aviso' : 'sucesso', texto, chave: escolhasChave })
-    toast(texto, { tipo: nada ? 'erro' : problema ? 'info' : 'sucesso', acao: nada ? undefined : 'Ver carrinho', onAcao: () => { setLista(false); abrirPainel('carrinho') } })
+    // Um aviso só para a montagem inteira: "5 itens adicionados ao carrinho" + o que precisou de ajuste
+    toast(detalhe, { titulo, tipo: nada ? 'erro' : problema ? 'info' : 'sucesso', acao: nada ? undefined : 'Ver carrinho', onAcao: () => { setLista(false); abrirPainel('carrinho') } })
   }
 
   const pedirAdicao = () => (incompativeis.length ? setConfirmar('incompativel') : adicionarTudo())
@@ -117,14 +130,7 @@ export default function MonteSeuAquarioPage() {
   }
 
   return (
-    <PageTemplate
-      eyebrow="Passo a passo"
-      titulo="Monte seu aquário"
-      descricao="Escolha o aquário, os equipamentos, o substrato, a decoração, as plantas e os peixes. Mostramos o preço estimado e avisamos se algo não combinar."
-      metaDescricao="Monte seu aquário passo a passo: escolha aquário, filtro, aquecedor, substrato, plantas e peixes, veja o preço estimado e os avisos de compatibilidade."
-      trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Monte seu aquário' }]}
-      ilustracao={<IlustracaoAquario className="w-56 shrink-0 max-desk:hidden" />}
-    >
+    <>
       <div ref={refTopo} className="mx-auto max-w-[1200px] scroll-mt-24 px-4 pt-8 pb-32 sm:px-6 desk:px-10 desk:pb-16">
         {/* Anúncio para leitores de tela quando o total ou os avisos mudam */}
         <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
@@ -150,13 +156,20 @@ export default function MonteSeuAquarioPage() {
                 onVoltar={() => irPara(montagem.etapa - 1)} onProximo={proximo} onPular={avancar}
                 rotuloProximo={ultima ? 'Revisar a lista' : undefined}
               >
+                <SaibaMaisEtapa etapa={etapa.id} />
                 <Conteudo ctx={ctx} />
+                {ultima && (
+                  <Callout className="mt-6">
+                    <strong>Depois de montar:</strong> antes dos peixes vem a <Link to={`${ROTAS.primeiroAquario}#ciclagem`} className="font-bold text-primary-text underline underline-offset-4">ciclagem</Link>.
+                    Depois, siga a <Link to={`${ROTAS.primeiroAquario}#manutencao`} className="font-bold text-primary-text underline underline-offset-4">rotina de manutenção</Link> do guia.
+                  </Callout>
+                )}
               </BuilderStep>
             )}
           </div>
 
-          <aside aria-label="Resumo da montagem" className="max-desk:hidden desk:sticky desk:top-24">
-            <div id="resumo-desktop" tabIndex={-1} className="max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-card border border-border-strong bg-surface p-5 shadow-soft outline-none focus-visible:shadow-glow">
+          <aside aria-label="Resumo da montagem" className="max-desk:hidden desk:sticky desk:top-[calc(6rem+var(--altura-abas,0px))]">
+            <div id="resumo-desktop" tabIndex={-1} className="max-h-[calc(100dvh-7rem-var(--altura-abas,0px))] overflow-y-auto rounded-card border border-border-strong bg-surface p-5 shadow-soft outline-none focus-visible:shadow-glow">
               <BuilderSummary {...resumo} idTitulo="resumo-desktop-titulo" />
             </div>
           </aside>
@@ -228,6 +241,6 @@ export default function MonteSeuAquarioPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </PageTemplate>
+    </>
   )
 }
