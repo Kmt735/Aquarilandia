@@ -52,20 +52,24 @@ function Sucesso({ pedidoId }) {
         const pedido = await consultarStatus(pedidoId)
         if (!ativo) return
         if (pedido.status !== 'aguardando_pagamento') {
-          setEstado({ fase: pedido.status === 'paga' ? 'paga' : 'outro', pedido })
-          if (pedido.status === 'paga') {
+          const pago = ['paga', 'em_separacao', 'enviada', 'pronta_retirada', 'entregue'].includes(pedido.status)
+            && pedido.pagamento === 'pago'
+          setEstado({ fase: pago ? 'paga' : 'outro', pedido })
+          if (pago) {
             limpar()
             limparRascunho()
           }
-        } else if (n < TENTATIVAS) verificar(n + 1)
+        } else if (n < TENTATIVAS) timer = setTimeout(() => verificar(n + 1), 3000)
         else setEstado({ fase: 'demorando', pedido })
       } catch {
         if (ativo) setEstado({ fase: 'erro', pedido: null })
       }
     }
+    let timer
     verificar(1)
     return () => {
       ativo = false
+      clearTimeout(timer)
     }
   }, [pedidoId, limpar, limparRascunho])
 
@@ -118,7 +122,7 @@ function Falha() {
       <CircleX aria-hidden="true" className="mx-auto mb-4 size-14 text-danger-text" />
       <h1 className="text-h2">Pagamento não aprovado</h1>
       <p className="mt-2 text-corpo text-text-muted">
-        Nada foi cobrado. Seu carrinho continua salvo: tente de novo com outro cartão ou pague com PIX.
+        Não conseguimos confirmar o pagamento. Confira sua compra antes de tentar pagar novamente.
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         <Button asChild tamanho="lg">

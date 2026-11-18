@@ -23,6 +23,12 @@ const colunasAtualizaveis: Record<keyof AtualizacaoCliente, string> = {
 
 
 export const clienteRepository = {
+    async travarCredenciais(id: number, executor: Queryable): Promise<{ email: string; senhaHash: string } | null> {
+        const { rows } = await executor.query<{ email: string; senhaHash: string }>(
+            'SELECT email, senha_hash AS "senhaHash" FROM clientes WHERE id = $1 AND ativo AND anonimizado_em IS NULL FOR UPDATE', [id],
+        )
+        return rows[0] ?? null
+    },
     async buscarPorEmail(email:string):Promise<Cliente | null> {
         const { rows } = await db.query<Cliente>(`SELECT ${colunas} FROM clientes WHERE email = $1`, [email])
         return rows[0] ?? null

@@ -151,7 +151,7 @@ async function principal(): Promise<void> {
     const r = await pedir('POST', '/auth/cadastro', {
       body: { nome: 'Cliente Demonstração', email: clienteEmail, senha: senhaCliente, telefone: '32999990000', aceiteTermos: true },
     })
-    exigir(r, [201], 'cadastro do cliente')
+    exigir(r, [202], 'cadastro do cliente')
     cliente = await entrar(clienteEmail, senhaCliente)
     if (!cliente) throw new Error('o cliente foi cadastrado, mas o login falhou')
     console.log(`Cliente: ${clienteEmail} (criado)`)

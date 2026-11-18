@@ -20,7 +20,7 @@ describe('Webhook AbacatePay — POST /api/pagamentos/webhook com a aplicação 
     cliente = new pg.Client({ connectionString: urlTeste }); await cliente.connect()
     await cliente.query(`CREATE SCHEMA ${schema}`); schemaCriado = true
     await cliente.query(`SET search_path TO ${schema}`)
-    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '22_pagamentos_estorno.sql']) {
+    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '22_pagamentos_estorno.sql']) {
       await cliente.query(await readFile(new URL(`../../db/init/${arquivo}`, import.meta.url), 'utf8'))
     }
     // Uma venda e um pagamento pendentes: com a consulta dizendo 'pendente', o webhook não pode mexer neles

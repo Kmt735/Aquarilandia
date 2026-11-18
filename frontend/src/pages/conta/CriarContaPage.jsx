@@ -44,9 +44,9 @@ export default function CriarContaPage() {
         ref={formRef}
         noValidate
         onSubmit={enviar(async (d) => {
-          await cadastrar(d)
-          toast('Conta criada! Bem-vindo(a) à Aquarilândia.', { tipo: 'sucesso' })
-          navigate(voltar)
+          const resposta = await cadastrar(d)
+          toast(resposta.mensagem, { tipo: 'info' })
+          navigate(`${ROTAS.entrar}?voltar=${encodeURIComponent(voltar)}`)
         })}
       >
         <p className="mb-4 text-legenda text-text-muted">

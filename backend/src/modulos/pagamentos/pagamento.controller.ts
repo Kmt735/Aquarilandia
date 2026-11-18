@@ -4,7 +4,7 @@ import { pagamentoService } from './pagamento.service.js'
 import { verificarWebhook } from './webhook.js'
 
 // Eventos processados (#46/#47); qualquer outro é só confirmado com 200
-const eventosTratados = new Set(['transparent.completed', 'transparent.refunded'])
+const eventosTratados = new Set(['transparent.completed', 'transparent.refunded', 'transparent.disputed', 'transparent.lost'])
 // O id do aviso (log_...) vira gateway_notificacao_id (VARCHAR(100)); o da cobrança, gateway_cobranca_id (VARCHAR(100))
 const padraoEventoId = /^log_[A-Za-z0-9]{1,96}$/
 const padraoCobrancaId = /^pix_char_[A-Za-z0-9]{1,91}$/

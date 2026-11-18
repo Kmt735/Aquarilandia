@@ -156,6 +156,7 @@ export const clienteService = {
 
     // Preenchido só quando o e-mail muda de verdade: é para ele que vai o aviso
     let emailAntigo: string | null = null
+    let hashVerificado: string | null = null
     if (typeof dados.email === 'string') {
       const atual = await clienteRepository.buscarPorId(clienteId)
       if (!atual) throw new AppError('Cliente não encontrado.', 404)
@@ -173,6 +174,7 @@ export const clienteService = {
         // Mesmo curto-circuito da troca de senha; o argon2 roda aqui, fora da transação
         const senhaConfere = senhaAtual.length <= 128 && (await verificarSenha(hash, senhaAtual))
         if (!senhaConfere) throw new AppError('Dados inválidos', 422, { senhaAtual: 'Senha atual incorreta.' })
+        hashVerificado = hash
 
         // Depois da senha: sem ela, a sessão roubada não descobre quais e-mails têm conta
         const donoDoEmail = await clienteRepository.buscarPorEmail(dados.email)
@@ -190,7 +192,11 @@ export const clienteService = {
       } else {
         cliente = await comTransacao(async (client) => {
           // Cliente travado primeiro, como no esqueci-senha: um link não nasce no meio da troca do e-mail
-          if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) return null
+          const credenciais = await clienteRepository.travarCredenciais(clienteId, client)
+          if (!credenciais) return null
+          if (credenciais.senhaHash !== hashVerificado || credenciais.email !== emailAntigo) {
+            throw new AppError('Suas credenciais mudaram. Entre novamente.', 409)
+          }
           const atualizado = await clienteRepository.atualizar(clienteId, dados, client)
           // O link de recuperação mandado ao e-mail antigo deixa de valer
           await tokenRepository.excluirDoCliente(clienteId, client)
@@ -217,12 +223,18 @@ export const clienteService = {
   // Núcleo da anonimização (LGPD, D-23), reaproveitado pela #38 (admin): NÃO confere senha nem papel,
   // quem chama decide quem pode apagar. As vendas não são tocadas: ficam com o cliente_id e os entrega_*.
   // contexto só escolhe a mensagem do 409 de compras em andamento.
-  async anonimizarConta(clienteId: number, contexto: 'cliente' | 'admin' = 'cliente'): Promise<void> {
+  async anonimizarConta(clienteId: number, contexto: 'cliente' | 'admin' = 'cliente', hashVerificado?: string): Promise<void> {
     await comTransacao(async (client) => {
       // Trava a linha do cliente primeiro, como as rotas de endereço: todas pegam os locks na mesma ordem.
       // Sem exigir ativo: o admin pode anonimizar um cliente desativado (pelo /me ele está sempre ativo)
       if (!(await clienteRepository.travarParaAdmin(clienteId, client))) {
         throw new AppError('Cliente não encontrado.', 404)
+      }
+      if (hashVerificado !== undefined) {
+        const credenciais = await clienteRepository.travarCredenciais(clienteId, client)
+        if (!credenciais || credenciais.senhaHash !== hashVerificado) {
+          throw new AppError('Suas credenciais mudaram. Entre novamente.', 409)
+        }
       }
       if (await vendaService.temCompraEmAndamento(clienteId, client)) {
         throw new AppError(msgCompraEmAndamento[contexto], 409)
@@ -250,7 +262,7 @@ export const clienteService = {
     const senhaConfere = senha.length <= 128 && (await verificarSenha(hash, senha))
     if (!senhaConfere) throw new AppError('Dados inválidos', 422, { senha: 'Senha incorreta.' })
 
-    await clienteService.anonimizarConta(clienteId)
+    await clienteService.anonimizarConta(clienteId, 'cliente', hash)
   },
 
   async listarParaAdmin(query: unknown): Promise<ListaClientesAdmin> {

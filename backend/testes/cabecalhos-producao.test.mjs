@@ -4,6 +4,7 @@ import { after, before, describe, it } from 'node:test'
 
 // O runner executa cada arquivo em processo separado: este liga a produção só aqui (valores fictícios, D-52)
 process.env.NODE_ENV = 'production'
+process.env.DATABASE_URL = 'postgres://fixture:senha-ficticia-de-producao-com-32-caracteres@127.0.0.1:1/fixture'
 process.env.CORS_ORIGIN = 'https://loja.example'
 process.env.FRONTEND_URL = 'https://loja.example'
 process.env.API_URL = 'https://loja.example'
@@ -30,6 +31,7 @@ describe('Cabeçalhos em produção', () => {
     assert.equal(r.headers.get('strict-transport-security'), 'max-age=15552000')
     assert.match(r.headers.get('content-security-policy'), /^default-src 'self';/)
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(r.headers.get('referrer-policy'), 'no-referrer')
     assert.equal(app.get('trust proxy'), 1)
     await r.arrayBuffer()
   })

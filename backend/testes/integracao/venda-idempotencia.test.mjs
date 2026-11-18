@@ -1,8 +1,9 @@
+import { instalarCepFixture } from '../fixtures/cep.mjs'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
-import { after, afterEach, before, describe, it, mock } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test'
 import { setTimeout as esperar } from 'node:timers/promises'
 import pg from 'pg'
 import { hashToken } from '../../src/modulos/auth/sessao.ts'
@@ -17,7 +18,7 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     adminId = (await c.query("INSERT INTO clientes (nome, email, senha_hash, papel) VALUES ('Admin', 'admin@idem.example', 'hash', 'admin') RETURNING id")).rows[0].id
@@ -33,6 +34,7 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
     api = `http://127.0.0.1:${server.address().port}/api`
   })
   afterEach(() => mock.restoreAll())
+  beforeEach(() => instalarCepFixture(mock))
   after(async () => {
     try { if (server) await new Promise((r) => server.close(r)); if (pool) await pool.end() }
     finally { if (c) { try { if (criado) await c.query(`DROP SCHEMA ${schema} CASCADE`) } finally { await c.end() } } }
@@ -53,8 +55,8 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
     return { id, token }
   }
   const endereco = async (clienteId, cep = '36307000') => (await c.query(`INSERT INTO enderecos_cliente
-    (cliente_id, cep, logradouro, numero, bairro, cidade, uf) VALUES ($1, $2, 'Rua Teste', '10', 'Centro', 'Cidade', 'MG') RETURNING id`,
-  [clienteId, cep])).rows[0].id
+    (cliente_id, cep, logradouro, numero, bairro, cidade, uf) VALUES ($1, $2, 'Rua Teste', '10', 'Centro', $3, $4) RETURNING id`,
+  [clienteId, cep, cep === '01001000' ? 'São Paulo' : 'São João del Rei', cep === '01001000' ? 'SP' : 'MG'])).rows[0].id
   async function pedir(caminho, body, { token, chave, semChave = false } = {}) {
     const resposta = await fetch(`${api}${caminho}`, {
       method: 'POST',
@@ -85,7 +87,7 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
 
   it('1. sem Idempotency-Key ou com chave inválida → 400 do padrão do estoque; nada criado', async () => {
     const quem = await cliente(), p = await produto()
-    const body = { itens: itens([p, 1]), retirada: true, totalEsperado: 1000 }
+    const body = { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 1000 }
     for (const chave of [undefined, 'abc', '7F0C6A7E-2B1D-4C3A-9E8F-1A2B3C4D5E6F', '7f0c6a7e-2b1d-0c3a-9e8f-1a2b3c4d5e6f']) {
       const r = await comprar(quem, chave, body)
       assert.equal(r.status, 400, `chave ${chave}`)
@@ -114,7 +116,7 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
       for (const paralelos of [2, 5]) {
         const quem = await cliente(), chave = randomUUID()
         const r = await comTimeout(Promise.all(Array.from({ length: paralelos },
-          () => comprar(quem, chave, { itens: itens([p, 1]), retirada: true, totalEsperado: 1000 }))))
+          () => comprar(quem, chave, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 1000 }))))
         assert.ok(r.every((x) => x.status === 201), `rodada ${rodada + 1}: ${r.map((x) => x.status)}`)
         assert.equal(new Set(r.map((x) => x.corpo.id)).size, 1, 'todos com o mesmo id')
         assert.equal(r.filter((x) => x.repetida === null).length, 1, 'só um pedido criou; os outros são repetição')
@@ -126,10 +128,10 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
 
   it('4. a mesma chave com outro carrinho → 409; nada novo', async () => {
     const quem = await cliente(), a = await produto(), b = await produto(), chave = randomUUID()
-    assert.equal((await comprar(quem, chave, { itens: itens([a, 1]), retirada: true, totalEsperado: 1000 })).status, 201)
+    assert.equal((await comprar(quem, chave, { itens: itens([a, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 1000 })).status, 201)
     for (const body of [
-      { itens: itens([a, 2]), retirada: true, totalEsperado: 2000 },
-      { itens: itens([a, 1], [b, 1]), retirada: true, totalEsperado: 2000 },
+      { itens: itens([a, 2]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 2000 },
+      { itens: itens([a, 1], [b, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 2000 },
       { itens: itens([a, 1]), enderecoId: await endereco(quem.id), totalEsperado: 2000 },
     ]) {
       const r = await comprar(quem, chave, body)
@@ -141,9 +143,9 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
 
   it('5. a mesma compra com os itens em outra ordem (ou divididos) e a mesma chave → repetição', async () => {
     const quem = await cliente(), a = await produto(), b = await produto({ preco: 500 }), chave = randomUUID()
-    const primeira = await comprar(quem, chave, { itens: itens([a, 2], [b, 1]), retirada: true, totalEsperado: 2500 })
-    const reordenada = await comprar(quem, chave, { itens: itens([b, 1], [a, 2]), retirada: true, totalEsperado: 2500 })
-    const dividida = await comprar(quem, chave, { itens: itens([a, 1], [b, 1], [a, 1]), retirada: true, totalEsperado: 2500 })
+    const primeira = await comprar(quem, chave, { itens: itens([a, 2], [b, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 2500 })
+    const reordenada = await comprar(quem, chave, { itens: itens([b, 1], [a, 2]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 2500 })
+    const dividida = await comprar(quem, chave, { itens: itens([a, 1], [b, 1], [a, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 2500 })
     assert.deepEqual([primeira.status, reordenada.status, dividida.status], [201, 201, 201])
     assert.deepEqual([reordenada.corpo.id, dividida.corpo.id], [primeira.corpo.id, primeira.corpo.id])
     assert.deepEqual([reordenada.repetida, dividida.repetida], ['true', 'true'])
@@ -152,7 +154,7 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
 
   it('6. a chave de um cliente usada por OUTRO cliente → venda nova para o segundo; nunca a do primeiro', async () => {
     const x = await cliente(), y = await cliente(), p = await produto(), chave = randomUUID()
-    const body = { itens: itens([p, 1]), retirada: true, totalEsperado: 1000 }
+    const body = { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 1000 }
     const dex = await comprar(x, chave, body)
     const dey = await comprar(y, chave, body)
     assert.deepEqual([dex.status, dey.status, dey.repetida], [201, 201, null])
@@ -164,7 +166,7 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
 
   it('7. chaves diferentes → vendas diferentes; o limite de 5 continua; repetir uma chave antiga não conta como nova', async () => {
     const quem = await cliente(), p = await produto()
-    const body = { itens: itens([p, 1]), retirada: true, totalEsperado: 1000 }
+    const body = { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 1000 }
     const chaves = Array.from({ length: 5 }, () => randomUUID())
     const ids = []
     for (const chave of chaves) ids.push((await comprar(quem, chave, body)).corpo.id)
@@ -180,23 +182,23 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
   it('8. sem totalEsperado (ou inválido) → 422; totalEsperado certo → 201', async () => {
     const quem = await cliente(), p = await produto({ preco: 1500 })
     for (const totalEsperado of [undefined, '1500', -1, 1.5, null]) {
-      const r = await comprar(quem, randomUUID(), { itens: itens([p, 1]), retirada: true, totalEsperado })
+      const r = await comprar(quem, randomUUID(), { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado })
       assert.deepEqual([r.status, r.corpo.detalhes], [422, { totalEsperado: 'Atualize o carrinho antes de finalizar a compra.' }])
     }
     assert.equal((await doCliente(quem.id)).vendas, 0)
-    const certo = await comprar(quem, randomUUID(), { itens: itens([p, 1]), retirada: true, totalEsperado: await cotar(itens([p, 1]), { retirada: true }) })
+    const certo = await comprar(quem, randomUUID(), { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: await cotar(itens([p, 1]), { retirada: true, unidadeRetirada: 'matosinhos' }) })
     assert.deepEqual([certo.status, certo.corpo.total], [201, 1500])
   })
 
   it('9. preço muda entre a cotação e a compra → 409 com o total novo formatado; nada criado; nova compra com o total novo → 201', async () => {
     const quem = await cliente(), p = await produto({ preco: 1000, saldo: 10 })
     const pedido = itens([p, 2])
-    const cotado = await cotar(pedido, { retirada: true })
+    const cotado = await cotar(pedido, { retirada: true, unidadeRetirada: 'matosinhos' })
     assert.equal(cotado, 2000)
     await c.query('UPDATE produtos SET preco = 61728 WHERE id = $1', [p])
 
     const chave = randomUUID()
-    const r = await comprar(quem, chave, { itens: pedido, retirada: true, totalEsperado: cotado })
+    const r = await comprar(quem, chave, { itens: pedido, retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: cotado })
     assert.equal(r.status, 409)
     assert.deepEqual(r.corpo, {
       erro: 'O valor da compra mudou desde a cotação. Confira o carrinho antes de finalizar.',
@@ -206,8 +208,8 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
     assert.equal(await saldo(p), 10)
 
     // O cliente confere e confirma o total novo. A tentativa recusada não gravou nada, então até a mesma chave serve
-    const novo = await cotar(pedido, { retirada: true })
-    const confirmada = await comprar(quem, chave, { itens: pedido, retirada: true, totalEsperado: novo })
+    const novo = await cotar(pedido, { retirada: true, unidadeRetirada: 'matosinhos' })
+    const confirmada = await comprar(quem, chave, { itens: pedido, retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: novo })
     assert.deepEqual([confirmada.status, confirmada.corpo.total, confirmada.corpo.itens[0].precoUnitario], [201, 123456, 61728])
     assert.equal(await saldo(p), 8)
   })
@@ -223,7 +225,7 @@ describe('POST /api/vendas — Idempotency-Key e totalEsperado (Lote 9b) — Pos
 
   it('rede de segurança: se o UNIQUE da chave estourar no INSERT (23505), devolve a venda já gravada', async () => {
     const quem = await cliente(), p = await produto(), chave = randomUUID()
-    const body = { itens: itens([p, 1]), retirada: true, totalEsperado: 1000 }
+    const body = { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 1000 }
     const primeira = await comprar(quem, chave, body)
     assert.equal(primeira.status, 201)
     // Simula a corrida que a trava do cliente impede: a busca dentro da transação "não vê" a venda, o INSERT bate no UNIQUE

@@ -44,7 +44,7 @@ describe('Clientes — rotas de admin com sessões, papéis e vendas reais no Po
     cliente = new pg.Client({ connectionString: urlTeste }); await cliente.connect()
     await cliente.query(`CREATE SCHEMA ${schema}`); schemaCriado = true
     await cliente.query(`SET search_path TO ${schema}`)
-    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql']) {
+    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql']) {
       await cliente.query(await readFile(new URL(`../../db/init/${arquivo}`, import.meta.url), 'utf8'))
     }
     const hash = await gerarHash(senha)

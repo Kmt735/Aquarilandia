@@ -78,15 +78,15 @@ describe('Ciclo 0 — autenticação, limites e orçamento com PostgreSQL real',
   function novaConta() {
     return { nome: "Pessoa Fictícia d'água", email: `${randomUUID()}@teste.example`, telefone: '00900000000', senha, aceiteTermos: true }
   }
-  it('cadastro público não permite papel admin nem campos internos e mantém duplicidade 409', async () => {
+  it('cadastro público não permite papel admin e responde 202 uniforme para duplicidade', async () => {
     const dados = novaConta()
     const r = await pedir('POST', '/api/auth/cadastro', { ...dados, papel: 'admin', id: 999, ativo: false })
-    assert.equal(r.status, 201); const dto = await r.json()
-    assert.equal(dto.papel, 'cliente'); assert.equal(dto.ativo, true); assert.notEqual(dto.id, 999)
-    assert.equal(dto.nome, dados.nome); assert.equal('senhaHash' in dto || 'senha' in dto, false)
-    const registro = (await cliente.query('SELECT nome,senha_hash,papel FROM clientes WHERE id=$1', [dto.id])).rows[0]
+    assert.equal(r.status, 202); const dto = await r.json()
+    assert.deepEqual(Object.keys(dto), ['mensagem'])
+    const registro = (await cliente.query('SELECT nome,senha_hash,papel FROM clientes WHERE email=$1', [dados.email])).rows[0]
     assert.equal(registro.nome, dados.nome); assert.notEqual(registro.senha_hash, senha); assert.equal(registro.papel, 'cliente')
-    assert.equal((await pedir('POST', '/api/auth/cadastro', dados)).status, 409)
+    const repetido = await pedir('POST', '/api/auth/cadastro', dados)
+    assert.equal(repetido.status, 202); assert.deepEqual(await repetido.json(), dto)
   })
   it('login guarda apenas hash do token, cookie correto e /sessao retorna somente a própria conta', async () => {
     const a = await pedir('POST', '/api/auth/login', { email: principal.email, senha: 'SenhaFicticiaErrada!' })
@@ -134,8 +134,8 @@ describe('Ciclo 0 — autenticação, limites e orçamento com PostgreSQL real',
     await naoExpor(await pedir('GET', '/api/auth/sessao', undefined, { cookie: sessao.cookie }), 401, [sessao.token])
   })
   it('troca de senha mantém a sessão atual e revoga a segunda sessão', async () => {
-    const conta = novaConta(); const r = await pedir('POST', '/api/auth/cadastro', conta); assert.equal(r.status, 201)
-    const pessoa = await r.json(), a = await login(pessoa), b = await login(pessoa)
+    const conta = novaConta(); const r = await pedir('POST', '/api/auth/cadastro', conta); assert.equal(r.status, 202)
+    const pessoa = (await cliente.query('SELECT id,email FROM clientes WHERE email=$1', [conta.email])).rows[0], a = await login(pessoa), b = await login(pessoa)
     const novaSenha = 'SenhaFicticiaNovaCiclo0123!'
     const troca = await pedir('PATCH', '/api/clientes/me/senha', { senhaAtual: senha, novaSenha }, { cookie: a.cookie })
     assert.equal(troca.status, 204); assert.equal(await troca.text(), '')
@@ -144,6 +144,34 @@ describe('Ciclo 0 — autenticação, limites e orçamento com PostgreSQL real',
     assert.equal((await pedir('POST', '/api/auth/login', { email: pessoa.email, senha })).status, 401)
     assert.equal((await login(pessoa, novaSenha)).dto.id, pessoa.id)
   })
+
+  it('login com credencial antiga não cria sessão depois de redefinição concorrente', async () => {
+    const conta = novaConta()
+    await pedir('POST', '/api/auth/cadastro', conta)
+    const pessoa = (await cliente.query('SELECT id,email FROM clientes WHERE email=$1', [conta.email])).rows[0]
+    const token = (await import('../../src/modulos/auth/sessao.ts')).gerarToken()
+    await cliente.query("INSERT INTO tokens_recuperacao_senha(cliente_id,token_hash,expira_em) VALUES ($1,$2,now()+interval '30 minutes')", [pessoa.id, hashToken(token)])
+    const { clienteRepository } = await import('../../src/modulos/clientes/cliente.repository.ts')
+    const original = clienteRepository.buscarParaLogin
+    let liberar, sinalizar
+    const trava = new Promise((r) => { liberar = r }), iniciou = new Promise((r) => { sinalizar = r })
+    const espiao = mock.method(clienteRepository, 'buscarParaLogin', async (email) => {
+      const snapshot = await original(email)
+      sinalizar(); await trava
+      return snapshot
+    })
+    const tentativa = pedir('POST', '/api/auth/login', { email: conta.email, senha })
+    await iniciou
+    try {
+      const reset = await pedir('POST', '/api/auth/redefinir-senha', { token, novaSenha: 'NovaSenhaConcorrente123!' })
+      assert.equal(reset.status, 204)
+    } finally { liberar() }
+    assert.equal((await tentativa).status, 401)
+    assert.equal((await cliente.query('SELECT count(*)::int AS n FROM sessoes WHERE cliente_id=$1', [pessoa.id])).rows[0].n, 0)
+    espiao.mock.restore()
+    assert.equal((await login(pessoa, 'NovaSenhaConcorrente123!')).dto.id, pessoa.id)
+  })
+
   it('rate limit real do login impede a sexta falha sem criar sessão', async () => {
     const antes = (await cliente.query('SELECT COUNT(*)::integer AS total FROM sessoes')).rows[0].total
     for (let i = 0; i < 5; i++) {
@@ -157,7 +185,7 @@ describe('Ciclo 0 — autenticação, limites e orçamento com PostgreSQL real',
   it('rate limit real do cadastro impede a sexta criação e persiste só cinco contas', async () => {
     const antes = (await cliente.query('SELECT COUNT(*)::integer AS total FROM clientes')).rows[0].total
     for (let i = 0; i < 5; i++) {
-      const r = await pedir('POST', '/api/auth/cadastro', novaConta()); assert.equal(r.status, 201); await r.json()
+      const r = await pedir('POST', '/api/auth/cadastro', novaConta()); assert.equal(r.status, 202); await r.json()
     }
     const r = await pedir('POST', '/api/auth/cadastro', novaConta()); assert.equal(r.status, 429)
     assert.equal((await cliente.query('SELECT COUNT(*)::integer AS total FROM clientes')).rows[0].total, antes + 5)

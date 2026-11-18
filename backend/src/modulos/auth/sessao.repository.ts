@@ -5,8 +5,8 @@ import type { Queryable } from '../../utils/transacao.js'
 
 const colunasUsuario = 'c.id, c.papel'
 export const sessaoRepository = {
-    async criar(dados: NovaSessao): Promise<void>{
-        await db.query(
+    async criar(dados: NovaSessao, executor: Queryable = db): Promise<void>{
+        await executor.query(
             'INSERT INTO sessoes ( token_hash, cliente_id, expira_em, ip, user_agent )VALUES ($1,$2,$3,$4,$5)',
             [dados.tokenHash,dados.clienteId,dados.expiraEm,dados.ip,dados.userAgent]
         )

@@ -113,6 +113,19 @@ function lerImagensDir(): string | undefined {
 }
 const imagensDir = lerImagensDir()
 
+// A credencial curta que já esteve no histórico não pode ser reutilizada no primeiro deploy.
+// Validar só a URL, sem conectar nem repetir qualquer trecho dela na mensagem.
+if (producao) {
+  try {
+    const banco = new URL(databaseUrl)
+    const senha = decodeURIComponent(banco.password)
+    if (!['postgres:', 'postgresql:'].includes(banco.protocol) || !banco.username || !banco.hostname
+      || senha.length < 32 || /TROQUE|PLACEHOLDER/i.test(senha)) throw new Error()
+  } catch {
+    throw new Error('Variável de ambiente inválida: DATABASE_URL precisa usar PostgreSQL com uma senha nova de pelo menos 32 caracteres em produção. Veja o .env.producao.example.')
+  }
+}
+
 // PERMITIR_SIMULACAO_PIX (opcional, Lote 13): só 'true' liga a simulação de pagamento Pix pela API (a demonstração do
 // dia 19 roda em produção com a chave de TESTE da AbacatePay, porque a loja ainda não tem conta). Mesmo ligada, ela
 // só funciona com a chave de teste (gateway.ts). Qualquer valor que não seja true ou false é erro: um "sim" ou "1"
@@ -157,4 +170,6 @@ export const env = {
   frontendDist,
   imagensDir,
   permitirSimulacaoPix,
+  freteTabelaJson: opcional('FRETE_TABELA_JSON'),
+  freteTransporteJson: opcional('FRETE_TRANSPORTE_JSON'),
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import Button from '../../components/atoms/Button'
 import CampoSenha from '../../components/atoms/CampoSenha'
@@ -14,6 +14,16 @@ const REGRAS = { senha: regras.senha, confirmarSenha: (v, todos) => (v === todos
 
 // INTEGRAÇÃO: o link do e-mail traz ?token=...; enviar { token, senha } para a rota de redefinição
 export default function RedefinirSenhaPage() {
+  const [token] = useState(() => {
+    const url = new URL(window.location.href)
+    const recebido = url.searchParams.get('token') ?? ''
+    return recebido
+  })
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('token')
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+  }, [])
   const [pronto, setPronto] = useState(false)
   const { campo, erros, enviar, enviando, erroGeral, formRef } = useFormulario({ senha: '', confirmarSenha: '' }, REGRAS)
 
@@ -33,7 +43,7 @@ export default function RedefinirSenhaPage() {
           ref={formRef}
           noValidate
           onSubmit={enviar(async (d) => {
-            await redefinirSenha(d)
+            await redefinirSenha({ ...d, token })
             setPronto(true)
           })}
         >

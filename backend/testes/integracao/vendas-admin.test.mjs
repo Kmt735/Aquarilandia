@@ -1,3 +1,4 @@
+import { instalarCepFixture } from '../fixtures/cep.mjs'
 import assert from 'node:assert/strict'
 import { createHmac, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
@@ -61,7 +62,7 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql', '34_pagamentos_reconciliacao.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     const urlApp = new URL(url); urlApp.searchParams.set('options', `-c search_path=${schema}`); urlApp.searchParams.set('application_name', schema)
@@ -85,6 +86,7 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     admin = await conta('admin'); adminId = admin.id
   })
   beforeEach(() => {
+    instalarCepFixture(mock)
     zerarGateway(); instalarFalsos(); emails = []; bloqueados = []
     const fetchOriginal = globalThis.fetch
     mock.method(globalThis, 'fetch', (alvo, opcoes) => {
@@ -137,15 +139,15 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     const quem = dono ?? await conta()
     const itens = itensPreparados ?? [{ produtoId: await produto(10), quantidade: 2 }]
     const p = itens[0].produtoId
-    let destino = { retirada: true }, cep = null
+    let destino = { retirada: true, unidadeRetirada: 'matosinhos' }, cep = null
     if (entrega !== 'retirada') {
       cep = entrega === 'propria' ? '36300000' : '30100000'
       const enderecoId = (await c.query(`INSERT INTO enderecos_cliente (cliente_id, apelido, cep, logradouro, numero, bairro, cidade, uf)
-        VALUES ($1, 'Casa', $2, 'Rua Teste', '10', 'Centro', 'Cidade Teste', 'MG') RETURNING id`, [quem.id, cep])).rows[0].id
+        VALUES ($1, 'Casa', $2, 'Rua Teste', '10', 'Centro', $3, 'MG') RETURNING id`, [quem.id, cep, entrega === 'propria' ? 'São João del Rei' : 'Belo Horizonte'])).rows[0].id
       destino = { enderecoId }
     }
     limites.limiteFrete.resetKey('127.0.0.1')
-    const cotacao = await pedir('/frete/calcular', null, { metodo: 'POST', body: { itens, ...(cep ? { cep } : { retirada: true }) } })
+    const cotacao = await pedir('/frete/calcular', null, { metodo: 'POST', body: { itens, ...(cep ? { cep } : { retirada: true, unidadeRetirada: 'matosinhos' }) } })
     assert.equal(cotacao.status, 200, cotacao.texto)
     const r = await fetch(`${api}/vendas`, {
       method: 'POST',
@@ -158,8 +160,8 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     return { vendaId: corpo.id, produtoId: p, dono: quem, total: corpo.total }
   }
   const assinar = (corpo) => createHmac('sha256', chavePublica).update(corpo).digest('base64')
-  async function aviso(cobrancaId, eventoId = novoEvento()) {
-    const corpo = JSON.stringify({ id: eventoId, event: 'transparent.completed', data: { transparent: { id: cobrancaId } } })
+  async function aviso(cobrancaId, eventoId = novoEvento(), tipo = 'transparent.completed') {
+    const corpo = JSON.stringify({ id: eventoId, event: tipo, data: { transparent: { id: cobrancaId } } })
     const r = await fetch(`${api}/pagamentos/webhook?webhookSecret=${encodeURIComponent(segredo)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Webhook-Signature': assinar(corpo) }, body: corpo,
     })
@@ -222,7 +224,7 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     assert.equal(r.status, 200, r.texto)
     assert.equal(r.cache, 'no-store')
     assert.equal(r.corpo.status, 'cancelada')
-    assert.deepEqual(Object.keys(r.corpo).sort(), ['codigoRastreio', 'criadoEm', 'entrega', 'expiraEm', 'frete', 'historico', 'id', 'itens', 'pagamento', 'prazoEntregaDias', 'status', 'subtotal', 'tipoEntrega', 'total'])
+    assert.deepEqual(Object.keys(r.corpo).sort(), ['codigoRastreio', 'criadoEm', 'entrega', 'expiraEm', 'frete', 'historico', 'id', 'itens', 'pagamento', 'prazoEntregaDias', 'status', 'subtotal', 'tipoEntrega', 'total', 'unidadeRetirada'])
     assert.equal(r.corpo.pagamento.mensagem, 'Pagamento não concluído.')
     assert.equal(await saldo(produtoId), 10)
     assert.equal(await devolucoesEstoque(vendaId), 1)
@@ -299,7 +301,7 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
   })
 
   it('5. cancelamento_solicitado: cliente → 409; admin com tentativas < 5 → 409; com 5 sem motivo → 422; com motivo → cancelada, estorno manual, estoque de volta', async () => {
-    const { vendaId, produtoId, dono, pagamentoId } = await paga()
+    const { vendaId, produtoId, dono, pagamentoId, cobrancaId } = await paga()
     gw.estorno = () => ({ aprovado: false, jaEstornado: false, erro: 'INSUFFICIENT_FUNDS' })
     assert.equal((await cancelar(dono, vendaId)).corpo.status, 'cancelamento_solicitado')
 
@@ -314,6 +316,10 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
       const semMotivo = await cancelar(admin, vendaId, body)
       assert.deepEqual([semMotivo.status, semMotivo.corpo.detalhes], [422, { motivo: 'Descreva como o estorno foi feito.' }])
     }
+    assert.equal((await cancelar(admin, vendaId, { motivo: 'Afirmação sem devolução' })).status, 409)
+    assert.equal(await statusVenda(vendaId), 'cancelamento_solicitado')
+    assert.equal(await saldo(produtoId), 8)
+    gw.cobrancas.get(cobrancaId).status = 'estornado'
     const r = await cancelar(admin, vendaId, { motivo: 'Devolvido pelo painel da AbacatePay em 14/11' })
     assert.equal(r.status, 200, r.texto)
     assert.equal(r.corpo.status, 'cancelada')
@@ -517,7 +523,7 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     assert.match(emailsDa(correios.vendaId)[1].texto, /BR123456789BR/)
     assert.deepEqual(emailsDa(retirada.vendaId).map((e) => e.assunto.split(' — ')[0]),
       ['Pagamento confirmado', 'Seu pedido está pronto para retirada', 'Pedido entregue'])
-    assert.ok(emailsDa(retirada.vendaId)[1].texto.includes('Retire na loja Aquarilândia (Av. Josué de Queiroz, 115 – São João del Rei)'))
+    assert.ok(emailsDa(retirada.vendaId)[1].texto.includes('Retire na Aquarilândia Matosinhos (Avenida Josué de Queiroz, 115 – São João del-Rei/MG)'))
   })
 
   it('13. #41 erros: rastreio faltando, fora do formato, em propria; pronta_retirada em correios; status fora da lista; pular etapas', async () => {
@@ -589,6 +595,8 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     assert.deepEqual((await concluir(admin, 2147483000, { motivo: 'Devolvi' })).corpo, { erro: 'Pagamento não encontrado.' })
 
     await esgotarEstorno()
+    assert.equal((await concluir(admin, p1, { motivo: 'Ainda não devolvido' })).status, 409)
+    gw.cobrancas.get(primeira).status = 'estornado'
     const r = await concluir(admin, p1, { motivo: '  Devolvido pelo painel em 14/11  ' })
     assert.equal(r.status, 200, r.texto)
     assert.deepEqual(r.corpo, { id: p1, vendaId, status: 'estornado', statusDetalhe: 'estorno manual' })
@@ -902,6 +910,51 @@ describe('Cancelamento e admin de vendas (Lote 12) — PostgreSQL real, gateway 
     assert.equal(await statusVenda(compra.vendaId), 'cancelamento_solicitado')
     assert.equal(await saldo(compra.produtoId), 8)
     assert.equal(await devolucoesEstoque(compra.vendaId), 0)
+  })
+
+
+  it('27. pagamento sem webhook após cancelamento é reconciliado e devolvido uma única vez', async () => {
+    const compra = await comPix()
+    gw.cobrancas.get(compra.cobrancaId).status = 'aprovado'
+    assert.equal((await cancelar(compra.dono, compra.vendaId)).corpo.status, 'cancelada')
+    await c.query('UPDATE pagamentos SET reconsultado_em=now() WHERE id<>$1', [compra.pagamentoId])
+    gw.estorno = (id) => { gw.cobrancas.get(id).status = 'estornado'; return { aprovado: true, jaEstornado: false } }
+    await Promise.all([pagamentoService.reconciliar(), pagamentoService.reconciliar()])
+    assert.equal((await pagamentos(compra.vendaId))[0].status, 'estornado')
+    assert.equal(await statusVenda(compra.vendaId), 'cancelada')
+    assert.equal(await saldo(compra.produtoId), 10)
+    assert.equal(await devolucoesEstoque(compra.vendaId), 1)
+    assert.equal(gw.estornar.length, 1)
+  })
+
+  it('28. disputa bloqueia avanço; consulta de disputa ganha libera sem estornar o pagamento válido', async () => {
+    const compra = await paga()
+    gw.cobrancas.get(compra.cobrancaId).status = 'em_disputa'
+    assert.equal(await aviso(compra.cobrancaId, novoEvento(), 'transparent.disputed'), 200)
+    assert.equal((await pagamentos(compra.vendaId))[0].status, 'em_disputa')
+    assert.equal((await mudarStatus(compra.vendaId, { status: 'em_separacao' })).status, 409)
+    assert.equal(await statusVenda(compra.vendaId), 'paga')
+    gw.cobrancas.get(compra.cobrancaId).status = 'aprovado'
+    assert.equal(await aviso(compra.cobrancaId, novoEvento(), 'transparent.disputed'), 200)
+    assert.equal((await mudarStatus(compra.vendaId, { status: 'em_separacao' })).status, 200)
+    assert.equal(gw.estornar.length, 0)
+  })
+
+  it('29. evento que falhou é recuperado sem depender de novo envio da AbacatePay', async () => {
+    const compra = await comPix(), eventoId = novoEvento()
+    const consultar = gatewayPix.consultarCobranca
+    let fora = true
+    mock.method(gatewayPix, 'consultarCobranca', async (id) => {
+      if (fora) throw new AppError('Gateway indisponível', 502)
+      return consultar(id)
+    })
+    assert.equal(await aviso(compra.cobrancaId, eventoId), 500)
+    assert.equal((await c.query('SELECT processado_em FROM eventos_webhook WHERE gateway_notificacao_id=$1', [eventoId])).rows[0].processado_em, null)
+    fora = false; gw.cobrancas.get(compra.cobrancaId).status = 'aprovado'
+    await c.query('UPDATE pagamentos SET reconsultado_em=now()')
+    await pagamentoService.reconciliar()
+    assert.equal(await statusVenda(compra.vendaId), 'paga')
+    assert.ok((await c.query('SELECT processado_em FROM eventos_webhook WHERE gateway_notificacao_id=$1', [eventoId])).rows[0].processado_em)
   })
 
   it('99. nenhum token, cookie, segredo, código Pix ou id de cobrança no log da suíte', () => {

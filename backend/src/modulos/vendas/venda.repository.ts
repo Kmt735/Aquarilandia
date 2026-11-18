@@ -19,6 +19,8 @@ import type {
 
 // Linha de vendas lida pelo buscarCompleta: os entrega_* de endereço são NULL na retirada
 interface LinhaVenda {
+  unidadeRetirada: VendaCriada['unidadeRetirada'] | null
+  servicoFrete: VendaCriada['servicoFrete'] | null
   id: number
   status: StatusVenda
   tipoEntrega: TipoEntrega
@@ -50,7 +52,8 @@ async function buscarVenda(
             prazo_entrega_dias AS "prazoEntregaDias", expira_em AS "expiraEm", criado_em AS "criadoEm",
             entrega_destinatario AS destinatario, entrega_telefone AS telefone, entrega_cep AS cep,
             entrega_logradouro AS logradouro, entrega_numero AS numero, entrega_complemento AS complemento,
-            entrega_bairro AS bairro, entrega_cidade AS cidade, entrega_uf AS uf
+            entrega_bairro AS bairro, entrega_cidade AS cidade, entrega_uf AS uf,
+            unidade_retirada AS "unidadeRetirada", servico_frete AS "servicoFrete"
        FROM vendas
       WHERE id = $1 AND ($2::integer IS NULL OR cliente_id = $2)`,
     [id, clienteId],
@@ -68,13 +71,13 @@ async function buscarVenda(
     [id],
   )
 
-  const { destinatario, telefone, cep, logradouro, numero, complemento, bairro, cidade, uf, ...resumo } = venda
+  const { destinatario, telefone, cep, logradouro, numero, complemento, bairro, cidade, uf, unidadeRetirada, servicoFrete, ...resumo } = venda
   // Na retirada não há endereço: entrega null. Fora dela, o CHECK ck_vendas_endereco_entrega garante cep,
   // logradouro, numero, bairro, cidade e uf preenchidos (só o complemento pode ser NULL)
   const entrega = resumo.tipoEntrega === 'retirada'
     ? null
     : { cep, logradouro, numero, complemento, bairro, cidade, uf, destinatario, telefone } as VendaCriada['entrega']
-  return { ...resumo, itens, entrega }
+  return { ...resumo, itens, entrega, ...(unidadeRetirada ? {unidadeRetirada} : {}), ...(servicoFrete ? {servicoFrete} : {}) }
 }
 
 export const vendaRepository = {
@@ -97,8 +100,8 @@ export const vendaRepository = {
       `INSERT INTO vendas
          (cliente_id, subtotal, frete, total, tipo_entrega, prazo_entrega_dias, entrega_destinatario, entrega_telefone,
           entrega_cep, entrega_logradouro, entrega_numero, entrega_complemento, entrega_bairro, entrega_cidade, entrega_uf,
-          chave_idempotencia, hash_requisicao)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          chave_idempotencia, hash_requisicao, unidade_retirada, servico_frete)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING id`,
       [
         dados.clienteId,
@@ -118,6 +121,8 @@ export const vendaRepository = {
         endereco?.uf ?? null,
         dados.chaveIdempotencia,
         dados.hashRequisicao,
+        dados.unidadeRetirada ? JSON.stringify(dados.unidadeRetirada) : null,
+        dados.servicoFrete ? JSON.stringify(dados.servicoFrete) : null,
       ],
     )
     return rows[0].id
@@ -303,9 +308,9 @@ export const vendaRepository = {
   async travarParaStatus(
     vendaId: number,
     client: Queryable,
-  ): Promise<{ status: StatusVenda; tipoEntrega: TipoEntrega } | null> {
-    const { rows } = await client.query<{ status: StatusVenda; tipoEntrega: TipoEntrega }>(
-      'SELECT status, tipo_entrega AS "tipoEntrega" FROM vendas WHERE id = $1 FOR UPDATE',
+  ): Promise<{ status: StatusVenda; tipoEntrega: TipoEntrega; servicoFrete?: VendaCriada["servicoFrete"] } | null> {
+    const { rows } = await client.query<{ status: StatusVenda; tipoEntrega: TipoEntrega; servicoFrete?: VendaCriada["servicoFrete"] }>(
+      'SELECT status, tipo_entrega AS "tipoEntrega", servico_frete AS "servicoFrete" FROM vendas WHERE id = $1 FOR UPDATE',
       [vendaId],
     )
     return rows[0] ?? null
@@ -467,9 +472,9 @@ export const vendaRepository = {
   // E-mail de mudança de status (vendaNotificacoes.ts): o dono, o rastreio e se algum pagamento foi devolvido
   async buscarParaNotificacao(
     vendaId: number,
-  ): Promise<{ clienteId: number; codigoRastreio: string | null; pagamentoDevolvido: boolean } | null> {
-    const { rows } = await db.query<{ clienteId: number; codigoRastreio: string | null; pagamentoDevolvido: boolean }>(
-      `SELECT v.cliente_id AS "clienteId", v.codigo_rastreio AS "codigoRastreio",
+  ): Promise<{ clienteId: number; codigoRastreio: string | null; pagamentoDevolvido: boolean; unidadeRetirada?: VendaCriada["unidadeRetirada"]; servicoFrete?: VendaCriada["servicoFrete"] } | null> {
+    const { rows } = await db.query<{ clienteId: number; codigoRastreio: string | null; pagamentoDevolvido: boolean; unidadeRetirada?: VendaCriada["unidadeRetirada"]; servicoFrete?: VendaCriada["servicoFrete"] }>(
+      `SELECT v.cliente_id AS "clienteId", v.codigo_rastreio AS "codigoRastreio", v.unidade_retirada AS "unidadeRetirada", v.servico_frete AS "servicoFrete",
               EXISTS (SELECT 1 FROM pagamentos p WHERE p.venda_id = v.id AND p.status = 'estornado')
                 AS "pagamentoDevolvido"
          FROM vendas v

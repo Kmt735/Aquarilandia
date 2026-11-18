@@ -116,7 +116,7 @@ export default function CompraDetalhePage() {
           </section>
         </div>
 
-        <ResumoPedido itens={pedido.itens} frete={pedido.entrega.frete}>
+        <ResumoPedido itens={pedido.itens} frete={pedido.entrega.frete} subtotalCentavos={pedido.subtotal} totalCentavos={pedido.total}>
           <div className="mt-5 flex flex-col gap-2">
             <Button variant="secundario" largo onClick={comprarNovamente}>
               <RotateCcw aria-hidden="true" />

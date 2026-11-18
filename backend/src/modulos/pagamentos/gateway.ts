@@ -287,7 +287,7 @@ export async function consultarStatusCobranca(cobrancaId: string): Promise<Statu
 // chama registra a tentativa (pagamentos.estorno_tentativas e estorno_ultimo_erro; #35, #47, #49).
 // A AbacatePay não documenta chave de idempotência no estorno. Repetir é seguro porque ela recusa o segundo com
 // 'Esta cobrança já foi reembolsada.', tratado como sucesso. Só existe estorno total, o que serve ao cancelamento.
-export async function estornar(cobrancaId: string, motivo?: string): Promise<ResultadoEstorno> {
+export async function estornar(cobrancaId: string, motivo?: string, valorEsperado?: number): Promise<ResultadoEstorno> {
   const id = conferirCobrancaId(cobrancaId)
   if (motivo !== undefined && (typeof motivo !== 'string' || motivo.length > 500)) {
     throw new Error('Motivo do estorno precisa ter até 500 caracteres.')
@@ -299,7 +299,9 @@ export async function estornar(cobrancaId: string, motivo?: string): Promise<Res
       caminho: '/transparents/refund',
       body: motivo ? { id, reason: motivo } : { id },
     })
-    if (!ehObjeto(data) || data.originalId !== id) {
+    if (!ehObjeto(data) || data.originalId !== id || data.status !== 'COMPLETE'
+      || !Number.isSafeInteger(data.amount) || (data.amount as number) < 100
+      || (valorEsperado !== undefined && data.amount !== valorEsperado)) {
       console.error('[gateway] estornar: resposta inválida')
       return { aprovado: false, jaEstornado: false, erro: 'resposta inválida' }
     }

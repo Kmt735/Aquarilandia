@@ -19,7 +19,7 @@ export default function MinhasComprasPage() {
       <h2 id="titulo-compras" className="mb-1 text-h2">
         Minhas compras
       </h2>
-      <p className="mb-6 text-pequeno text-text-muted">Dados de exemplo enquanto a conta não está ligada ao sistema da loja.</p>
+      <p className="mb-6 text-pequeno text-text-muted">Acompanhe o pagamento e a entrega de suas compras.</p>
       {carregando ? (
         <div aria-busy="true" className="flex flex-col gap-3">
           <span className="sr-only">Carregando…</span>
@@ -38,8 +38,8 @@ export default function MinhasComprasPage() {
       ) : (
         <ul className="flex flex-col gap-3">
           {dados.map((p) => {
-            const total = p.itens.reduce((s, i) => s + i.preco * i.qtd, 0) + (p.entrega.frete ?? 0)
-            const qtd = p.itens.reduce((s, i) => s + i.qtd, 0)
+            const total = p.total / 100
+            const qtd = p.quantidadeItens
             return (
               <li key={p.id}>
                 <Link

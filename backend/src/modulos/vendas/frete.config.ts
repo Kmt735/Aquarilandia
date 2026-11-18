@@ -1,5 +1,7 @@
-// VALORES PROVISÓRIOS E ILUSTRATIVOS — substituir pelos da loja (#4). Só este arquivo muda quando a loja confirmar.
+// Regras legadas ilustrativas para development/test. Produção usa frete.transporte.ts e FRETE_TRANSPORTE_JSON.
 // Dinheiro em centavos (D-04); CEP sempre com 8 dígitos, sem máscara.
+import { env } from '../../config/env.js'
+import { AppError } from '../../utils/AppError.js'
 
 export interface FaixaCep {
   cepInicio: string
@@ -71,4 +73,28 @@ export const configFrete: Readonly<ConfigFrete> = {
   saoJoaoDelRei,
   faixasBrasil,
   freteGratisAcima,
+}
+
+function lerTabela(): Readonly<ConfigFrete> | undefined {
+  if (!env.freteTabelaJson) return undefined
+  try {
+    const dados = JSON.parse(env.freteTabelaJson)
+    const faixa = (f: FaixaCep) => f && /^\d{8}$/.test(f.cepInicio) && /^\d{8}$/.test(f.cepFim)
+      && f.cepInicio <= f.cepFim && Number.isSafeInteger(f.valor) && f.valor >= 0 && f.valor <= 2147483647
+      && Number.isSafeInteger(f.prazoDias) && f.prazoDias >= 0
+    if (!dados || !faixa(dados.saoJoaoDelRei) || !Array.isArray(dados.faixasBrasil) || !dados.faixasBrasil.length
+      || !dados.faixasBrasil.every(faixa) || !Number.isSafeInteger(dados.prazoRetiradaDias) || dados.prazoRetiradaDias < 0
+      || (dados.freteGratisAcima !== null && (!Number.isSafeInteger(dados.freteGratisAcima) || dados.freteGratisAcima < 0))) throw new Error()
+    const faixas = [...dados.faixasBrasil].sort((a, b) => a.cepInicio.localeCompare(b.cepInicio))
+    if (faixas[0].cepInicio !== '01000000' || faixas.at(-1).cepFim !== '99999999'
+      || faixas.some((f, i) => i > 0 && Number(f.cepInicio) !== Number(faixas[i - 1].cepFim) + 1)) throw new Error()
+    return { ...dados, categoriaPeixe, faixasBrasil: faixas }
+  } catch { throw new Error('FRETE_TABELA_JSON inválida. Confira a tabela aprovada da loja; valores não serão exibidos no erro.') }
+}
+const tabelaAprovada = lerTabela()
+export function configuracaoFrete(retirada: boolean): Readonly<ConfigFrete> {
+  if (!retirada && env.nodeEnv === 'production') {
+    throw new AppError('A entrega está aguardando confirmação de frete pela loja. Escolha retirada ou fale com o atendimento.', 503)
+  }
+  return tabelaAprovada ?? configFrete
 }

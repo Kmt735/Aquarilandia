@@ -19,6 +19,7 @@ const desenvolvimento = {
 const producao = {
   ...desenvolvimento,
   NODE_ENV: 'production',
+  DATABASE_URL: 'postgres://fixture:senha-sentinela-nova-com-pelo-menos-32-caracteres@127.0.0.1:1/fixture',
   CORS_ORIGIN: 'https://cors-sentinela.example',
   FRONTEND_URL: 'https://frontend-sentinela.example',
   API_URL: 'https://api-sentinela.example',
@@ -82,6 +83,12 @@ describe('env.ts — falhar cedo (D-52)', { concurrency: true }, () => {
   it('DATABASE_URL vazia ou só com espaços também não sobe', async () => {
     await naoSobe({ ...desenvolvimento, DATABASE_URL: '' }, 'Variável de ambiente obrigatória ausente: DATABASE_URL.')
     await naoSobe({ ...desenvolvimento, DATABASE_URL: '   ' }, 'Variável de ambiente obrigatória ausente: DATABASE_URL.')
+  })
+
+  it('produção recusa senha curta, ausente, placeholder e URL malformada sem expor valores', async () => {
+    for (const DATABASE_URL of ['postgres://fixture:curta@127.0.0.1:1/fixture', 'postgres://fixture@127.0.0.1:1/fixture', 'postgres://fixture:TROQUE_POR_SEGREDO_COM_MAIS_DE_32_CARACTERES@db/fixture', 'url-invalida-sentinela']) {
+      await naoSobe({ ...producao, DATABASE_URL }, 'DATABASE_URL precisa usar PostgreSQL com uma senha nova de pelo menos 32 caracteres')
+    }
   })
 
   it('PORT inválida não sobe', () =>

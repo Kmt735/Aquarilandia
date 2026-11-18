@@ -18,7 +18,7 @@ describe('Falha do provedor de e-mail (Lote 14a) — PostgreSQL real e Resend fa
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     const urlApp = new URL(url); urlApp.searchParams.set('options', `-c search_path=${schema}`)
@@ -105,9 +105,10 @@ describe('Falha do provedor de e-mail (Lote 14a) — PostgreSQL real e Resend fa
     const venda = await fetch(`${api}/vendas`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: origem, Cookie: `sid=${dono.token}`, 'Idempotency-Key': randomUUID() },
-      body: JSON.stringify({ itens: [{ produtoId: p, quantidade: 1 }], retirada: true, totalEsperado: 1000 }),
+      body: JSON.stringify({ itens: [{ produtoId: p, quantidade: 1 }], retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 1000 }),
     }).then((r) => r.json())
     await tx((client) => repoVenda.mudarStatus(venda.id, 'aguardando_pagamento', 'paga', { ator: 'gateway', clienteId: null }, client))
+    await c.query("INSERT INTO pagamentos (venda_id, gateway, metodo, status, valor) VALUES ($1, 'abacatepay', 'pix', 'aprovado', 1000)", [venda.id])
     assert.equal((await pedir('POST', `/vendas/${venda.id}/status`, admin, { status: 'em_separacao' })).status, 200)
     const r = await pedir('POST', `/vendas/${venda.id}/status`, admin, { status: 'pronta_retirada' })
     assert.deepEqual([r.status, r.corpo.status], [200, 'pronta_retirada'])

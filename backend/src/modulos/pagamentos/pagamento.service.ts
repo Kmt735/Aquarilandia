@@ -166,8 +166,16 @@ async function aplicarConsulta(
     case 'aprovado': {
       // Já aprovado (outro aviso da mesma cobrança, ou a reconsulta chegou antes): nada a fazer
       if (pagamento.status === 'aprovado') return 'sem_mudanca'
-      // Estornado ou em disputa é um estado posterior ao aprovado: um aviso velho não volta o pagamento para trás
-      if (pagamento.status === 'estornado' || pagamento.status === 'em_disputa') return 'sem_mudanca'
+      if (pagamento.status === 'estornado') return 'sem_mudanca'
+      // A disputa pode ser ganha. Esta é uma consulta autenticada ao estado atual, não o status do evento.
+      if (pagamento.status === 'em_disputa' && statusVenda !== 'aguardando_pagamento') {
+        await pagamentoRepository.mudarStatus(id, ['em_disputa'], 'aprovado', client)
+        if (statusVenda === 'cancelada' && !pagamento.estornoSolicitadoEm) {
+          await pagamentoRepository.marcarAprovado(id, consulta.cobrancaId, detalheIndevido, client)
+          return 'devolucao'
+        }
+        return pagamento.estornoSolicitadoEm ? 'devolucao' : 'atualizado'
+      }
 
       // A venda ainda espera o pagamento, mesmo vencida (se a tarefa ainda não a cancelou, o cliente pagou a tempo)
       if (statusVenda === 'aguardando_pagamento') {
@@ -192,8 +200,8 @@ async function aplicarConsulta(
       return 'devolucao'
     }
     case 'estornado': {
-      const mudou = await pagamentoRepository.mudarStatus(id, ['aprovado', 'pendente'], 'estornado', client)
-      // Estornado sem pedido nosso (pelo painel da AbacatePay) numa venda paga: a venda não muda sozinha
+      const mudou = await pagamentoRepository.mudarStatus(id, ['aprovado', 'pendente', 'em_disputa', 'cancelado', 'recusado'], 'estornado', client)
+      // Estorno externo: a conclusão e eventual reposição são decididas sob os mesmos locks logo abaixo.
       if (mudou && pagamento.status === 'aprovado' && !pagamento.estornoSolicitadoEm && statusVenda !== 'cancelada') {
         console.error(`[pagamento] pagamento ${id}: estornado no gateway com a venda ${vendaId} em ${statusVenda}`)
       }
@@ -206,7 +214,7 @@ async function aplicarConsulta(
       return mudou ? 'atualizado' : 'sem_mudanca'
     }
     case 'em_disputa': {
-      const de = ['pendente', 'aprovado', 'estornado'] as const
+      const de = ['pendente', 'aprovado', 'cancelado', 'recusado'] as const
       const mudou = await pagamentoRepository.mudarStatus(id, de, 'em_disputa', client)
       if (mudou) console.error(`[pagamento] pagamento ${id}: em disputa`)
       return mudou ? 'atualizado' : 'sem_mudanca'
@@ -315,15 +323,23 @@ function semBaixaDeEstoque(err: unknown): boolean {
 async function concluirCancelamentoComEstoque(
   vendaId: number, statusVenda: StatusVenda, pagamento: PagamentoTravado, client: PoolClient,
 ): Promise<boolean> {
-  if (statusVenda !== 'cancelamento_solicitado' || pagamento.vendaId !== vendaId
-    || pagamento.status !== 'estornado' || !pagamento.estornoSolicitadoEm
+  if (pagamento.vendaId !== vendaId || pagamento.status !== 'estornado'
     || pagamento.statusDetalhe === detalheIndevido || pagamento.statusDetalhe === 'estorno manual') {
     return false
   }
-  if (!podeTransicionar('cancelamento_solicitado', 'cancelada', 'sistema')) {
-    throw new Error('Transição cancelamento_solicitado → cancelada proibida para o sistema.')
+  if (!['aguardando_pagamento', 'paga', 'em_separacao', 'pronta_retirada', 'cancelamento_solicitado'].includes(statusVenda)) {
+    return false // Mercadoria já enviada/entregue exige tratamento de devolução física, sem repor estoque aqui.
   }
-  const cancelou = await vendaRepository.mudarStatus(vendaId, 'cancelamento_solicitado', 'cancelada', {
+  let atual = statusVenda
+  if (['paga', 'em_separacao', 'pronta_retirada'].includes(atual)) {
+    await vendaRepository.mudarStatus(vendaId, atual, 'cancelamento_solicitado', {
+      ator: 'sistema', clienteId: null, observacao: 'Estorno confirmado no gateway.',
+    }, client)
+    atual = 'cancelamento_solicitado'
+  }
+  if (!pagamento.estornoSolicitadoEm) await pagamentoRepository.pedirEstorno(pagamento.id, client)
+  if (!podeTransicionar(atual, 'cancelada', 'sistema')) throw new Error('Transição de estorno proibida.')
+  const cancelou = await vendaRepository.mudarStatus(vendaId, atual, 'cancelada', {
     ator: 'sistema', clienteId: null, observacao: 'Pagamento devolvido.',
   }, client)
   if (!cancelou) throw new Error('A venda travada mudou de status.')
@@ -381,7 +397,9 @@ async function executarEstornoPendente(pagamentoId: number): Promise<ResultadoEs
     || atual.status !== 'aprovado' || !atual.estornoSolicitadoEm || consulta.status !== 'aprovado') return 'nada'
   if (atual.tentativas >= maxTentativasEstorno) return 'esgotado'
 
-  const resposta = await gatewayPix.estornar(pagamento.cobrancaId, motivoEstorno)
+  const resposta = await gatewayPix.estornar(pagamento.cobrancaId, motivoEstorno, atual.valor)
+  // A mensagem "já reembolsada" não traz valor/status. Confirme por consulta antes de concluir localmente.
+  if (resposta.jaEstornado) await exigirEstornoNoGateway(pagamento.cobrancaId, atual.valor)
   if (resposta.aprovado || resposta.jaEstornado) {
     // Concluiu o cancelamento (depois do COMMIT): o e-mail de compra cancelada, com o valor devolvido
     if (await concluirEstorno(pagamento.vendaId, pagamentoId, pagamento.cobrancaId)) {
@@ -416,6 +434,15 @@ async function concluirEstornoManual(
 
   const vendaId = await pagamentoRepository.buscarVendaDoPagamento(pagamentoId)
   if (vendaId === null) throw new AppError('Pagamento não encontrado.', 404)
+  const antes = await pagamentoRepository.buscarParaEstorno(pagamentoId)
+  if (!antes || antes.status !== 'aprovado' || !antes.estornoSolicitadoEm || antes.tentativas < maxTentativasEstorno) {
+    throw new AppError('Este pagamento não está esperando uma devolução manual.', 409)
+  }
+  const confirmador = await pagamentoRepository.travarConfirmadorEmEstorno(vendaId)
+  if (confirmador?.id === pagamentoId) {
+    throw new AppError('Este é o pagamento da compra: conclua pelo cancelamento da venda.', 409)
+  }
+  await exigirEstornoNoGateway(antes.cobrancaId, antes.valor)
   await comTransacao(async (client) => {
     // Ordem venda → pagamento, a de todo o sistema
     const statusVenda = await vendaRepository.travarParaPagamento(vendaId, client)
@@ -423,6 +450,9 @@ async function concluirEstornoManual(
     if (!statusVenda || !travado) throw new AppError('Pagamento não encontrado.', 404)
     if (travado.status !== 'aprovado' || !travado.estornoSolicitadoEm || travado.tentativas < maxTentativasEstorno) {
       throw new AppError('Este pagamento não está esperando uma devolução manual.', 409)
+    }
+    if (travado.cobrancaId !== antes.cobrancaId || travado.valor !== antes.valor) {
+      throw new AppError('Pagamento alterado. Consulte novamente.', 409)
     }
     if (statusVenda === 'cancelamento_solicitado' && travado.statusDetalhe !== detalheIndevido) {
       throw new AppError('Este é o pagamento da compra: conclua pelo cancelamento da venda.', 409)
@@ -473,6 +503,14 @@ async function reconsultarPendente(vendaId: number): Promise<boolean> {
   }
 }
 
+async function exigirEstornoNoGateway(cobrancaId: string | null, valor: number): Promise<void> {
+  if (!cobrancaId) throw new AppError('Não há cobrança para confirmar o estorno.', 409)
+  const consulta = await gatewayPix.consultarCobranca(cobrancaId)
+  if (consulta.cobrancaId !== cobrancaId || consulta.status !== 'estornado' || consulta.valor !== valor) {
+    throw new AppError('O gateway ainda não confirmou a devolução integral. O cancelamento continua pendente.', 409)
+  }
+}
+
 export const pagamentoService = {
   codigoDoErro,
   gerarPix,
@@ -483,6 +521,36 @@ export const pagamentoService = {
   concluirEstornoManual,
   simularPagamento,
   maxTentativasEstorno,
+
+  async confirmarEstornoDaVenda(vendaId: number): Promise<number | null> {
+    const pagamento = await pagamentoRepository.travarConfirmadorEmEstorno(vendaId)
+    if (!pagamento || pagamento.tentativas < maxTentativasEstorno) return null
+    await exigirEstornoNoGateway(pagamento.cobrancaId, pagamento.valor)
+    return pagamento.id
+  },
+
+  async reconsultarFinanceiro(vendaId: number): Promise<void> {
+    for (const cobranca of await pagamentoRepository.buscarCobrancasDaVenda(vendaId)) await processarCobranca(cobranca)
+  },
+
+  async exigirPagamentoConfirmado(vendaId: number, client: Queryable): Promise<void> {
+    if (!await pagamentoRepository.travarFinanceiro(vendaId, client)) {
+      throw new AppError('O pagamento não permite avançar esta compra. Confira a situação financeira.', 409)
+    }
+  },
+
+  async reconciliar(limite = 50): Promise<{ consultadas: number; erros: number }> {
+    let consultadas = 0, erros = 0
+    for (const evento of await pagamentoRepository.reservarEventosPendentes(limite)) {
+      try { await processarAviso(evento.eventoId, evento.tipo, evento.cobrancaId) }
+      catch (err) { erros++; console.error(`[reconciliacao] evento: ${codigoDoErro(err)}`) }
+    }
+    for (const cobranca of await pagamentoRepository.reservarReconciliacao(limite)) {
+      try { await processarCobranca(cobranca); consultadas++ }
+      catch (err) { erros++; console.error(`[reconciliacao] cobrança: ${codigoDoErro(err)}`) }
+    }
+    return { consultadas, erros }
+  },
 
   // Detalhe da compra (#34): o venda.service chama por aqui, não pelo repository (seção 8)
   async listarDaVenda(vendaId: number): Promise<LinhaPagamento[]> {

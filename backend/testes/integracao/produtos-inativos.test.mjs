@@ -18,7 +18,7 @@ describe('Ciclo 2 — produtos inativos, reativação e concorrência PostgreSQL
   before(async () => {
     cliente = new pg.Client({ connectionString: urlTeste }); await cliente.connect()
     await cliente.query(`CREATE SCHEMA ${schema}`); criado = true; await cliente.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql']) await cliente.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql']) await cliente.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     for (const c of (await cliente.query('SELECT id,slug FROM categorias')).rows) categorias.set(c.slug, c.id)
     for (const [nome, papel, ativo, intervalo] of [['admin', 'admin', true, '1 hour'], ['cliente', 'cliente', true, '1 hour'], ['vencido', 'admin', true, '-1 hour'], ['inativo', 'admin', false, '1 hour'], ['mutavel', 'admin', true, '1 hour'], ['revogado', 'admin', true, '1 hour']]) {
       const id = (await cliente.query('INSERT INTO clientes(nome,email,senha_hash,papel,ativo) VALUES($1,$2,$3,$4,$5) RETURNING id', [nome, `${nome}@fixture.example`, 'hash-fixture', papel, ativo])).rows[0].id

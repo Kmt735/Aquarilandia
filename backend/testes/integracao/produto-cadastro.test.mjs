@@ -31,7 +31,7 @@ describe('POST /api/produtos — PostgreSQL e sessões reais', {
     await cliente.query(`CREATE SCHEMA ${schema}`)
     schemaCriado = true
     await cliente.query(`SET search_path TO ${schema}`)
-    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql']) {
+    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql']) {
       await cliente.query(await readFile(new URL(`../../db/init/${arquivo}`, import.meta.url), 'utf8'))
     }
     for (const categoria of (await cliente.query('SELECT id, slug FROM categorias')).rows) categorias.set(categoria.slug, categoria.id)
@@ -117,14 +117,15 @@ describe('POST /api/produtos — PostgreSQL e sessões reais', {
     const cadastro = await fetch(`${origem}/api/auth/cadastro`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origemCors }, body: JSON.stringify(dados),
     })
-    assert.equal(cadastro.status, 201)
-    const usuario = await cadastro.json()
+    assert.equal(cadastro.status, 202)
+    assert.deepEqual(Object.keys(await cadastro.json()), ['mensagem'])
+    const usuario = (await cliente.query('SELECT id,papel FROM clientes WHERE email=$1', [dados.email])).rows[0]
     assert.equal(usuario.papel, 'cliente')
     assert.equal('senhaHash' in usuario, false)
     const duplicado = await fetch(`${origem}/api/auth/cadastro`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origemCors }, body: JSON.stringify(dados),
     })
-    assert.equal(duplicado.status, 409)
+    assert.equal(duplicado.status, 202)
     async function login(senha) {
       return fetch(`${origem}/api/auth/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origemCors }, body: JSON.stringify({ email: dados.email, senha }),

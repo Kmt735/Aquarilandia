@@ -32,7 +32,7 @@ it('configuração recusa build externo e diretório temporário em produção',
   try {
     await writeFile(join(pasta, 'index.html'), '<html></html>')
     await assert.rejects(carregar({ FRONTEND_DIST: pasta, IMAGENS_DIR: join(pasta, 'fotos') }), /IMAGENS_DIR precisa ser/)
-    const producao = { NODE_ENV: 'production', CORS_ORIGIN: 'https://fixture.example', FRONTEND_URL: 'https://fixture.example',
+    const producao = { DATABASE_URL: 'postgres://fixture:senha-ficticia-com-pelo-menos-32-caracteres@127.0.0.1:1/fixture', NODE_ENV: 'production', CORS_ORIGIN: 'https://fixture.example', FRONTEND_URL: 'https://fixture.example',
       API_URL: 'https://fixture.example', GATEWAY_ACCESS_TOKEN: 'fixture', GATEWAY_WEBHOOK_SECRET: 'f'.repeat(32),
       EMAIL_API_KEY: 'fixture', EMAIL_REMETENTE: 'fixture@fixture.example' }
     for (const IMAGENS_DIR of ['/tmp/imagem-fixture', '/var/tmp/imagem-fixture']) {

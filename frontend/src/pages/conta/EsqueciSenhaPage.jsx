@@ -52,9 +52,6 @@ export default function EsqueciSenhaPage() {
           <Button type="submit" tamanho="lg" largo disabled={enviando}>
             {enviando ? 'Enviando…' : 'Enviar link'}
           </Button>
-          <p className="mt-4 text-center text-legenda text-text-muted">
-            Protótipo: para ver a tela seguinte, abra <Link className="text-primary-text underline" to={`${ROTAS.redefinirSenha}?token=exemplo`}>redefinir senha</Link>.
-          </p>
         </form>
       )}
     </FormTemplate>

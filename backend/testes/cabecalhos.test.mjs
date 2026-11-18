@@ -28,7 +28,7 @@ describe('Cabeçalhos de segurança (helmet)', () => {
   })
   const diretivas = (csp) => Object.fromEntries(csp.split(';').map((d) => d.trim().split(/\s+/)).map(([nome, ...valores]) => [nome, valores]))
 
-  for (const caminho of ['/api/categorias?pagina=abc', '/api/inexistente', '/', '/loja']) {
+  for (const caminho of ['/api/categorias?pagina=abc', '/api/inexistente', '/', '/loja', '/redefinir-senha?token=fixture-token-recuperacao']) {
     it(`${caminho}: CSP, nosniff, Referrer-Policy, frame-ancestors, sem X-Powered-By e sem HSTS fora de produção`, async () => {
       const r = await fetch(`${base}${caminho}`)
       const h = r.headers
@@ -46,7 +46,7 @@ describe('Cabeçalhos de segurança (helmet)', () => {
       assert.equal(h.get('content-security-policy').includes('unsafe-eval'), false)
       assert.equal(csp['script-src'].includes("'unsafe-inline'"), false)
       assert.equal(h.get('x-content-type-options'), 'nosniff')
-      assert.equal(h.get('referrer-policy'), 'strict-origin-when-cross-origin')
+      assert.equal(h.get('referrer-policy'), 'no-referrer')
       assert.equal(h.get('x-frame-options'), 'SAMEORIGIN')
       assert.equal(h.get('x-powered-by'), null)
       assert.equal(h.get('strict-transport-security'), null, 'HSTS só em produção')

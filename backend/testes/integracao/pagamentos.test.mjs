@@ -71,7 +71,7 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     adminId = (await c.query("INSERT INTO clientes (nome, email, senha_hash, papel) VALUES ('Admin', 'admin@pagamentos.example', 'hash', 'admin') RETURNING id")).rows[0].id
@@ -138,7 +138,7 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
     const r = await fetch(`${api}/vendas`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: origem, Cookie: `sid=${dono.token}`, 'Idempotency-Key': randomUUID() },
-      body: JSON.stringify({ itens: [{ produtoId: p, quantidade }], retirada: true, totalEsperado: 1000 * quantidade }),
+      body: JSON.stringify({ itens: [{ produtoId: p, quantidade }], retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 1000 * quantidade }),
     })
     const corpo = await r.json()
     assert.equal(r.status, 201, JSON.stringify(corpo))
@@ -468,16 +468,25 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
     assert.deepEqual([p.status, p.estorno_tentativas], ['aprovado', 5])
   })
 
-  it('12b. "já reembolsada" (jaEstornado) conta como sucesso: o pagamento vira estornado', async () => {
+  it('12b. "já reembolsada" exige reconsulta confirmando a devolução integral', async () => {
+    const { vendaId, cobrancaId } = await comPix()
+    await mudar(vendaId, 'aguardando_pagamento', 'cancelada')
+    gw.cobrancas.get(cobrancaId).status = 'aprovado'
+    gw.estorno = () => { gw.cobrancas.get(cobrancaId).status = 'estornado'; return { aprovado: true, jaEstornado: true } }
+    assert.equal((await aviso(novoEvento(), cobrancaId)).status, 200)
+    assert.equal((await pagamentos(vendaId))[0].status, 'estornado')
+  })
+
+  it('12c. mensagem de já reembolsada sem confirmação na consulta não encerra estorno', async () => {
     const { vendaId, cobrancaId } = await comPix()
     await mudar(vendaId, 'aguardando_pagamento', 'cancelada')
     gw.cobrancas.get(cobrancaId).status = 'aprovado'
     gw.estorno = () => ({ aprovado: true, jaEstornado: true })
     assert.equal((await aviso(novoEvento(), cobrancaId)).status, 200)
-    assert.equal((await pagamentos(vendaId))[0].status, 'estornado')
+    assert.equal((await pagamentos(vendaId))[0].status, 'aprovado')
   })
 
-  it('13. refunded + consulta estornado → pagamento estornado (a venda paga não muda sozinha; log sem ids do gateway)', async () => {
+  it('13. estorno externo antes do envio cancela a venda e impede continuar a entrega', async () => {
     const { vendaId, cobrancaId } = await comPix()
     gw.cobrancas.get(cobrancaId).status = 'aprovado'
     assert.equal((await aviso(novoEvento(), cobrancaId)).status, 200)
@@ -486,7 +495,7 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
     assert.equal((await aviso(eventoId, cobrancaId, 'transparent.refunded')).status, 200)
     assert.equal((await pagamentos(vendaId))[0].status, 'estornado')
     assert.equal((await evento(eventoId)).tipo, 'transparent.refunded')
-    assert.equal(await statusVenda(vendaId), 'paga')
+    assert.equal(await statusVenda(vendaId), 'cancelada')
     assert.ok(saida.some((l) => /\[pagamento\] pagamento \d+: estornado no gateway com a venda \d+ em paga/.test(l)))
   })
 

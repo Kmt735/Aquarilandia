@@ -18,9 +18,12 @@ const ABAS = [
 // Área do administrador. Esta tela só esconde o painel de quem não é admin:
 // quem protege os dados de verdade é o servidor (autenticar + exigirAdmin).
 export default function AdminLayout() {
-  const { usuario } = useAuth()
+  const { usuario, carregando, erroSessao, recarregarSessao } = useAuth()
   const { pathname } = useLocation()
   useTituloPagina('Painel do administrador')
+
+  if (carregando) return <p role="status" className="p-6">Verificando sua sessão…</p>
+  if (erroSessao) return <div role="alert" className="p-6">{erroSessao} <Button onClick={recarregarSessao}>Tentar novamente</Button></div>
 
   if (!usuario) return <Navigate to={`${ROTAS.entrar}?voltar=${encodeURIComponent(pathname)}`} replace />
   if (usuario.papel !== 'admin') return <Navigate to={ROTAS.inicio} replace />

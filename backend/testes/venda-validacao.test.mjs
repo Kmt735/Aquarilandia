@@ -89,8 +89,8 @@ describe('lerEntrega', () => {
   const entrega = { entrega: 'Escolha um endereço de entrega ou retirar na loja.' }
 
   it('retirada true (cotação e venda)', () => {
-    assert.deepEqual(lerEntrega({ retirada: true }, 'cep'), { retirada: true })
-    assert.deepEqual(lerEntrega({ retirada: true }, 'endereco'), { retirada: true })
+    assert.deepEqual(lerEntrega({ retirada: true, unidadeRetirada: 'matosinhos' }, 'cep'), { retirada: true })
+    assert.deepEqual(lerEntrega({ retirada: true, unidadeRetirada: 'matosinhos' }, 'endereco'), { retirada: true, unidadeRetirada: 'matosinhos' })
   })
 
   for (const retirada of ['true', 1, 'sim', 0, {}]) {
@@ -108,8 +108,8 @@ describe('lerEntrega', () => {
   })
 
   it('retirada e destino juntos → 422 em entrega', () => {
-    assert.throws(() => lerEntrega({ retirada: true, cep: '36300000' }, 'cep'), erro422(entrega))
-    assert.throws(() => lerEntrega({ retirada: true, enderecoId: 3 }, 'endereco'), erro422(entrega))
+    assert.throws(() => lerEntrega({ retirada: true, unidadeRetirada: 'matosinhos', cep: '36300000' }, 'cep'), erro422(entrega))
+    assert.throws(() => lerEntrega({ retirada: true, unidadeRetirada: 'matosinhos', enderecoId: 3 }, 'endereco'), erro422(entrega))
   })
 
   it('cotação: CEP com ou sem máscara; CEP inválido → 422 em cep', () => {
@@ -142,9 +142,9 @@ describe('validarPedido', () => {
   })
 
   it('soma os repetidos e ignora total, status, clienteId e preços do body', () => {
-    const body = { itens: [item(2, 1, { precoUnitario: 1 }), item(2, 2)], retirada: true, total: 1, status: 'paga', clienteId: 99, totalEsperado: 1500 }
+    const body = { itens: [item(2, 1, { precoUnitario: 1 }), item(2, 2)], retirada: true, unidadeRetirada: 'matosinhos', total: 1, status: 'paga', clienteId: 99, totalEsperado: 1500 }
     assert.deepEqual(validarPedido(body, 'endereco'),
-      { itens: [{ produtoId: 2, quantidade: 3, indice: 0 }], entrega: { retirada: true }, totalEsperado: 1500 })
+      { itens: [{ produtoId: 2, quantidade: 3, indice: 0 }], entrega: { retirada: true, unidadeRetirada: 'matosinhos' }, totalEsperado: 1500 })
   })
 })
 

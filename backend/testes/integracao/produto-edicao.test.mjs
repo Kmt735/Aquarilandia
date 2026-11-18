@@ -25,7 +25,7 @@ describe('PATCH /api/produtos/:id — PostgreSQL, estado final e concorrência',
     await cliente.query(`CREATE SCHEMA ${schema}`)
     schemaCriado = true
     await cliente.query(`SET search_path TO ${schema}`)
-    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql']) {
+    for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql']) {
       await cliente.query(await readFile(new URL(`../../db/init/${arquivo}`, import.meta.url), 'utf8'))
     }
     for (const [chave, papel, ativo, validade] of [

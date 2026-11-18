@@ -250,6 +250,16 @@ describe('Gateway AbacatePay — estornar', () => {
     assert.deepEqual(await estornar('pix_char_abc123'), { aprovado: false, jaEstornado: false, erro: 'sem chave' })
     assert.equal(chamadas.length, 0)
   })
+  for (const extra of [{ status: 'PENDING' }, { status: 'FAILED' }, { amount: 0 }, { amount: '12345' }]) {
+    it(`estorno incompleto não confirma devolução: ${JSON.stringify(extra)}`, async () => {
+      responder(reembolso(extra))
+      assert.equal((await estornar('pix_char_abc123', undefined, 12_345)).aprovado, false)
+    })
+  }
+  it('estorno com valor diferente do pagamento não confirma devolução', async () => {
+    responder(reembolso({ amount: 12_344 }))
+    assert.equal((await estornar('pix_char_abc123', undefined, 12_345)).aprovado, false)
+  })
   it('motivo com 501 caracteres → Error sem rede; 500 é aceito', async () => {
     responder(reembolso())
     await assert.rejects(estornar('pix_char_abc123', 'a'.repeat(501)), /500 caracteres/)

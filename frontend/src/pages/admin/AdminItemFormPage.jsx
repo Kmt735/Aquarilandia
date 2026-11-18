@@ -1,3 +1,4 @@
+import LogisticaProduto from '../../components/organisms/LogisticaProduto'
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -217,6 +218,7 @@ function FormularioItem({ item, categorias }) {
           </Button>
         </div>
       </form>
+      {editando ? <LogisticaProduto produtoId={item.id} /> : <p className="mt-4 text-pequeno text-text-muted">Após cadastrar o produto, abra a edição para informar embalagem e condições de envio.</p>}
     </div>
   )
 }

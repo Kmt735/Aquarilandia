@@ -1,8 +1,9 @@
+import { instalarCepFixture } from '../fixtures/cep.mjs'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
-import { after, afterEach, before, describe, it, mock } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test'
 import { setTimeout as esperar } from 'node:timers/promises'
 import pg from 'pg'
 import { hashToken } from '../../src/modulos/auth/sessao.ts'
@@ -16,7 +17,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     adminId = (await c.query("INSERT INTO clientes (nome, email, senha_hash, papel) VALUES ('Admin', 'admin@venda.example', 'hash', 'admin') RETURNING id")).rows[0].id
@@ -33,6 +34,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
     api = `http://127.0.0.1:${server.address().port}/api`
   })
   afterEach(() => mock.restoreAll())
+  beforeEach(() => instalarCepFixture(mock))
   after(async () => {
     try { if (server) await new Promise((r) => server.close(r)); if (pool) await pool.end() }
     finally { if (c) { try { if (criado) await c.query(`DROP SCHEMA ${schema} CASCADE`) } finally { await c.end() } } }
@@ -58,7 +60,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   }
   async function endereco(clienteId, cep = '36307000') {
     return (await c.query(`INSERT INTO enderecos_cliente (cliente_id, apelido, cep, logradouro, numero, complemento, bairro, cidade, uf)
-      VALUES ($1, 'Casa', $2, 'Rua Teste', '10', 'Apto 1', 'Centro', 'São João del Rei', 'MG') RETURNING id`, [clienteId, cep])).rows[0].id
+      VALUES ($1, 'Casa', $2, 'Rua Teste', '10', 'Apto 1', 'Centro', $3, $4) RETURNING id`, [clienteId, cep, cep === '01001000' ? 'São Paulo' : 'São João del Rei', cep === '01001000' ? 'SP' : 'MG'])).rows[0].id
   }
   async function pedir(metodo, caminho, body, { token, comOrigem = true, chave } = {}) {
     const resposta = await fetch(`${api}${caminho}`, {
@@ -97,6 +99,27 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   const abertas = async (clienteId) => (await c.query("SELECT count(*)::int AS n FROM vendas WHERE cliente_id = $1 AND status = 'aguardando_pagamento'", [clienteId])).rows[0].n
   const comTimeout = (promessa, ms = 10000) => Promise.race([promessa, esperar(ms).then(() => assert.fail(`Timeout de ${ms} ms: possível deadlock.`))])
 
+  it('destino com cidade/UF contraditórias ao CEP é rejeitado sem venda nem baixa', async () => {
+    const quem = await cliente(), p = await produto({ slug: 'peixes' }), end = await endereco(quem.id)
+    await c.query("UPDATE enderecos_cliente SET cidade='São Paulo', uf='SP' WHERE id=$1", [end])
+    const antes = await contagem(), estoqueAntes = await saldo(p)
+    const r = await comprar(quem, { itens: itens([p, 1]), enderecoId: end })
+    assert.equal(r.status, 422)
+    assert.ok(r.corpo.detalhes.enderecoId)
+    assert.deepEqual(await contagem(), antes)
+    assert.equal(await saldo(p), estoqueAntes)
+  })
+
+  it('compra abaixo do mínimo do Pix é rejeitada sem reserva de estoque', async () => {
+    const quem = await cliente(), p = await produto({ preco: 99 })
+    const antes = await contagem(), estoqueAntes = await saldo(p)
+    const r = await comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })
+    assert.equal(r.status, 422)
+    assert.match(r.corpo.erro, /mínimo/)
+    assert.deepEqual(await contagem(), antes)
+    assert.equal(await saldo(p), estoqueAntes)
+  })
+
   // ---------- #30 ----------
   it('6. venda válida → 201; total com os preços do catálogo; estoque baixado; repetidos somados; 1 histórico; 1 baixa', async () => {
     const quem = await cliente(), end = await endereco(quem.id)
@@ -130,7 +153,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
     const quem = await cliente(), outro = await cliente(), p = await produto({ preco: 4000 })
     const r = await comprar(quem, {
       itens: [{ produtoId: p, quantidade: 2, precoUnitario: 1, subtotal: 1 }],
-      retirada: true, total: 1, subtotal: 1, frete: 0, status: 'paga', clienteId: outro.id,
+      retirada: true, unidadeRetirada: 'matosinhos', total: 1, subtotal: 1, frete: 0, status: 'paga', clienteId: outro.id,
     })
     assert.equal(r.status, 201)
     assert.deepEqual([r.corpo.total, r.corpo.status, r.corpo.itens[0].precoUnitario], [8000, 'aguardando_pagamento', 4000])
@@ -141,7 +164,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   it('8. estoque insuficiente → 409 em itens.<indiceOriginal>.quantidade; nada gravado e o estoque igual', async () => {
     const quem = await cliente(), a = await produto({ saldo: 5 }), b = await produto({ saldo: 1 })
     const antes = await contagem()
-    const r = await comprar(quem, { itens: itens([a, 1], [a, 1], [b, 2]), retirada: true })
+    const r = await comprar(quem, { itens: itens([a, 1], [a, 1], [b, 2]), retirada: true, unidadeRetirada: 'matosinhos' })
     assert.equal(r.status, 409)
     assert.deepEqual(r.corpo, { erro: 'Estoque insuficiente', detalhes: { 'itens.2.quantidade': 'Não temos essa quantidade em estoque.' } })
     assert.deepEqual(await contagem(), antes)
@@ -157,13 +180,13 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
     assert.deepEqual([alheio.status, alheio.corpo.erro], [404, 'Endereço não encontrado.'])
     assert.equal((await comprar(quem, { itens: itens([p, 1]), enderecoId: 2147483000 })).status, 404)
 
-    const semTelefone = await comprar(await cliente({ telefone: null }), { itens: itens([p, 1]), retirada: true })
+    const semTelefone = await comprar(await cliente({ telefone: null }), { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })
     assert.deepEqual([semTelefone.status, semTelefone.corpo.detalhes], [422, { telefone: 'Cadastre um celular na sua conta antes de finalizar a compra.' }])
 
     const longe = await comprar(quem, { itens: itens([p, 1], [p, 1], [peixe, 1]), enderecoId: await endereco(quem.id, '01001000') })
     assert.deepEqual([longe.status, longe.corpo.detalhes], [422, { 'itens.2.produtoId': 'Este peixe só pode ser entregue em São João del Rei.' }])
 
-    const desativado = await comprar(quem, { itens: itens([p, 1], [inativo, 1]), retirada: true })
+    const desativado = await comprar(quem, { itens: itens([p, 1], [inativo, 1]), retirada: true, unidadeRetirada: 'matosinhos' })
     assert.deepEqual([desativado.status, desativado.corpo.detalhes], [422, { 'itens.1.produtoId': 'Produto indisponível.' }])
 
     const semEntrega = await comprar(quem, { itens: itens([p, 1]) })
@@ -175,7 +198,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
 
   it('10. retirada → tipo_entrega retirada, frete 0, nenhum entrega_* e entrega null na resposta', async () => {
     const quem = await cliente(), p = await produto({ preco: 1500 }), peixe = await produto({ slug: 'peixes', preco: 800 })
-    const r = await comprar(quem, { itens: itens([p, 1], [peixe, 2]), retirada: true })
+    const r = await comprar(quem, { itens: itens([p, 1], [peixe, 2]), retirada: true, unidadeRetirada: 'matosinhos' })
     assert.equal(r.status, 201)
     assert.deepEqual([r.corpo.tipoEntrega, r.corpo.frete, r.corpo.total, r.corpo.entrega, r.corpo.prazoEntregaDias],
       ['retirada', 0, 3100, null, config.prazoRetiradaDias])
@@ -188,8 +211,8 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   it('11. sem login → 401; sem Origin → 403', async () => {
     const quem = await cliente(), p = await produto()
     const antes = await contagem()
-    assert.equal((await pedir('POST', '/vendas', { itens: itens([p, 1]), retirada: true }, { chave: randomUUID() })).status, 401)
-    assert.equal((await comprar(quem, { itens: itens([p, 1]), retirada: true }, { comOrigem: false })).status, 403)
+    assert.equal((await pedir('POST', '/vendas', { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' }, { chave: randomUUID() })).status, 401)
+    assert.equal((await comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' }, { comOrigem: false })).status, 403)
     assert.deepEqual(await contagem(), antes)
   })
 
@@ -207,7 +230,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
     const outro = new pg.Client({ connectionString: url, application_name: `${schema}_preco` }); await outro.connect()
     try {
       await outro.query(`SET search_path TO ${schema}`)
-      const venda = comprar(quem, { itens: itens([p, 2]), retirada: true })
+      const venda = comprar(quem, { itens: itens([p, 2]), retirada: true, unidadeRetirada: 'matosinhos' })
       await naTrava
       let terminou = false
       const update = outro.query('UPDATE produtos SET preco = 9999 WHERE id = $1', [p]).then(() => { terminou = true })
@@ -232,10 +255,10 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   it('13. 31 produtos → 422; quantidade 51 → 422; o mesmo produto em dois itens somando 51 → 422', async () => {
     const quem = await cliente(), p = await produto()
     const muitos = Array.from({ length: 31 }, (_, i) => ({ produtoId: i + 1, quantidade: 1 }))
-    assert.deepEqual((await comprar(quem, { itens: muitos, retirada: true })).corpo.detalhes, { itens: 'Adicione de 1 a 30 produtos.' })
-    assert.deepEqual((await comprar(quem, { itens: itens([p, 51]), retirada: true })).corpo.detalhes,
+    assert.deepEqual((await comprar(quem, { itens: muitos, retirada: true, unidadeRetirada: 'matosinhos' })).corpo.detalhes, { itens: 'Adicione de 1 a 30 produtos.' })
+    assert.deepEqual((await comprar(quem, { itens: itens([p, 51]), retirada: true, unidadeRetirada: 'matosinhos' })).corpo.detalhes,
       { 'itens.0.quantidade': 'A quantidade precisa ser de 1 a 50.' })
-    const somado = await comprar(quem, { itens: itens([p, 30], [p, 21]), retirada: true })
+    const somado = await comprar(quem, { itens: itens([p, 30], [p, 21]), retirada: true, unidadeRetirada: 'matosinhos' })
     assert.deepEqual([somado.status, somado.corpo.detalhes], [422, { 'itens.0.quantidade': 'A quantidade precisa ser de 1 a 50.' }])
     assert.equal(await abertas(quem.id), 0)
   })
@@ -243,21 +266,21 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   it('14. 5 vendas abertas → a 6ª 409; com uma vencida, a nova passa', async () => {
     const quem = await cliente(), p = await produto()
     const ids = []
-    for (let i = 0; i < 5; i++) ids.push((await comprar(quem, { itens: itens([p, 1]), retirada: true })).corpo.id)
-    const sexta = await comprar(quem, { itens: itens([p, 1]), retirada: true })
+    for (let i = 0; i < 5; i++) ids.push((await comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })).corpo.id)
+    const sexta = await comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })
     assert.deepEqual([sexta.status, sexta.corpo.erro], [409, 'Você já tem 5 compras aguardando pagamento.'])
     assert.equal(await saldo(p), 95)
 
     // Vencida (a #32 ainda vai cancelar): não conta
     await c.query("UPDATE vendas SET expira_em = now() - interval '1 minute' WHERE id = $1", [ids[0]])
-    assert.equal((await comprar(quem, { itens: itens([p, 1]), retirada: true })).status, 201)
+    assert.equal((await comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })).status, 201)
     assert.equal(await abertas(quem.id), 6)
   })
 
   it('15. com 4 abertas, 2 vendas em paralelo → uma 201 e uma 409; ficam 5 abertas', async () => {
     const quem = await cliente(), p = await produto()
-    for (let i = 0; i < 4; i++) assert.equal((await comprar(quem, { itens: itens([p, 1]), retirada: true })).status, 201)
-    const r = await comTimeout(Promise.all([0, 1].map(() => comprar(quem, { itens: itens([p, 1]), retirada: true }))))
+    for (let i = 0; i < 4; i++) assert.equal((await comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })).status, 201)
+    const r = await comTimeout(Promise.all([0, 1].map(() => comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' }))))
     assert.deepEqual(r.map((x) => x.status).sort(), [201, 409])
     assert.equal(await abertas(quem.id), 5)
     assert.equal(await saldo(p), 95)
@@ -266,7 +289,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
   // ---------- concorrência geral ----------
   it('16. duas vendas em paralelo pelo último item → uma 201 e uma 409; estoque 0, nunca negativo', async () => {
     const p = await produto({ saldo: 1 }), x = await cliente(), y = await cliente()
-    const r = await comTimeout(Promise.all([x, y].map((quem) => comprar(quem, { itens: itens([p, 1]), retirada: true }))))
+    const r = await comTimeout(Promise.all([x, y].map((quem) => comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' }))))
     assert.deepEqual(r.map((z) => z.status).sort(), [201, 409])
     assert.deepEqual(r.find((z) => z.status === 409).corpo.detalhes, { 'itens.0.quantidade': 'Não temos essa quantidade em estoque.' })
     assert.equal(await saldo(p), 0)
@@ -276,8 +299,8 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
     const a = await produto(), b = await produto(), x = await cliente(), y = await cliente()
     for (let rodada = 0; rodada < 5; rodada++) {
       const r = await comTimeout(Promise.all([
-        comprar(x, { itens: itens([a, 1], [b, 1]), retirada: true }),
-        comprar(y, { itens: itens([b, 1], [a, 1]), retirada: true }),
+        comprar(x, { itens: itens([a, 1], [b, 1]), retirada: true, unidadeRetirada: 'matosinhos' }),
+        comprar(y, { itens: itens([b, 1], [a, 1]), retirada: true, unidadeRetirada: 'matosinhos' }),
       ]))
       assert.deepEqual(r.map((z) => z.status), [201, 201], `rodada ${rodada + 1}: ${JSON.stringify(r.map((z) => z.corpo))}`)
       // Cada cliente fica abaixo do limite de 5 abertas: as vendas da rodada vencem direto no descartável
@@ -295,7 +318,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
       // Alterna quem sai na frente: o apagar conta roda o argon2 antes da transação, então às vezes a venda ganha
       const atraso = rodada % 2 === 0 ? 0 : 150
       const [venda, apagar] = await comTimeout(Promise.all([
-        esperar(atraso).then(() => comprar(quem, { itens: itens([p, 1]), retirada: true })),
+        esperar(atraso).then(() => comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })),
         pedir('DELETE', '/clientes/me', { senha: quem.senha }, { token: quem.token }),
       ]))
       resultados.push(`${venda.status}/${apagar.status}`)
@@ -315,7 +338,7 @@ describe('POST /api/vendas (#30, #31) — PostgreSQL real', { skip: !url && 'Def
       // Mesmo começo do apagar conta: trava a linha do cliente e anonimiza, ainda sem COMMIT
       await outro.query('BEGIN')
       await outro.query('SELECT id FROM clientes WHERE id = $1 FOR UPDATE', [quem.id])
-      const venda = comprar(quem, { itens: itens([p, 1]), retirada: true })
+      const venda = comprar(quem, { itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })
       for (let i = 0; ; i++) {
         const { rows } = await c.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'", [schema])
         if (rows[0].n >= 1) break

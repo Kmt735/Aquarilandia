@@ -16,13 +16,14 @@ import { listarEnderecos, salvarEndereco } from '../../services/conta'
 import { calcularFrete } from '../../services/frete'
 import { textoEndereco } from '../../utils/endereco'
 import { formatarPreco } from '../../utils/format'
+import { unidades } from '../../data/loja'
 import { ROTAS, urlEtapaCheckout } from '../../utils/rotas'
 
 // Etapa 2 · endereço salvo, endereço novo ou retirada na loja.
 // Com peixe no carrinho e CEP fora de São João del Rei, explica e oferece a retirada (item 18).
 export default function EtapaEntregaPage() {
   useTituloPagina('Entrega · Finalizar compra')
-  const { usuario } = useAuth()
+  const { usuario, carregando: sessaoCarregando } = useAuth()
   const { linhas, temPeixe } = useCart()
   const { rascunho, salvar } = useCheckout()
   const navigate = useNavigate()
@@ -30,16 +31,19 @@ export default function EtapaEntregaPage() {
   const [enderecos, setEnderecos] = useState(null)
   const lista = enderecos ?? salvos ?? []
   const escolha = rascunho.entrega?.escolha ?? (lista.find((e) => e.principal)?.id || null)
+  const [unidadeRetirada,setUnidadeRetirada] = useState(rascunho.entrega?.unidadeRetirada ?? '')
+  const [servicoFreteId,setServicoFreteId] = useState(rascunho.entrega?.servicoFreteId ?? '')
   const [erroEscolha, setErroEscolha] = useState(null)
   const enderecoEscolhido = lista.find((e) => e.id === escolha)
 
   // Recalcula o frete sempre que o endereço escolhido muda
   const { dados: freteResultado, carregando: freteCarregando } = useConsulta(
     () => (enderecoEscolhido ? calcularFrete(enderecoEscolhido.cep, linhas) : Promise.resolve(null)),
-    [enderecoEscolhido?.id, enderecoEscolhido?.cep, linhas.map((l) => l.id).join()],
+    [enderecoEscolhido?.id, enderecoEscolhido?.cep, linhas.map((l) => `${l.id}:${l.qtd}`).join()],
   )
   const frete = { carregando: Boolean(enderecoEscolhido) && freteCarregando, resultado: freteResultado }
 
+  if (sessaoCarregando) return <Skeleton className="h-24 rounded-card" />
   if (!usuario) {
     return (
       <div className="mx-auto max-w-[560px] rounded-card border border-border-strong bg-surface p-6 text-center">
@@ -58,7 +62,8 @@ export default function EtapaEntregaPage() {
     )
   }
 
-  const opcaoEntrega = frete.resultado?.opcoes.find((o) => o.id === 'endereco')
+  const opcoesEntrega = frete.resultado?.opcoes ?? []
+  const opcaoEntrega = opcoesEntrega.find((o) => o.servicoFreteId === servicoFreteId) ?? opcoesEntrega[0]
   const entregaBloqueada = escolha && escolha !== 'retirada' && escolha !== 'novo' && opcaoEntrega && !opcaoEntrega.disponivel
   const valorFrete = escolha === 'retirada' ? 0 : opcaoEntrega?.disponivel ? opcaoEntrega.valor : undefined
 
@@ -69,11 +74,13 @@ export default function EtapaEntregaPage() {
 
   const continuar = () => {
     if (!escolha || escolha === 'novo') return setErroEscolha('Escolha um endereço ou a retirada na loja.')
+    if (escolha !== 'retirada' && (frete.carregando || !opcaoEntrega)) return setErroEscolha('Aguarde a cotação de entrega.')
+    if (escolha === 'retirada' && !['centro','matosinhos'].includes(unidadeRetirada)) return setErroEscolha('Escolha a unidade Centro ou Matosinhos.')
     if (entregaBloqueada) return setErroEscolha(opcaoEntrega.motivo)
     const entrega =
       escolha === 'retirada'
-        ? { tipo: 'retirada', escolha, resumo: 'Retirada na loja (unidade e horário a combinar com a loja)', frete: 0 }
-        : { tipo: 'endereco', escolha, resumo: textoEndereco(enderecoEscolhido), frete: opcaoEntrega?.valor ?? null, prazo: opcaoEntrega?.prazo ?? null }
+        ? { tipo: 'retirada', escolha, unidadeRetirada, resumo: `Aquarilândia ${unidades.find((u) => u.id === unidadeRetirada).unidade} · ${unidades.find((u) => u.id === unidadeRetirada).linhas.join(' · ')}`, frete: 0 }
+        : { tipo: 'endereco', escolha, servicoFreteId:opcaoEntrega.servicoFreteId, cep: enderecoEscolhido.cep, resumo: textoEndereco(enderecoEscolhido), frete: opcaoEntrega?.valor ?? null, prazo: opcaoEntrega?.prazo ?? null }
     salvar({ entrega })
     navigate(urlEtapaCheckout('pagamento'))
   }
@@ -118,7 +125,7 @@ export default function EtapaEntregaPage() {
                           {opcaoEntrega && opcaoEntrega.disponivel && (
                             <>
                               Frete: <strong>{opcaoEntrega.valor == null ? 'a definir com a loja' : formatarPreco(opcaoEntrega.valor)}</strong>
-                              {opcaoEntrega.prazo && ` · prazo ${opcaoEntrega.prazo}`} <span className="text-legenda text-text-muted">(valores provisórios de exemplo)</span>
+                              {opcaoEntrega.prazo && ` · prazo ${opcaoEntrega.prazo}`}
                             </>
                           )}
                           {opcaoEntrega && !opcaoEntrega.disponivel && <span className="font-semibold text-danger-text">{opcaoEntrega.motivo}</span>}
@@ -135,13 +142,28 @@ export default function EtapaEntregaPage() {
                     <Store aria-hidden="true" className="size-4 text-primary-text" />
                     Retirar na loja · grátis
                   </span>
-                  <span className="block text-pequeno text-text-muted">Unidade e horário de retirada: a combinar com a loja. Vale para peixes e produtos.</span>
+                  <span className="block text-pequeno text-text-muted">Escolha Centro ou Matosinhos. Aguarde o aviso de que seu pedido está pronto antes de retirar.</span>
                 </>,
               )}
               {opcao('novo', <span className="font-bold">Entregar em um endereço novo</span>)}
             </div>
           )}
         </fieldset>
+
+        {escolha === 'retirada' && <fieldset className="mt-5 rounded-card border border-border-strong p-4">
+          <legend className="px-2 font-semibold">Unidade para retirada</legend>
+          {unidades.map((u) => <label key={u.id} className="mb-3 flex cursor-pointer items-start gap-3">
+            <input className="mt-1 size-5 accent-primary" type="radio" name="unidade-retirada" value={u.id} checked={unidadeRetirada===u.id} onChange={() => {setUnidadeRetirada(u.id);setErroEscolha(null)}} />
+            <span><strong>Aquarilândia {u.unidade}</strong><span className="block text-pequeno text-text-muted">{u.linhas.join(' · ')}</span></span>
+          </label>)}
+          <p className="text-pequeno text-text-muted">A equipe confirmará a disponibilidade na unidade escolhida ao preparar o pedido.</p>
+        </fieldset>}
+        {enderecoEscolhido && opcoesEntrega.some((o) => o.disponivel) && <label className="mt-5 block font-semibold">
+          Modalidade de entrega
+          <select className="mt-2 block w-full rounded-lg border p-3" value={opcaoEntrega?.servicoFreteId ?? ''} onChange={(e) => setServicoFreteId(e.target.value)}>
+            {opcoesEntrega.filter((o) => o.disponivel).map((o) => <option key={o.servicoFreteId ?? 'entrega'} value={o.servicoFreteId ?? ''}>{o.nome} · {formatarPreco(o.valor)} · {o.prazo}</option>)}
+          </select>
+        </label>}
 
         {escolha === 'novo' && (
           <div className="mt-4">
