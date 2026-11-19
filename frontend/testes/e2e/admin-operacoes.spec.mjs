@@ -52,14 +52,18 @@ test('catálogo administrativo cria e edita produto; foto usa upload separado e 
     await page.locator('#item-categoria').selectOption(String(categoria))
     await page.locator('#item-nome').fill('Acessório cadastrado no navegador')
     await page.locator('#item-preco').fill('14,90')
+    const sharp = createRequire(new URL('../../../backend/package.json', import.meta.url))('sharp')
+    const buffer = await sharp({ create: { width: 32, height: 24, channels: 3, background: '#087f8c' } }).png().toBuffer()
+    await page.getByLabel('Arquivo da foto').setInputFiles({ name: 'cadastro.png', mimeType: 'image/png', buffer })
     const criacao = page.waitForResponse(r => r.url().endsWith('/api/produtos') && r.request().method() === 'POST')
     await page.getByRole('button', { name: 'Cadastrar item', exact: true }).click()
     const criada = await criacao
     expect(criada.status()).toBe(201)
     const produto = await criada.json()
+    await expect(page).toHaveURL(/\/admin\/produtos$/)
+    expect((await sistema.cliente.query('SELECT imagem_arquivo_id FROM produtos WHERE id=$1', [produto.id])).rows[0].imagem_arquivo_id).toBeTruthy()
     await page.goto(`/admin/produtos/${produto.id}/editar`)
-    const sharp = createRequire(new URL('../../../backend/package.json', import.meta.url))('sharp')
-    const buffer = await sharp({ create: { width: 32, height: 24, channels: 3, background: '#087f8c' } }).png().toBuffer()
+    await expect(page.getByAltText('Foto atual do produto')).toBeVisible()
     await page.getByLabel('Arquivo da foto').setInputFiles({ name: 'produto.png', mimeType: 'image/png', buffer })
     await page.getByRole('button', { name: 'Enviar foto', exact: true }).click()
     await expect(page.getByText('Foto salva.', { exact: true })).toBeVisible()
@@ -74,6 +78,35 @@ test('catálogo administrativo cria e edita produto; foto usa upload separado e 
     await page.getByRole('button', { name: 'Remover foto', exact: true }).click()
     await expect(page.getByText('Foto removida.', { exact: true })).toBeVisible()
     expect((await sistema.cliente.query('SELECT imagem_arquivo_id FROM produtos WHERE id=$1', [produto.id])).rows[0].imagem_arquivo_id).toBeNull()
+  } finally { env.imagensDir = anterior; await rm(pasta, { recursive: true, force: true }) }
+})
+
+test('falha ao enviar foto no cadastro abre edição do produto criado e permite tentar novamente', async ({ page, sistema }) => {
+  const { env } = await import('../../../backend/dist/config/env.js')
+  const anterior = env.imagensDir, pasta = await mkdtemp(join(tmpdir(), 'admin-foto-falha-'))
+  try {
+    env.imagensDir = pasta
+    await entrarAdmin(page, sistema)
+    const categoria = (await sistema.cliente.query("SELECT id FROM categorias WHERE slug='acessorios'")).rows[0].id
+    await page.goto('/admin/produtos/novo')
+    await page.locator('#item-categoria').selectOption(String(categoria))
+    await page.locator('#item-nome').fill('Produto com foto para reenviar')
+    await page.locator('#item-preco').fill('12,00')
+    const sharp = createRequire(new URL('../../../backend/package.json', import.meta.url))('sharp')
+    const buffer = await sharp({ create: { width: 32, height: 24, channels: 3, background: '#087f8c' } }).png().toBuffer()
+    await page.getByLabel('Arquivo da foto').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer })
+    await page.route('**/api/produtos/*/imagem', r => r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ erro: 'Indisponível' }) }), { times: 1 })
+    const criacao = page.waitForResponse(r => r.url().endsWith('/api/produtos') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Cadastrar item', exact: true }).click()
+    const produto = await (await criacao).json()
+    await expect(page).toHaveURL(new RegExp(`/admin/produtos/${produto.id}/editar$`))
+    await expect(page.getByText(/Produto cadastrado, mas não foi possível enviar a foto/)).toBeVisible()
+    await page.getByLabel('Arquivo da foto').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer })
+    await page.getByRole('button', { name: 'Enviar foto', exact: true }).click()
+    await expect(page.getByText('Foto salva.', { exact: true })).toBeVisible()
+    const produtos = (await sistema.cliente.query('SELECT imagem_arquivo_id FROM produtos WHERE nome=$1', ['Produto com foto para reenviar'])).rows
+    expect(produtos).toHaveLength(1)
+    expect(produtos[0].imagem_arquivo_id).toBeTruthy()
   } finally { env.imagensDir = anterior; await rm(pasta, { recursive: true, force: true }) }
 })
 
