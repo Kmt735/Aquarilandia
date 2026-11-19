@@ -15,11 +15,13 @@ export const test = base.extend({
     const schema = `ciclo1_${randomUUID().replaceAll('-', '')}`
     const cliente = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL })
     let servidor, vite, pool
+    const cobrancas = new Map(), emails = []
+    const restaurar = []
     await cliente.connect()
     try {
       await cliente.query(`CREATE SCHEMA ${schema}`)
       await cliente.query(`SET search_path TO ${schema}`)
-      for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql']) {
+      for (const arquivo of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql']) {
         await cliente.query(await readFile(new URL(`../../../backend/db/init/${arquivo}`, import.meta.url), 'utf8'))
       }
       const inserir = async (nome, slug, preco, estoque = 3, ativo = true) => (await cliente.query(
@@ -39,11 +41,52 @@ export const test = base.extend({
       const peixeSemFicha = await inserir('Peixe API sem ficha', 'peixes', 1000)
       for (let n = 1; n <= 11; n++) await inserir(`Aquário Paginação ${String(n).padStart(2, '0')}`, 'aquarios', 5000 + n)
       await cliente.query("INSERT INTO categorias (nome,slug) VALUES ('Categoria API nova','categoria-api-nova')")
+      for (const arquivo of ['15_orcamentos.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql',
+        '30_estoque.sql', '31_estoque_vendas.sql', '32_produto_imagem.sql', '33_estoque_consultas.sql', '34_pagamentos_reconciliacao.sql']) {
+        await cliente.query(await readFile(new URL(`../../../backend/db/init/${arquivo}`, import.meta.url), 'utf8'))
+      }
       const url = new URL(process.env.TEST_DATABASE_URL)
       url.searchParams.set('options', `-c search_path=${schema}`)
       process.env.DATABASE_URL = url.toString()
+      // Tabela explicitamente fictícia, sem rede externa nem tarifas reais.
+      const transporte={tipoEntrega:'correios',transportadora:'Transportadora fixture',cepInicio:'01000000',cepFim:'99999999',rastreioCorreios:false,
+        fatorCubagemCm3PorKg:6000,maxPesoG:30000,maxComprimentoCm:100,maxLarguraCm:100,maxAlturaCm:100,maxSomaDimensoesCm:200}
+      process.env.FRETE_TRANSPORTE_JSON=JSON.stringify({servicos:[
+        {...transporte,id:'economico',nome:'Econômico fixture',prazoTransporteDias:4,faixasPeso:[{ateGramas:1000,valorCentavos:1500},{ateGramas:30000,valorCentavos:2500}]},
+        {...transporte,id:'rapido',nome:'Rápido fixture',prazoTransporteDias:1,faixasPeso:[{ateGramas:30000,valorCentavos:4500}]}]})
+      await cliente.query('INSERT INTO produto_logistica(produto_id,peso_g,comprimento_cm,largura_cm,altura_cm,prazo_preparacao_dias,envio_convencional) VALUES($1,500,20,20,20,2,true)',[aquario])
       const { app } = await import('../../../backend/dist/app.js')
       const { db } = await import('../../../backend/dist/config/db.js')
+      const { env } = await import('../../../backend/dist/config/env.js')
+      const { gatewayPix } = await import('../../../backend/dist/modulos/pagamentos/gateway.js')
+      const { pagamentoService } = await import('../../../backend/dist/modulos/pagamentos/pagamento.service.js')
+      const { cepService } = await import('../../../backend/dist/modulos/vendas/cep.service.js')
+      const trocar = (obj, campo, valor) => { const anterior = obj[campo]; restaurar.push(() => { obj[campo] = anterior }); obj[campo] = valor }
+      trocar(gatewayPix, 'criarCobrancaPix', async ({ pagamentoId, vendaId, valor, expiraEm }) => {
+        const id = `pix_char_fixture${pagamentoId}`
+        if (!cobrancas.has(id)) cobrancas.set(id, { cobrancaId: id, status: 'pendente', valor, vendaId, pagamentoId, externalId: `pagamento-${pagamentoId}` })
+        return { cobrancaId: id, status: cobrancas.get(id).status, codigoPix: `PIX-FICTICIO-${pagamentoId}`,
+          qrCodeImagem: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jT1sAAAAASUVORK5CYII=', expiraEm }
+      })
+      trocar(gatewayPix, 'consultarCobranca', async (id) => {
+        if (!cobrancas.has(id)) throw new Error('Cobrança de fixture ausente')
+        return { ...cobrancas.get(id) }
+      })
+      trocar(gatewayPix, 'estornar', async (id) => { cobrancas.get(id).status = 'estornado'; return { aprovado: true, jaEstornado: false } })
+      trocar(cepService, 'consultar', async (cep) => ({ cep, ...(cep === '01001000'
+        ? { cidade: 'São Paulo', uf: 'SP', municipioIbge: '3550308' }
+        : { cidade: 'São João del Rei', uf: 'MG', municipioIbge: '3162500' }) }))
+      trocar(env, 'emailApiKey', 'chave-ficticia-e2e')
+      trocar(env, 'emailRemetente', 'fixture@example.invalid')
+      const fetchOriginal = globalThis.fetch
+      trocar(globalThis, 'fetch', async (url, opcoes) => {
+        if (String(url) === 'https://api.resend.com/emails') {
+          emails.push(JSON.parse(opcoes.body))
+          return new Response(JSON.stringify({ id: 'email-fixture' }), { status: 200 })
+        }
+        if (/^http:\/\/(127\.0\.0\.1|localhost):/.test(String(url))) return fetchOriginal(url, opcoes)
+        throw new Error('Rede externa bloqueada no E2E')
+      })
       pool = db
       servidor = app.listen(0, '127.0.0.1')
       await once(servidor, 'listening')
@@ -53,11 +96,20 @@ export const test = base.extend({
       vite = await createServer({ root, configFile: `${root}/vite.config.js`, server: { host: '127.0.0.1', port: 0, proxy: { '/api': backend } } })
       await vite.listen()
       const origem = `http://127.0.0.1:${vite.httpServer.address().port}`
-      await use({ origem, backend, cliente, ids: { aquario, semFicha, peixe, outroPeixe, inativo, peixeSemFicha } })
+      trocar(env, 'corsOrigin', origem)
+      trocar(env, 'frontendUrl', origem)
+      const confirmarPagamento = async (vendaId) => {
+        const cobranca = [...cobrancas.values()].find((p) => p.vendaId === Number(vendaId))
+        if (!cobranca) throw new Error('Cobrança não encontrada na fixture')
+        cobranca.status = 'aprovado'
+        await pagamentoService.processarCobranca(cobranca.cobrancaId)
+      }
+      await use({ origem, backend, cliente, emails, confirmarPagamento, ids: { aquario, semFicha, peixe, outroPeixe, inativo, peixeSemFicha } })
     } finally {
       if (vite) await vite.close()
       if (servidor) await new Promise((resolve) => servidor.close(resolve))
       if (pool) await pool.end()
+      for (const voltar of restaurar.reverse()) voltar()
       await cliente.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
       await cliente.end()
     }

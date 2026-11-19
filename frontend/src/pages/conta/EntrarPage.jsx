@@ -62,7 +62,6 @@ export default function EntrarPage() {
         <Button type="submit" tamanho="lg" largo disabled={enviando}>
           {enviando ? 'Entrando…' : 'Entrar'}
         </Button>
-        <p className="mt-4 text-center text-legenda text-text-muted">Protótipo: qualquer e-mail válido entra numa conta de exemplo.</p>
       </form>
     </FormTemplate>
   )

@@ -158,6 +158,11 @@ async function rodarTarefas(): Promise<void> {
   rodando = true
   try {
     try {
+      await pagamentoService.reconciliar()
+    } catch (err) {
+      console.error(`[reconciliacao] rodada falhou: ${descreverErro(err)}`)
+    }
+    try {
       await executarExpiracao()
     } catch (err) {
       console.error(`[expiracao] rodada falhou: ${descreverErro(err)}`)

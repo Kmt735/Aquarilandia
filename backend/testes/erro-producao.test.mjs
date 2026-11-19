@@ -4,6 +4,7 @@ import { after, afterEach, before, describe, it, mock } from 'node:test'
 
 // O runner executa cada arquivo em processo separado: este liga a produção só aqui (valores fictícios, D-52)
 process.env.NODE_ENV = 'production'
+process.env.DATABASE_URL = 'postgres://fixture:senha-ficticia-de-producao-com-32-caracteres@127.0.0.1:1/fixture'
 process.env.CORS_ORIGIN = 'https://loja.example'
 process.env.FRONTEND_URL = 'https://loja.example'
 process.env.API_URL = 'https://api.loja.example'

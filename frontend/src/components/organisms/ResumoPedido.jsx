@@ -3,10 +3,10 @@ import Preco from '../atoms/Preco'
 import { formatarPreco } from '../../utils/format'
 
 // Resumo de valores, usado no checkout e no detalhe da compra (item 31 · decisão com tudo visível)
-export default function ResumoPedido({ itens, frete, titulo = 'Resumo', children }) {
-  const subtotal = subtotalEmCentavos(itens) / 100
+export default function ResumoPedido({ itens, frete, titulo = 'Resumo', children, subtotalCentavos, totalCentavos }) {
+  const subtotal = (subtotalCentavos ?? subtotalEmCentavos(itens)) / 100
   const freteTexto = frete === undefined ? 'calculado na entrega' : frete === null ? 'a definir com a loja' : frete === 0 ? 'Grátis' : formatarPreco(frete)
-  const total = subtotal + (frete ?? 0)
+  const total = totalCentavos === undefined ? subtotal + (frete ?? 0) : totalCentavos / 100
 
   return (
     <section aria-labelledby="titulo-resumo" className="rounded-card border border-border-strong bg-surface p-5">

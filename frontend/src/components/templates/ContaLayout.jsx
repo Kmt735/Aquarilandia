@@ -14,10 +14,13 @@ const ABAS = [
 
 // "Minha conta": exige login; abas para compras, dados e endereços (item 6 · endereço salvo e histórico)
 export default function ContaLayout() {
-  const { usuario, sair } = useAuth()
+  const { usuario, sair, carregando, erroSessao, recarregarSessao } = useAuth()
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { toast } = useToast()
+
+  if (carregando) return <p role="status" className="p-6">Verificando sua sessão…</p>
+  if (erroSessao) return <div role="alert" className="p-6">{erroSessao} <Button onClick={recarregarSessao}>Tentar novamente</Button></div>
 
   if (!usuario) return <Navigate to={`${ROTAS.entrar}?voltar=${encodeURIComponent(pathname)}`} replace />
 

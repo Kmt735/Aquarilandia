@@ -1,3 +1,5 @@
+import type { UnidadeRetirada, UnidadeRetiradaId } from './unidades.js'
+import type { ServicoFrete, OpcaoTransporte } from './frete.transporte.js'
 // Os mesmos valores do DOMAIN status_venda (db/init/20_vendas.sql): o ?status= das listagens é conferido nesta lista
 export const listaStatusVenda = [
   'aguardando_pagamento',
@@ -22,8 +24,8 @@ export interface ItemPedido {
 }
 
 // Cotação (#28): retirada ou CEP. Venda (#30): retirada ou um endereço salvo do cliente
-export type EntregaCotacao = { retirada: true } | { retirada: false; cep: string }
-export type EntregaVenda = { retirada: true } | { retirada: false; enderecoId: number }
+export type EntregaCotacao = { retirada: true } | { retirada: false; cep: string; servicoFreteId?: string }
+export type EntregaVenda = { retirada: true; unidadeRetirada: UnidadeRetiradaId } | { retirada: false; enderecoId: number; servicoFreteId?: string }
 
 // O body da venda já validado: itens somados, entrega e o total que a cotação mostrou (só para conferir)
 export interface PedidoVenda {
@@ -33,6 +35,8 @@ export interface PedidoVenda {
 }
 
 export interface CotacaoFrete {
+  servicoFrete?: ServicoFrete
+  opcoesFrete?: OpcaoTransporte[]
   frete: number
   prazoDias: number
   tipoEntrega: TipoEntrega
@@ -52,6 +56,8 @@ export interface EntregaCopiada {
 }
 
 export interface NovaVenda {
+  unidadeRetirada?: UnidadeRetirada | null
+  servicoFrete?: ServicoFrete | null
   clienteId: number
   subtotal: number
   frete: number
@@ -76,6 +82,8 @@ export interface NovoItemVenda {
 
 // A venda como o cliente vê: resposta do POST /api/vendas (criação e repetição) e, depois, do detalhe (#34)
 export interface VendaCriada {
+  unidadeRetirada?: UnidadeRetirada
+  servicoFrete?: ServicoFrete
   id: number
   status: StatusVenda
   tipoEntrega: TipoEntrega

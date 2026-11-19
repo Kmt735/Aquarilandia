@@ -1,9 +1,13 @@
+import { calcularTransportes, transporteConfigurado, type ServicoFrete, type OpcaoTransporte, type ItemTransporte } from './frete.transporte.js'
+import { buscarLogistica } from '../catalogo/produto.logistica.js'
+import { env } from '../../config/env.js'
 // Função PURA: o resultado depende só da entrada e da config (sem banco, sem rede, sem data atual).
 // Por isso dá para testar cada regra sem servidor nem PostgreSQL, e a mesma regra serve à cotação
 // (POST /api/frete/calcular, #28) e à criação da venda (#30), sem as duas calcularem o frete de jeitos diferentes.
 import { AppError } from '../../utils/AppError.js'
 import { produtoService } from '../catalogo/produto.service.js'
-import { configFrete } from './frete.config.js'
+import { configFrete, configuracaoFrete } from './frete.config.js'
+import { cepService } from './cep.service.js'
 import type { ConfigFrete, FaixaCep } from './frete.config.js'
 import type { CotacaoFrete } from './venda.types.js'
 import { exigirDisponiveis, precificar, somarTotal, traduzirErroFrete, validarPedido } from './venda.validacao.js'
@@ -13,9 +17,12 @@ export interface EntradaFrete {
   retirada: boolean
   itens: readonly { categoria: string }[]
   subtotal: number
+  municipioIbge?: string
 }
 
 export interface ResultadoFrete {
+  servicoFrete?: ServicoFrete
+  opcoesFrete?: OpcaoTransporte[]
   frete: number
   prazoDias: number
   tipoEntrega: 'correios' | 'propria' | 'retirada'
@@ -44,7 +51,7 @@ export function calcularFrete(entrada: EntradaFrete, config: Readonly<ConfigFret
 
   let resultado: ResultadoFrete
   // c) São João del Rei ANTES das faixas do Brasil: a faixa de Minas contém a da cidade e ganharia dela
-  if (estaNaFaixa(cep, config.saoJoaoDelRei)) {
+  if (entrada.municipioIbge !== undefined ? entrada.municipioIbge === '3162500' : estaNaFaixa(cep, config.saoJoaoDelRei)) {
     resultado = { frete: config.saoJoaoDelRei.valor, prazoDias: config.saoJoaoDelRei.prazoDias, tipoEntrega: 'propria' }
   } else {
     // d) Resto do Brasil. CEP fora de todas as faixas (ex.: 00000000–00999999) é tratado como CEP inválido
@@ -68,6 +75,19 @@ export function calcularFrete(entrada: EntradaFrete, config: Readonly<ConfigFret
   return resultado
 }
 
+// Um único seletor para a estimativa e o recálculo final sob locks do catálogo.
+export function resolverEntrega(entrada: EntradaFrete & { itens: readonly ItemTransporte[]; servicoFreteId?: string }): ResultadoFrete {
+  if (entrada.retirada) return calcularFrete(entrada, configuracaoFrete(true))
+  if (transporteConfigurado() || env.nodeEnv === 'production') {
+    const opcoesFrete = calcularTransportes({ cep: entrada.cep!, municipioIbge: entrada.municipioIbge! }, entrada.itens)
+    const escolhida = entrada.servicoFreteId ? opcoesFrete.find((o) => o.servicoFrete.id === entrada.servicoFreteId) : opcoesFrete[0]
+    if (!escolhida) throw new AppError('Não há modalidade compatível com o endereço e as embalagens deste pedido. Escolha retirada ou fale com a loja.', entrada.servicoFreteId ? 409 : 422)
+    return { ...escolhida, opcoesFrete }
+  }
+  if (entrada.servicoFreteId) throw new AppError('O serviço escolhido não está disponível. Confira a entrega.',409)
+  return calcularFrete(entrada,configuracaoFrete(false)) // Somente development/test, explicitamente ilustrativo.
+}
+
 export const freteService = {
   // POST /api/frete/calcular (#28): mesma validação e mesmo calcularFrete da criação da venda (#30), só que sem
   // login, sem transação e sem trava (buscarParaVenda sem executor). O valor é uma estimativa: a venda recalcula
@@ -80,7 +100,9 @@ export const freteService = {
     let resultado: ResultadoFrete
     try {
       // linhas está na ordem dos itens somados: o índice do erro do peixe é traduzido com essa mesma lista
-      resultado = calcularFrete({ ...entrega, itens: linhas, subtotal })
+      const destino = entrega.retirada ? null : await cepService.consultar(entrega.cep)
+      const logistica = entrega.retirada ? new Map() : await buscarLogistica(itens.map((i) => i.produtoId))
+      resultado = resolverEntrega({ ...entrega, itens: linhas.map((l) => ({...l, logistica:logistica.get(l.produtoId)})), subtotal, municipioIbge: destino?.municipioIbge })
     } catch (err) {
       traduzirErroFrete(err, itens)
     }

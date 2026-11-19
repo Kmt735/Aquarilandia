@@ -22,6 +22,7 @@ const AdminPedidoDetalhePage = lazy(() => import('./pages/admin/AdminPedidoDetal
 const NaoEncontradaPage = lazy(() => import('./pages/NaoEncontradaPage'))
 const PerguntasFrequentesPage = lazy(() => import('./pages/PerguntasFrequentesPage'))
 const PoliticaPage = lazy(() => import('./pages/PoliticaPage'))
+const CreditosImagensPage = lazy(() => import('./pages/CreditosImagensPage'))
 const EtapaCarrinhoPage = lazy(() => import('./pages/checkout/EtapaCarrinhoPage'))
 const EtapaEntregaPage = lazy(() => import('./pages/checkout/EtapaEntregaPage'))
 const EtapaPagamentoPage = lazy(() => import('./pages/checkout/EtapaPagamentoPage'))
@@ -40,6 +41,9 @@ const AdminLayout = lazy(() => import('./components/templates/AdminLayout'))
 const AdminInicioPage = lazy(() => import('./pages/admin/AdminInicioPage'))
 const AdminProdutosPage = lazy(() => import('./pages/admin/AdminProdutosPage'))
 const AdminItemFormPage = lazy(() => import('./pages/admin/AdminItemFormPage'))
+const AdminEstoquePage = lazy(() => import('./pages/admin/AdminEstoquePage'))
+const AdminOrcamentosPage = lazy(() => import('./pages/admin/AdminOrcamentosPage'))
+const AdminClientesPage = lazy(() => import('./pages/admin/AdminClientesPage'))
 
 // Endereço antigo do guia: quem já tinha o link cai no novo, mantendo a âncora
 function RedirecionarPrimeiroAquario() {
@@ -77,6 +81,7 @@ export default function App() {
                     <Route path={ROTAS.servicos} element={<ServicosPage />} />
                     <Route path={ROTAS.perguntas} element={<PerguntasFrequentesPage />} />
                     <Route path={`${ROTAS.politicas}/:tipo`} element={<PoliticaPage />} />
+                    <Route path={ROTAS.creditosImagens} element={<CreditosImagensPage />} />
 
                     <Route path={ROTAS.entrar} element={<EntrarPage />} />
                     <Route path={ROTAS.criarConta} element={<CriarContaPage />} />
@@ -103,6 +108,9 @@ export default function App() {
                     <Route path="produtos" element={<AdminProdutosPage />} />
                     <Route path="produtos/novo" element={<AdminItemFormPage />} />
                     <Route path="produtos/:id/editar" element={<AdminItemFormPage />} />
+                    <Route path="estoque" element={<AdminEstoquePage />} />
+                    <Route path="orcamentos" element={<AdminOrcamentosPage />} />
+                    <Route path="clientes" element={<AdminClientesPage />} />
                     </Route>
                     <Route path="*" element={<NaoEncontradaPage />} />
                   </Route>

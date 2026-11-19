@@ -18,7 +18,7 @@ describe('Estoque — consultas administrativas com PostgreSQL real', { skip: !u
   before(async () => {
     cliente = new pg.Client({ connectionString: url }); await cliente.connect()
     await cliente.query(`CREATE SCHEMA ${schema}`); criado = true; await cliente.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql']) await cliente.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql']) await cliente.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     legado = await novo({ saldo: 7, ativo: false }); legadoZero = await novo()
     await cliente.query(await readFile(new URL('../../db/init/30_estoque.sql', import.meta.url), 'utf8'))
     await cliente.query(await readFile(new URL('../../db/init/31_estoque_vendas.sql', import.meta.url), 'utf8'))

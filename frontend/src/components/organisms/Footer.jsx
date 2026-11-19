@@ -105,6 +105,7 @@ export default function Footer() {
               <li><Link to={ROTAS.primeiroAquario} className={link}>Meu Primeiro Aquário</Link></li>
               <li><Link to={ROTAS.servicos} className={link}>Serviços e orçamento</Link></li>
               <li><Link to={ROTAS.minhaConta} className={link}>Minhas compras</Link></li>
+              <li><Link to={ROTAS.creditosImagens} className={link}>Créditos das fotos</Link></li>
             </ul>
             <h2 className="mt-5 mb-1 text-legenda font-bold tracking-[.1em] text-foreground uppercase">Políticas</h2>
             <ul>

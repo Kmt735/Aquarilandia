@@ -7,8 +7,8 @@ const msgEsqueciSenha = 'Se este e-mail estiver cadastrado, você receberá um l
 
 export const authController = {
     async cadastrar (req: Request, res: Response): Promise<void>{
-        const cliente = await authService.cadastrar(req.body)
-        res.status(201).json(cliente)
+        await authService.cadastrar(req.body)
+        res.status(202).json({ mensagem: 'Solicitação recebida. Entre com seu e-mail e senha; se já tinha conta e esqueceu a senha, use a recuperação.' })
     },
       async login(req: Request, res: Response): Promise<void> {
     const { cliente, token, expiraEm } = await authService.login(req.body, {

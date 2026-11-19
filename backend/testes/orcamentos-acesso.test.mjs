@@ -28,6 +28,11 @@ describe('Orçamentos — criação pública e consulta administrativa HTTP', ()
       const filtrados = banco.filter((item) => !status || item.status === status).reverse()
       return { dados: filtrados.slice(offset, offset + limite), total: filtrados.length }
     })
+    mock.method(orcamentoRepository, 'atualizar', async (id, dados) => {
+      const registro = banco.find((item) => item.id === id)
+      if (!registro) return null
+      Object.assign(registro, dados, { atualizadoEm: new Date() }); return registro
+    })
     mock.method(orcamentoRepository, 'atualizarStatus', async (id, status) => {
       const registro = banco.find((item) => item.id === id)
       if (!registro) return null
@@ -175,7 +180,7 @@ describe('Orçamentos — criação pública e consulta administrativa HTTP', ()
   })
   it('PATCH: admin muda o status (200), só o status muda e o campo é exato', async () => {
     sessao()
-    const resposta = await alterarStatus(criado.id, { status: 'em_atendimento', nome: 'Outro nome', telefone: '000', id: 999 })
+    const resposta = await alterarStatus(criado.id, { status: 'em_atendimento', id: 999 })
     assert.equal(resposta.status, 200); assert.equal(resposta.headers.get('cache-control'), 'no-store')
     const corpo = await resposta.json()
     assert.deepEqual(Object.keys(corpo).sort(), campos)
@@ -192,6 +197,22 @@ describe('Orçamentos — criação pública e consulta administrativa HTTP', ()
     const inexistente = await alterarStatus(999999, { status: 'novo' })
     assert.equal(inexistente.status, 404); assert.deepEqual(await inexistente.json(), { erro: 'Orçamento não encontrado.' })
     assert.equal(banco.find((item) => item.id === criado.id).status, 'em_atendimento')
+  })
+  it('PATCH: edição parcial validada, campos protegidos e limpeza da mensagem', async () => {
+    sessao()
+    const anterior = { ...banco.find((item) => item.id === criado.id) }
+    const invalido = await alterarStatus(criado.id, { nome: 'Cliente editado', telefone: '000' })
+    assert.equal(invalido.status, 422)
+    assert.deepEqual(banco.find((item) => item.id === criado.id), anterior)
+    const resposta = await alterarStatus(criado.id, { nome: 'Cliente editado', telefone: '(32) 98888-7777', mensagem: '', id: 999, criadoEm: '2000-01-01' })
+    assert.equal(resposta.status, 200)
+    const corpo = await resposta.json()
+    assert.equal(corpo.id, criado.id); assert.equal(corpo.nome, 'Cliente editado')
+    assert.equal(corpo.telefone, '32988887777'); assert.equal(corpo.mensagem, null)
+    assert.equal(corpo.servico, anterior.servico); assert.equal(corpo.status, anterior.status)
+    assert.equal(corpo.criadoEm, criado.criadoEm)
+    assert.equal((await alterarStatus(criado.id, { servico: 'Inválido' })).status, 422)
+    assert.equal((await alterarStatus(999999, { nome: 'Cliente inexistente' })).status, 404)
   })
   it('PATCH: cliente recebe 403 e visitante 401 sem alterar o status', async () => {
     const antes = banco.find((item) => item.id === criado.id).status

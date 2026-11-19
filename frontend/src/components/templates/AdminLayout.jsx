@@ -11,16 +11,22 @@ import { ROTAS } from '../../utils/rotas'
 
 const ABAS = [
   { id: 'resumo', to: ROTAS.admin, rotulo: 'Resumo', end: true },
-  { id: 'catalogo', to: ROTAS.adminProdutos, rotulo: 'Peixes e produtos' },
+  { id: 'catalogo', to: ROTAS.adminProdutos, rotulo: 'Produtos' },
   { id: 'pedidos', to: ROTAS.adminPedidos, rotulo: 'Pedidos' },
+  { id: 'estoque', to: ROTAS.adminEstoque, rotulo: 'Estoque' },
+  { id: 'orcamentos', to: ROTAS.adminOrcamentos, rotulo: 'Orçamentos' },
+  { id: 'clientes', to: ROTAS.adminClientes, rotulo: 'Clientes' },
 ]
 
 // Área do administrador. Esta tela só esconde o painel de quem não é admin:
 // quem protege os dados de verdade é o servidor (autenticar + exigirAdmin).
 export default function AdminLayout() {
-  const { usuario } = useAuth()
+  const { usuario, carregando, erroSessao, recarregarSessao } = useAuth()
   const { pathname } = useLocation()
   useTituloPagina('Painel do administrador')
+
+  if (carregando) return <p role="status" className="p-6">Verificando sua sessão…</p>
+  if (erroSessao) return <div role="alert" className="p-6">{erroSessao} <Button onClick={recarregarSessao}>Tentar novamente</Button></div>
 
   if (!usuario) return <Navigate to={`${ROTAS.entrar}?voltar=${encodeURIComponent(pathname)}`} replace />
   if (usuario.papel !== 'admin') return <Navigate to={ROTAS.inicio} replace />

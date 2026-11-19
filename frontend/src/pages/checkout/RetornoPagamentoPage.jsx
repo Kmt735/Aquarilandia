@@ -52,20 +52,24 @@ function Sucesso({ pedidoId }) {
         const pedido = await consultarStatus(pedidoId)
         if (!ativo) return
         if (pedido.status !== 'aguardando_pagamento') {
-          setEstado({ fase: pedido.status === 'paga' ? 'paga' : 'outro', pedido })
-          if (pedido.status === 'paga') {
+          const pago = ['paga', 'em_separacao', 'enviada', 'pronta_retirada', 'entregue'].includes(pedido.status)
+            && pedido.pagamento === 'pago'
+          setEstado({ fase: pago ? 'paga' : 'outro', pedido })
+          if (pago) {
             limpar()
             limparRascunho()
           }
-        } else if (n < TENTATIVAS) verificar(n + 1)
+        } else if (n < TENTATIVAS) timer = setTimeout(() => verificar(n + 1), 3000)
         else setEstado({ fase: 'demorando', pedido })
       } catch {
         if (ativo) setEstado({ fase: 'erro', pedido: null })
       }
     }
+    let timer
     verificar(1)
     return () => {
       ativo = false
+      clearTimeout(timer)
     }
   }, [pedidoId, limpar, limparRascunho])
 

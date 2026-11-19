@@ -1,10 +1,13 @@
-import { ClipboardList, Package } from 'lucide-react'
+import { ClipboardList, Package, Boxes, MessageSquare, Users } from 'lucide-react'
 import { Link } from 'react-router'
 import { ROTAS } from '../../utils/rotas'
 
 const CARTOES = [
-  { to: ROTAS.adminPedidos, Icone: ClipboardList, titulo: 'Pedidos', texto: 'Veja os pedidos que chegaram e atualize o andamento, o pagamento e a entrega.' },
-  { to: ROTAS.adminProdutos, Icone: Package, titulo: 'Peixes e produtos', texto: 'Cadastre, edite e tire da loja o que não está disponível.' },
+  { to: ROTAS.adminPedidos, Icone: ClipboardList, titulo: 'Pedidos', texto: 'Acompanhe o pagamento e atualize a preparação, a entrega e a retirada.' },
+  { to: ROTAS.adminProdutos, Icone: Package, titulo: 'Produtos', texto: 'Cadastre, edite e tire da loja o que não está disponível.' },
+  { to: ROTAS.adminEstoque, Icone: Boxes, titulo: 'Estoque', texto: 'Consulte saldos, registre entradas e saídas e confira o histórico.' },
+  { to: ROTAS.adminOrcamentos, Icone: MessageSquare, titulo: 'Orçamentos', texto: 'Consulte e edite solicitações de serviço e acompanhe o atendimento.' },
+  { to: ROTAS.adminClientes, Icone: Users, titulo: 'Clientes', texto: 'Consulte clientes e compras e controle o acesso das contas.' },
 ]
 
 export default function AdminInicioPage() {

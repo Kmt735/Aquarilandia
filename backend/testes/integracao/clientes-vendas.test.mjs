@@ -1,8 +1,9 @@
+import { instalarCepFixture } from '../fixtures/cep.mjs'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
-import { after, before, describe, it } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test'
 import pg from 'pg'
 import { hashToken } from '../../src/modulos/auth/sessao.ts'
 
@@ -18,7 +19,7 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     const urlApp = new URL(url); urlApp.searchParams.set('options', `-c search_path=${schema}`); urlApp.searchParams.set('application_name', schema)
@@ -34,6 +35,8 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
     api = `http://127.0.0.1:${server.address().port}/api`
     admin = await conta('admin'); ana = await conta(); bia = await conta()
   })
+  beforeEach(() => instalarCepFixture(mock))
+  afterEach(() => mock.restoreAll())
   after(async () => {
     try { if (server) await new Promise((r) => server.close(r)); if (pool) await pool.end() }
     finally { if (c) { try { if (criado) await c.query(`DROP SCHEMA ${schema} CASCADE`) } finally { await c.end() } } }
@@ -55,7 +58,7 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
   }
   async function endereco(clienteId, cep) {
     return (await c.query(`INSERT INTO enderecos_cliente (cliente_id, apelido, cep, logradouro, numero, complemento, bairro, cidade, uf)
-      VALUES ($1, 'Casa', $2, 'Rua Teste', '10', NULL, 'Centro', 'Cidade Teste', 'MG') RETURNING id`, [clienteId, cep])).rows[0].id
+      VALUES ($1, 'Casa', $2, 'Rua Teste', '10', NULL, 'Centro', $3, $4) RETURNING id`, [clienteId, cep, cep === '01001000' ? 'São Paulo' : 'São João del Rei', cep === '01001000' ? 'SP' : 'MG'])).rows[0].id
   }
   async function pedir(caminho, quem, { metodo = 'GET', body } = {}) {
     const r = await fetch(`${api}${caminho}`, {
@@ -69,10 +72,10 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
   // Compra pelo POST /api/vendas, com o totalEsperado da cotação do mesmo carrinho e da mesma entrega
   async function comprar(quem, pares, enderecoId) {
     const itens = pares.map(([produtoId, quantidade]) => ({ produtoId, quantidade }))
-    const destino = enderecoId ? { enderecoId } : { retirada: true }
+    const destino = enderecoId ? { enderecoId } : { retirada: true, unidadeRetirada: 'matosinhos' }
     const cep = enderecoId && (await c.query('SELECT cep FROM enderecos_cliente WHERE id = $1', [enderecoId])).rows[0].cep
     limites.limiteFrete.resetKey('127.0.0.1')
-    const cotacao = await pedir('/frete/calcular', null, { metodo: 'POST', body: { itens, ...(cep ? { cep } : { retirada: true }) } })
+    const cotacao = await pedir('/frete/calcular', null, { metodo: 'POST', body: { itens, ...(cep ? { cep } : { retirada: true, unidadeRetirada: 'matosinhos' }) } })
     assert.equal(cotacao.status, 200, cotacao.texto)
     const r = await fetch(`${api}/vendas`, {
       method: 'POST',
@@ -159,6 +162,7 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
   describe('#34 /me/vendas/:id', () => {
     let dani, enviada, retirada, peixeId
     before(async () => {
+      instalarCepFixture(mock)
       dani = await conta()
       peixeId = await produto('Bomba Submersa')
       // Correios (CEP fora de São João del Rei): passa por paga → em_separacao → enviada, com código de rastreio
@@ -178,7 +182,7 @@ describe('Compras do cliente (#33, #34, #37) — PostgreSQL real', { skip: !url 
       assert.deepEqual([v.id, v.status, v.tipoEntrega, v.codigoRastreio, v.pagamento], [enviada, 'enviada', 'correios', 'BR123456789BR', null])
       assert.deepEqual(v.itens.map((i) => [i.produtoId, i.nomeProduto, i.quantidade, i.precoUnitario, i.subtotal]), [[peixeId, 'Bomba Submersa', 2, 1000, 2000]])
       assert.deepEqual(v.entrega, { cep: '01001000', logradouro: 'Rua Teste', numero: '10', complemento: null, bairro: 'Centro',
-        cidade: 'Cidade Teste', uf: 'MG', destinatario: (await c.query('SELECT nome FROM clientes WHERE id = $1', [dani.id])).rows[0].nome, telefone: '32999990000' })
+        cidade: 'São Paulo', uf: 'SP', destinatario: (await c.query('SELECT nome FROM clientes WHERE id = $1', [dani.id])).rows[0].nome, telefone: '32999990000' })
       assert.deepEqual(v.historico.map((h) => h.status), ['aguardando_pagamento', 'paga', 'em_separacao', 'enviada'])
       for (const etapa of v.historico) assert.deepEqual(Object.keys(etapa).sort(), ['data', 'status'])
       const datas = v.historico.map((h) => Date.parse(h.data))

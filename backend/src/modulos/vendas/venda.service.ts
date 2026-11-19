@@ -1,3 +1,5 @@
+import { buscarLogistica, type LogisticaProduto } from '../catalogo/produto.logistica.js'
+import { unidadesRetirada } from './unidades.js'
 import type { UsuarioLogado } from '../../types/index.js'
 import { AppError } from '../../utils/AppError.js'
 import { comTransacao } from '../../utils/transacao.js'
@@ -9,7 +11,9 @@ import type { Endereco } from '../clientes/cliente.types.js'
 import { enderecoRepository } from '../clientes/endereco.repository.js'
 import { estoqueService } from '../estoque/estoque.service.js'
 import { pagamentoService } from '../pagamentos/pagamento.service.js'
-import { calcularFrete } from './frete.service.js'
+import { resolverEntrega } from './frete.service.js'
+import { cepService, conferirEndereco } from './cep.service.js'
+import type { DestinoCep } from './cep.service.js'
 import type { ResultadoFrete } from './frete.service.js'
 import { vendaRepository } from './venda.repository.js'
 import { podeTransicionar } from './venda.transicoes.js'
@@ -81,13 +85,19 @@ const maxVendasAguardando = 5
 function freteDaVenda(
   endereco: Endereco | null,
   itens: readonly ItemPedido[],
-  linhas: readonly { categoria: string }[],
+  linhas: readonly { produtoId: number; categoria: string; quantidade: number }[],
   subtotal: number,
+  destino: DestinoCep | null,
+  logistica: Map<number, LogisticaProduto>,
+  servicoFreteId?: string,
 ): ResultadoFrete {
   try {
-    return endereco
-      ? calcularFrete({ retirada: false, cep: endereco.cep, itens: linhas, subtotal })
-      : calcularFrete({ retirada: true, itens: linhas, subtotal })
+    if (endereco) {
+      if (!destino) throw new AppError('Valide o endereço novamente.', 409)
+      conferirEndereco(destino, endereco)
+    }
+    return resolverEntrega({ retirada: endereco === null, cep: endereco?.cep, subtotal, municipioIbge: destino?.municipioIbge, servicoFreteId,
+      itens: linhas.map((l) => ({...l,logistica:logistica.get(l.produtoId)})) })
   } catch (err) {
     if (err instanceof AppError && err.statusCode === 422 && err.detalhes?.cep) {
       throw new AppError('Dados inválidos', 422, {
@@ -247,7 +257,7 @@ function validarMudancaStatus(body: unknown): {
   let codigoRastreio: string | null = null
   if (dados.codigoRastreio !== undefined && dados.codigoRastreio !== null) {
     const codigo = typeof dados.codigoRastreio === 'string' ? dados.codigoRastreio.trim().toUpperCase() : ''
-    if (padraoRastreio.test(codigo)) codigoRastreio = codigo
+    if (/^[A-Z0-9][A-Z0-9_-]{4,59}$/.test(codigo)) codigoRastreio = codigo
     else erros.codigoRastreio = 'Informe o código de rastreio dos Correios no formato AA123456789BR.'
   }
 
@@ -402,12 +412,14 @@ export const vendaService = {
   //     3) a resposta mostra o estado final: estorno aprovado → a venda já está cancelada (o tentarEstornoPendente
   //        conclui); falhou → continua cancelamento_solicitado, e a tarefa de 5 em 5 minutos tenta de novo.
   //   cancelamento_solicitado → cliente: 409 (já está em andamento). Admin: só depois das 5 tentativas automáticas
-  //     de estorno, com o motivo obrigatório: ele confirma que devolveu pelo painel da AbacatePay; o pagamento vira
+  //     de estorno, com motivo e consulta autenticada confirmando devolução integral; o pagamento vira
   //     estornado ('estorno manual'), a venda cancelada (ator admin) e o estoque volta, numa transação só.
   //   enviada, entregue, cancelada → 409.
   async cancelar(usuario: UsuarioLogado, vendaId: number, body: unknown): Promise<DetalheVenda | DetalheVendaAdmin> {
     const motivo = validarMotivo(body)
     const ehAdmin = usuario.papel === 'admin'
+    // Consulta remota fora dos locks. O ID é conferido novamente sob lock no ramo de conclusão manual.
+    const estornoConfirmadoId = ehAdmin && motivo ? await pagamentoService.confirmarEstornoDaVenda(vendaId) : null
 
     type Resultado = { estornar: number | null; cancelou: boolean }
     const { estornar, cancelou } = await comTransacao(async (client): Promise<Resultado> => {
@@ -445,6 +457,7 @@ export const vendaService = {
           throw new AppError('O estorno ainda está sendo tentado automaticamente.', 409)
         }
         if (!motivo) throw new AppError('Dados inválidos', 422, { motivo: 'Descreva como o estorno foi feito.' })
+        if (estornoConfirmadoId !== pagamento.id) throw new AppError('O estorno ainda não foi confirmado pelo gateway.', 409)
         exigirTransicao(status, 'cancelada', usuario.papel)
         await pagamentoService.marcarEstornoManual(pagamento.id, client)
         await vendaRepository.mudarStatus(vendaId, status, 'cancelada', autoria(usuario, motivo), client)
@@ -516,6 +529,8 @@ export const vendaService = {
     const pedido = validarMudancaStatus(body)
     const novo = pedido.status
 
+    await pagamentoService.reconsultarFinanceiro(vendaId)
+
     await comTransacao(async (client) => {
       const venda = await vendaRepository.travarParaStatus(vendaId, client)
       if (!venda) throw new AppError('Venda não encontrada.', 404)
@@ -523,6 +538,7 @@ export const vendaService = {
       if (!podeTransicionar(atual, novo, 'admin')) {
         throw new AppError(`Não é possível mudar de ${atual} para ${novo}.`, 409)
       }
+      await pagamentoService.exigirPagamentoConfirmado(vendaId, client)
       if (novo === 'enviada' && tipoEntrega === 'retirada') {
         throw new AppError('Uma compra para retirada na loja não é enviada.', 409)
       }
@@ -531,6 +547,9 @@ export const vendaService = {
       }
 
       const enviaPelosCorreios = novo === 'enviada' && tipoEntrega === 'correios'
+      if (pedido.codigoRastreio && venda.servicoFrete?.rastreioCorreios !== false && !padraoRastreio.test(pedido.codigoRastreio)) {
+        throw new AppError('Dados inválidos',422,{codigoRastreio:'Informe o código de rastreio dos Correios no formato AA123456789BR.'})
+      }
       if (pedido.codigoRastreio !== null && !enviaPelosCorreios) {
         throw new AppError('Dados inválidos', 422, {
           codigoRastreio: tipoEntrega === 'correios'
@@ -589,11 +608,21 @@ export const vendaService = {
     const pedido = validarPedido(body, 'endereco')
     const { itens, entrega, totalEsperado } = pedido
     const hash = hashDoPedido(pedido)
+    const existente = await vendaRepository.buscarPorChave(clienteId, chave)
+    if (existente) return repetir(existente, hash, clienteId)
     const cliente = await clienteRepository.buscarPorId(clienteId)
     if (!cliente) throw new AppError('Faça login para continuar.', 401)
     const { nome, telefone } = cliente
     if (!telefone) {
       throw new AppError('Dados inválidos', 422, { telefone: 'Cadastre um celular na sua conta antes de finalizar a compra.' })
+    }
+
+    // Rede antes de abrir transação/travar cliente e produtos. O endereço é relido e confrontado sob lock.
+    let destino: DestinoCep | null = null
+    if (!entrega.retirada) {
+      const endereco = await enderecoRepository.buscarDoCliente(entrega.enderecoId, clienteId)
+      if (!endereco) throw new AppError('Endereço não encontrado.', 404)
+      destino = await cepService.consultar(endereco.cep)
     }
 
     try {
@@ -622,8 +651,10 @@ export const vendaService = {
 
         const produtos = await produtoService.buscarParaVenda(itens.map((item) => item.produtoId), client)
         const { linhas, subtotal } = precificar(itens, exigirDisponiveis(itens, produtos))
-        const frete = freteDaVenda(endereco, itens, linhas, subtotal)
+        const logistica = entrega.retirada ? new Map() : await buscarLogistica(itens.map((i) => i.produtoId),client)
+        const frete = freteDaVenda(endereco, itens, linhas, subtotal, destino, logistica, entrega.retirada ? undefined : entrega.servicoFreteId)
         const total = somarTotal(subtotal, frete.frete)
+        if (total < 100) throw new AppError('O valor mínimo da compra com Pix é R$ 1,00.', 422)
 
         // O totalEsperado só CONFERE: o preço continua vindo só do catálogo (travado acima). Diferente = o preço ou o
         // frete mudou desde a cotação; nada é gravado e o cliente vê o total novo antes de decidir
@@ -649,6 +680,8 @@ export const vendaService = {
           frete: frete.frete,
           total,
           tipoEntrega: frete.tipoEntrega,
+          unidadeRetirada: entrega.retirada ? unidadesRetirada[entrega.unidadeRetirada] : null,
+          servicoFrete: frete.servicoFrete ?? null,
           prazoEntregaDias: frete.prazoDias,
           destinatario: nome,
           telefone,

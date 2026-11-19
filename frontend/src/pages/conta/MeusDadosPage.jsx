@@ -1,5 +1,6 @@
 import Button from '../../components/atoms/Button'
 import Input from '../../components/atoms/Input'
+import CampoSenha from '../../components/atoms/CampoSenha'
 import Aviso from '../../components/molecules/Aviso'
 import FormField from '../../components/molecules/FormField'
 import useAuth from '../../hooks/useAuth'
@@ -16,7 +17,7 @@ export default function MeusDadosPage() {
   const { usuario, atualizar } = useAuth()
   const { toast } = useToast()
   const { campo, erros, enviar, enviando, erroGeral, alterar, formRef } = useFormulario(
-    { nome: usuario.nome, email: usuario.email, telefone: usuario.telefone },
+    { nome: usuario.nome, email: usuario.email, telefone: usuario.telefone ?? '', senhaAtual: '' },
     REGRAS,
   )
 
@@ -47,6 +48,9 @@ export default function MeusDadosPage() {
         </FormField>
         <FormField id="dados-tel" label="Celular" obrigatorio erro={erros.telefone} ajuda="Com DDD. Exemplo: (32) 99999-0000.">
           <Input type="tel" inputMode="numeric" {...campo('telefone')} onChange={(e) => alterar('telefone', mascararTelefone(e.target.value))} />
+        </FormField>
+        <FormField id="dados-senha-atual" label="Senha atual" erro={erros.senhaAtual} ajuda="Necessária para alterar seu e-mail.">
+          <CampoSenha autoComplete="current-password" {...campo('senhaAtual')} />
         </FormField>
         <Button type="submit" disabled={enviando}>
           {enviando ? 'Salvando…' : 'Salvar dados'}

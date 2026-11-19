@@ -7,16 +7,13 @@ const INTERVALO_MS = 30000
 // "Novo" = ainda não atendido (aguardando pagamento ou recém-pago) e que o admin não abriu
 const aguardandoAtendimento = (p) => ['aguardando_pagamento', 'paga'].includes(p.status)
 
-// Confere os pedidos de tempos em tempos e conta os novos. INTEGRAÇÃO: trocar a conferência por
-// GET /api/admin/vendas (ou por uma conexão em tempo real) quando o backend de vendas existir.
+// Consulta os pedidos reais da API periodicamente e conta os ainda não atendidos.
 export default function usePedidosNovos() {
   const { toast } = useToast()
   const [novos, setNovos] = useState(0)
   const conhecidos = useRef(null)
 
-  const conferir = useCallback(async () => {
-    try {
-      const { itens } = await listarPedidosAdmin({ limite: 100 })
+  const conferir = useCallback(() => listarPedidosAdmin({ limite: 100 }).then(({ itens }) => {
       const vistos = lerVistos()
       const pendentes = itens.filter((p) => aguardandoAtendimento(p) && !vistos.has(p.id))
       setNovos(pendentes.length)
@@ -25,10 +22,7 @@ export default function usePedidosNovos() {
         if (chegaram.length) toast(chegaram.length === 1 ? 'Chegou um pedido novo!' : 'Chegaram pedidos novos!', { tipo: 'info' })
       }
       conhecidos.current = new Set(pendentes.map((p) => p.id))
-    } catch {
-      // tenta de novo na próxima conferência
-    }
-  }, [toast])
+  }).catch(() => { /* Tenta novamente na próxima conferência. */ }), [toast])
 
   useEffect(() => {
     conferir()

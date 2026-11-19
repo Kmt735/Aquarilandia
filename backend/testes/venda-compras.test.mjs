@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { afterEach, describe, it, mock } from 'node:test'
+import { afterEach, beforeEach, describe, it, mock } from 'node:test'
+import { pagamentoService } from '../src/modulos/pagamentos/pagamento.service.ts'
 import { env } from '../src/config/env.ts'
 import { authService } from '../src/modulos/auth/auth.service.ts'
 import { vendaRepository } from '../src/modulos/vendas/venda.repository.ts'
@@ -10,6 +11,10 @@ import { iniciarTarefasVendas } from '../src/modulos/vendas/venda.tarefas.ts'
 // Nenhum caso chega a consultar o PostgreSQL: o que tocaria o banco é simulado.
 
 const nodeEnvOriginal = env.nodeEnv
+beforeEach(() => {
+  mock.method(pagamentoService, 'reconciliar', async () => ({ consultadas: 0, erros: 0 }))
+  mock.method(pagamentoService, 'listarEstornosPendentes', async () => [])
+})
 afterEach(() => {
   mock.timers.reset()
   mock.restoreAll()
@@ -87,6 +92,7 @@ describe('iniciarTarefasVendas (#32)', () => {
     mock.timers.tick(29999)
     assert.equal(busca.mock.callCount(), 0)
     mock.timers.tick(1)
+    for (let i = 0; i < 3; i++) await Promise.resolve()
     assert.equal(busca.mock.callCount(), 1, 'primeira rodada aos 30 s')
 
     // O intervalo de 5 min chega com a primeira rodada ainda presa: não começa outra
@@ -101,6 +107,7 @@ describe('iniciarTarefasVendas (#32)', () => {
     // Terminada a rodada, o próximo intervalo roda normalmente
     busca.mock.mockImplementation(async () => [])
     mock.timers.tick(300000)
+    for (let i = 0; i < 3; i++) await Promise.resolve()
     assert.equal(busca.mock.callCount(), 2)
   })
 

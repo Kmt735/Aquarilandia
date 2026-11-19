@@ -1,196 +1,67 @@
-import { ArrowLeft } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import Button from '../../components/atoms/Button'
 import Input from '../../components/atoms/Input'
-import Skeleton from '../../components/atoms/Skeleton'
 import StatusPedidoBadge from '../../components/atoms/StatusPedidoBadge'
-import CampoOpcoes from '../../components/molecules/CampoOpcoes'
+import Aviso from '../../components/molecules/Aviso'
 import ErroCompacto from '../../components/molecules/ErroCompacto'
-import FormField from '../../components/molecules/FormField'
 import LinhaDoTempoPedido from '../../components/organisms/LinhaDoTempoPedido'
 import ResumoPedido from '../../components/organisms/ResumoPedido'
 import useConsulta from '../../hooks/useConsulta'
-import useTituloPagina from '../../hooks/useTituloPagina'
-import useToast from '../../hooks/useToast'
-import { atualizarPedidoAdmin, obterPedidoAdmin } from '../../services/admin-pedidos'
-import { formatarDataHora } from '../../utils/format'
-import { marcarVisto } from '../../utils/pedidosVistos'
+import { atualizarPedidoAdmin, concluirEstorno, obterPedidoAdmin, simularPix } from '../../services/admin-pedidos'
+import { cancelarPedido } from '../../services/pedidos'
 import { ROTAS } from '../../utils/rotas'
-import { ANDAMENTO_ADMIN, ENTREGA_ADMIN, PAGAMENTO_ADMIN } from '../../utils/statusAdminPedido'
-
-const caixa = 'rounded-card border border-border-strong bg-surface p-5'
+import { STATUS_PEDIDO, podeCancelar } from '../../utils/statusPedido'
 
 export default function AdminPedidoDetalhePage() {
   const { id } = useParams()
-  useTituloPagina(`Pedido ${id}`)
-  const { dados, carregando, erro, recarregar } = useConsulta(() => obterPedidoAdmin(id), [id])
-
-  // Abrir o pedido tira o selo "Novo" e diminui o número da aba
-  useEffect(() => {
-    marcarVisto(id)
-  }, [id])
-
-  const voltar = (
-    <Link
-      to={ROTAS.adminPedidos}
-      className="alvo-toque mb-6 inline-flex items-center gap-1.5 text-pequeno font-semibold text-primary-text underline-offset-4 hover:underline"
-    >
-      <ArrowLeft aria-hidden="true" className="size-4" />
-      Voltar para os pedidos
-    </Link>
-  )
-
-  if (carregando && !dados) return <Skeleton className="h-96 rounded-card" />
-  if (erro) {
-    return (
-      <>
-        {voltar}
-        <ErroCompacto onTentar={recarregar}>{erro.message}</ErroCompacto>
-      </>
-    )
-  }
-  return <Detalhe key={dados.id} inicial={dados} voltar={voltar} />
+  const { dados, erro, carregando, recarregar } = useConsulta(() => obterPedidoAdmin(id), [id])
+  if (carregando) return <p role="status">Carregando pedido…</p>
+  if (erro) return <ErroCompacto onTentar={recarregar}>{erro.message}</ErroCompacto>
+  return <Detalhe key={dados.id} pedido={dados} recarregar={recarregar} />
 }
-
-function Detalhe({ inicial, voltar }) {
-  const { toast } = useToast()
-  const [pedido, setPedido] = useState(inicial)
-  const [status, setStatus] = useState(inicial.status)
-  const [pagamento, setPagamento] = useState(inicial.pagamento)
-  const [situacao, setSituacao] = useState(inicial.entrega.situacao)
-  const [rastreio, setRastreio] = useState(inicial.rastreio ?? '')
-  const [salvando, setSalvando] = useState(false)
-
-  const tipo = pedido.entrega.tipo
-  const alterado =
-    status !== pedido.status ||
-    pagamento !== pedido.pagamento ||
-    situacao !== pedido.entrega.situacao ||
-    rastreio.trim() !== (pedido.rastreio ?? '')
-
-  const salvar = async () => {
-    setSalvando(true)
-    try {
-      const novo = await atualizarPedidoAdmin(pedido.id, { status, pagamento, entregaSituacao: situacao, rastreio })
-      setPedido(novo)
-      setStatus(novo.status)
-      setPagamento(novo.pagamento)
-      setSituacao(novo.entrega.situacao)
-      setRastreio(novo.rastreio ?? '')
-      toast('Pedido atualizado.', { tipo: 'sucesso' })
-    } catch (e) {
-      toast(e.erro ?? 'Não foi possível salvar agora. Tente de novo.', { tipo: 'erro' })
-    } finally {
-      setSalvando(false)
-    }
+function Detalhe({ pedido, recarregar }) {
+  const [erro, setErro] = useState(null), [ocupado, setOcupado] = useState(false)
+  const [rastreio, setRastreio] = useState(''), [motivo, setMotivo] = useState('')
+  const executar = async (acao) => {
+    setOcupado(true); setErro(null)
+    try { await acao(); recarregar() }
+    catch (e) { setErro(e.message) }
+    finally { setOcupado(false) }
   }
-
-  const telefone = pedido.cliente?.telefone?.replace(/\D/g, '')
-  const linkCliente = telefone ? `https://wa.me/${telefone.length <= 11 ? `55${telefone}` : telefone}` : null
-
-  return (
-    <article aria-labelledby="titulo-pedido">
-      {voltar}
-      <div className="mb-2 flex flex-wrap items-center gap-3">
-        <h2 id="titulo-pedido" className="text-h3">
-          Pedido {pedido.id}
-        </h2>
-        <StatusPedidoBadge status={pedido.status} />
-      </div>
-      <p className="mb-6 text-pequeno text-text-muted">Feito em {formatarDataHora(pedido.criadoEm)}</p>
-
-      <div className="grid items-start gap-6 desk:grid-cols-[1fr_380px]">
-        <div className="flex flex-col gap-6">
-          <section aria-labelledby="titulo-cliente" className={caixa}>
-            <h3 id="titulo-cliente" className="mb-3 text-h4">
-              Cliente
-            </h3>
-            {pedido.cliente ? (
-              <dl className="grid gap-2 text-pequeno">
-                <div>
-                  <dt className="text-legenda text-text-muted">Nome</dt>
-                  <dd className="font-semibold">{pedido.cliente.nome}</dd>
-                </div>
-                <div>
-                  <dt className="text-legenda text-text-muted">WhatsApp</dt>
-                  <dd>
-                    {linkCliente ? (
-                      <a href={linkCliente} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary-text underline underline-offset-4">
-                        {pedido.cliente.telefone} (abrir conversa)
-                      </a>
-                    ) : (
-                      'Não informado'
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-legenda text-text-muted">E-mail</dt>
-                  <dd>{pedido.cliente.email}</dd>
-                </div>
-              </dl>
-            ) : (
-              <p className="text-pequeno text-text-muted">Cliente não informado (pedido de exemplo).</p>
-            )}
-          </section>
-
-          <section aria-labelledby="titulo-entrega" className={caixa}>
-            <h3 id="titulo-entrega" className="mb-3 text-h4">
-              {tipo === 'retirada' ? 'Retirada na loja' : 'Entrega'}
-            </h3>
-            <p className="text-pequeno">{pedido.entrega.resumo}</p>
-          </section>
-
-          <ResumoPedido itens={pedido.itens} frete={pedido.entrega.frete} titulo="Itens do pedido" />
-        </div>
-
-        <div className="flex flex-col gap-6">
-          <section aria-labelledby="titulo-atualizar" className={caixa}>
-            <h3 id="titulo-atualizar" className="mb-4 text-h4">
-              Atualizar pedido
-            </h3>
-            <FormField id="ped-andamento" label="Andamento do pedido" obrigatorio>
-              <CampoOpcoes
-                name="status"
-                opcoes={ANDAMENTO_ADMIN.map((o) => [o.valor, o.rotulo])}
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              />
-            </FormField>
-            <FormField id="ped-pagamento" label="Pagamento" obrigatorio>
-              <CampoOpcoes
-                name="pagamento"
-                opcoes={PAGAMENTO_ADMIN.map((o) => [o.valor, o.rotulo])}
-                value={pagamento}
-                onChange={(e) => setPagamento(e.target.value)}
-              />
-            </FormField>
-            <FormField id="ped-entrega" label={tipo === 'retirada' ? 'Situação da retirada' : 'Situação da entrega'} obrigatorio>
-              <CampoOpcoes
-                name="entregaSituacao"
-                opcoes={ENTREGA_ADMIN[tipo].map((o) => [o.valor, o.rotulo])}
-                value={situacao}
-                onChange={(e) => setSituacao(e.target.value)}
-              />
-            </FormField>
-            {tipo === 'endereco' && (
-              <FormField id="ped-rastreio" label="Código de rastreio" ajuda="O cliente vê esse código na página da compra.">
-                <Input autoComplete="off" value={rastreio} onChange={(e) => setRastreio(e.target.value)} />
-              </FormField>
-            )}
-            <Button tamanho="lg" largo disabled={!alterado || salvando} onClick={salvar}>
-              {salvando ? 'Salvando…' : 'Salvar alterações'}
-            </Button>
-          </section>
-
-          <section aria-labelledby="titulo-historico" className={caixa}>
-            <h3 id="titulo-historico" className="mb-4 text-h4">
-              Histórico
-            </h3>
-            <LinhaDoTempoPedido pedido={pedido} />
-          </section>
-        </div>
-      </div>
-    </article>
-  )
+  const proximo = { paga: 'em_separacao', em_separacao: pedido.tipoEntrega === 'retirada' ? 'pronta_retirada' : 'enviada',
+    enviada: 'entregue', pronta_retirada: 'entregue' }[pedido.status]
+  return <article className="flex flex-col gap-5">
+    <Link to={ROTAS.adminPedidos} className="font-semibold underline">Voltar aos pedidos</Link>
+    <div className="flex gap-4"><h2 className="text-h2">Pedido {pedido.id}</h2><StatusPedidoBadge status={pedido.status} /></div>
+    {erro && <Aviso tipo="erro" role="alert">{erro}</Aviso>}
+    <section className="rounded-card border p-5"><h3 className="text-h3">Cliente e entrega</h3>
+      <p>{pedido.cliente?.nome} · {pedido.cliente?.email} · {pedido.cliente?.telefone}</p><p>{pedido.entrega.resumo}</p>
+    </section>
+    <ResumoPedido itens={pedido.itens} frete={pedido.entrega.frete} subtotalCentavos={pedido.subtotal} totalCentavos={pedido.total} />
+    <section className="rounded-card border p-5"><h3 className="text-h3">Pagamento</h3>
+      <p>{pedido.financeiro?.mensagem ?? 'Nenhum pagamento gerado.'}</p>
+      <ul>{pedido.pagamentos.map((p) => <li className="mt-3" key={p.id}>
+        Pagamento {p.id}: {p.status} · {p.estornoTentativas} tentativa(s) de estorno
+        {p.estornoUltimoErro && <p>{p.estornoUltimoErro}</p>}
+        {p.status === 'aprovado' && p.estornoSolicitadoEm && p.estornoTentativas >= 5 && p.statusDetalhe === 'pagamento indevido'
+          && <Button disabled={ocupado || !motivo.trim()} onClick={() => executar(() => concluirEstorno(p.id, motivo))}>Confirmar estorno no gateway</Button>}
+        {import.meta.env.VITE_SIMULACAO_PIX === 'true' && p.status === 'pendente'
+          && <Button disabled={ocupado} onClick={() => executar(() => simularPix(p.id))}>Simular Pix de teste</Button>}
+      </li>)}</ul>
+    </section>
+    {proximo && <section className="rounded-card border p-5">
+      {proximo === 'enviada' && pedido.tipoEntrega === 'correios' && <label>Código de rastreio<Input value={rastreio} onChange={(e) => setRastreio(e.target.value)} /></label>}
+      <Button disabled={ocupado} onClick={() => executar(() => atualizarPedidoAdmin(pedido.id, {
+        status: proximo, ...(proximo === 'enviada' && pedido.tipoEntrega === 'correios' ? { rastreio } : {}),
+      }))}>Avançar para: {STATUS_PEDIDO[proximo].rotulo}</Button>
+    </section>}
+    <section className="rounded-card border p-5"><label>Motivo ou observação<textarea className="block w-full rounded-lg border p-3" maxLength={300} value={motivo} onChange={(e) => setMotivo(e.target.value)} /></label>
+      {(podeCancelar(pedido.status) || pedido.status === 'cancelamento_solicitado') && <Button disabled={ocupado || (pedido.status === 'cancelamento_solicitado' && !motivo.trim())}
+        onClick={() => executar(() => cancelarPedido(pedido.id, motivo))}>
+        {pedido.status === 'cancelamento_solicitado' ? 'Conferir estorno e concluir cancelamento' : 'Cancelar pedido'}
+      </Button>}
+    </section>
+    <LinhaDoTempoPedido pedido={pedido} />
+  </article>
 }

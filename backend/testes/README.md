@@ -1,5 +1,12 @@
 # Testes do catálogo
 
+Unidade de retirada e transporte por embalagem: [contratos e validação de 17/11/2026](../docs/entrega-logistica-2026-11-17.md).
+
+## Segurança e integração antes do deploy — 17/11/2026
+
+Resultados, contratos alterados e comandos de repetição: [correções antes do primeiro deploy](../docs/correcoes-pre-deploy-2026-11-17.md). A nova suíte cobre município real do CEP, senha alterada durante login, webhook perdido, disputa, confirmação de estorno e checkout no Chromium. Usar sempre PostgreSQL descartável; os serviços externos são fixtures explícitas.
+
+
 ## Listagem administrativa de saldos — 15/11/2026
 
 `estoque-saldos.test.mjs`: **93 HTTP aprovados** (guardas/HEAD/cache, filtros e tipos fechados, trim/limites,

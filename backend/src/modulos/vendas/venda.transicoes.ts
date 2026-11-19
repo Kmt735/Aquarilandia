@@ -27,19 +27,19 @@ const transicoes: Readonly<Record<StatusVenda, DestinosPermitidos>> = {
   },
   paga: {
     em_separacao: ['admin'],
-    cancelamento_solicitado: ['cliente', 'admin'],
+    cancelamento_solicitado: ['cliente', 'admin', 'sistema'],
   },
   em_separacao: {
     enviada: ['admin'],
     pronta_retirada: ['admin'],
-    cancelamento_solicitado: ['cliente', 'admin'],
+    cancelamento_solicitado: ['cliente', 'admin', 'sistema'],
   },
   enviada: {
     entregue: ['admin'],
   },
   pronta_retirada: {
     entregue: ['admin'],
-    cancelamento_solicitado: ['cliente', 'admin'],
+    cancelamento_solicitado: ['cliente', 'admin', 'sistema'],
   },
   cancelamento_solicitado: {
     cancelada: ['sistema', 'admin'],

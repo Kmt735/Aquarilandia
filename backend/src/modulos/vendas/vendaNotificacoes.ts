@@ -1,6 +1,7 @@
+import type { UnidadeRetirada } from './unidades.js'
 import { enviarEmail } from '../../utils/email.js'
 import { clienteRepository } from '../clientes/cliente.repository.js'
-import { enderecoLoja } from './frete.config.js'
+import type { ServicoFrete } from './frete.transporte.js'
 import { vendaRepository } from './venda.repository.js'
 
 // E-mail ao cliente quando a venda muda de status (item 1 do PDF). Uma função só, chamada DEPOIS do COMMIT por quem
@@ -15,11 +16,12 @@ export type StatusAvisado = 'paga' | 'enviada' | 'pronta_retirada' | 'entregue' 
 // O "seam" dos testes, como o gatewayPix: o envio passa SEMPRE por este objeto, que os testes trocam por um falso
 export const canalEmail = { enviar: enviarEmail }
 
-// O endereço vem do frete.config.ts (enderecoLoja), o mesmo lugar das outras regras de entrega e retirada
-const textoRetirada =
-  `Retire na loja Aquarilândia (${enderecoLoja}), no horário de funcionamento. Leve um documento com foto.`
+// Pedidos antigos sem unidade não recebem um endereço presumido.
+const textoRetirada = 'Confirme com o atendimento a unidade de retirada deste pedido.'
 
 export interface DadosAviso {
+  unidadeRetirada?: UnidadeRetirada
+  servicoFrete?: ServicoFrete
   vendaId: number
   nome: string
   codigoRastreio: string | null
@@ -40,13 +42,13 @@ export function montarAviso(status: StatusAvisado, dados: DadosAviso): { assunto
       return {
         assunto: `Seu ${pedido} foi enviado`,
         texto: dados.codigoRastreio
-          ? `${ola} Seu ${pedido} foi enviado. Código de rastreio dos Correios: ${dados.codigoRastreio}.`
+          ? `${ola} Seu ${pedido} foi enviado. ${dados.servicoFrete ? `Código de rastreio (${dados.servicoFrete.transportadora})` : 'Código de rastreio dos Correios'}: ${dados.codigoRastreio}.`
           : `${ola} Seu ${pedido} saiu para entrega.`,
       }
     case 'pronta_retirada':
       return {
         assunto: `Seu pedido está pronto para retirada — ${pedido}`,
-        texto: `${ola} Seu ${pedido} está pronto para retirada. ${textoRetirada}`,
+        texto: `${ola} Seu ${pedido} está pronto para retirada. ${dados.unidadeRetirada ? `Retire na ${dados.unidadeRetirada.nome} (${dados.unidadeRetirada.endereco}), no horário de funcionamento. Leve um documento com foto.` : textoRetirada}`,
       }
     case 'entregue':
       return { assunto: `Pedido entregue — ${pedido}`, texto: `${ola} Seu ${pedido} foi entregue. Obrigado pela compra!` }
@@ -69,6 +71,8 @@ async function enviarAviso(vendaId: number, status: StatusAvisado): Promise<void
   if (!conta?.email) return
   const { assunto, texto } = montarAviso(status, {
     vendaId,
+    unidadeRetirada: venda.unidadeRetirada,
+    servicoFrete: venda.servicoFrete,
     nome: conta.nome,
     codigoRastreio: venda.codigoRastreio,
     pagamentoDevolvido: venda.pagamentoDevolvido,

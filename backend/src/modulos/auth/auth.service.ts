@@ -166,13 +166,12 @@ export function montarEmailRecuperacao(para: string, token: string, frontendUrl:
 }
 
 export const authService = {
-  async cadastrar(body: unknown): Promise<Cliente> {
+  async cadastrar(body: unknown): Promise<Cliente | null> {
     const dados = validarCadastro(body)
-
-    const clienteExistente = await clienteRepository.buscarPorEmail(dados.email)
-    if (clienteExistente) throw new AppError(msgCadastroRecusado, 409,detalhesEmailEmUso)
-
+    // Mesmo custo para endereço novo ou existente; a resposta HTTP não revela a existência da conta.
     const senhaHash = await gerarHash(dados.senha)
+    const clienteExistente = await clienteRepository.buscarPorEmail(dados.email)
+    if (clienteExistente) return null
 
     try {
       return await clienteRepository.inserir({
@@ -182,7 +181,7 @@ export const authService = {
         senhaHash
       })
     } catch (err) {
-      if (ehEmailDuplicado(err)) throw new AppError(msgCadastroRecusado, 409 ,detalhesEmailEmUso)
+      if (ehEmailDuplicado(err)) return null
       throw err
     }
   },
@@ -226,12 +225,16 @@ export const authService = {
     const token = gerarToken()
     const expiraEm = new Date(Date.now() + DURACAO_SESSAO_MS)
 
-    await sessaoRepository.criar({
-      tokenHash: hashToken(token),
-      clienteId: encontrado.id,
-      expiraEm,
-      ip: contexto.ip,
-      userAgent: contexto.userAgent
+    await comTransacao(async (client) => {
+      // O Argon2 roda fora do lock; sob lock, a credencial ainda precisa ser exatamente a verificada.
+      const atual = await clienteRepository.travarCredenciais(encontrado.id, client)
+      if (!atual || atual.senhaHash !== encontrado.senhaHash || atual.email !== dados.email) {
+        throw new AppError(MSG_LOGIN_INVALIDO, 401)
+      }
+      await sessaoRepository.criar({
+        tokenHash: hashToken(token), clienteId: encontrado.id, expiraEm,
+        ip: contexto.ip, userAgent: contexto.userAgent,
+      }, client)
     })
 
     const { senhaHash, ...cliente } = encontrado
@@ -264,6 +267,8 @@ export const authService = {
 
     // Senha nova e queda das outras sessões juntas: nunca uma sem a outra
     await comTransacao(async (client) => {
+      const atual = await clienteRepository.travarCredenciais(clienteId, client)
+      if (!atual || atual.senhaHash !== hashAtual) throw new AppError('Suas credenciais mudaram. Entre novamente.', 409)
       await clienteRepository.atualizarSenha(clienteId, novoHash, client)
       await sessaoRepository.excluirOutrasDoCliente(clienteId, hashToken(tokenAtual), client)
       // Um link de recuperação pedido antes da troca deixa de valer

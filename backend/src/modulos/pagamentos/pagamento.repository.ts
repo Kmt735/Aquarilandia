@@ -32,6 +32,7 @@ export interface PagamentoTravado {
 
 export interface PagamentoParaEstorno {
   vendaId: number
+  valor: number
   status: StatusPagamento
   cobrancaId: string | null
   tentativas: number
@@ -226,7 +227,7 @@ export const pagamentoRepository = {
 
   // Conclusão manual (#35, admin): o pagamento que confirmou a venda em cancelamento_solicitado, com o estorno pedido.
   // O indevido (status_detalhe 'pagamento indevido') fica de fora: ele não é o pagamento da compra
-  async travarConfirmadorEmEstorno(vendaId: number, client: Queryable): Promise<PagamentoTravado | null> {
+  async travarConfirmadorEmEstorno(vendaId: number, client: Queryable = db): Promise<PagamentoTravado | null> {
     const { rows } = await client.query<PagamentoTravado>(
       `SELECT id, venda_id AS "vendaId", gateway_cobranca_id AS "cobrancaId",
               status, valor, estorno_solicitado_em AS "estornoSolicitadoEm", status_detalhe AS "statusDetalhe",
@@ -300,7 +301,7 @@ export const pagamentoRepository = {
 
   async buscarParaEstorno(pagamentoId: number): Promise<PagamentoParaEstorno | null> {
     const { rows } = await db.query<PagamentoParaEstorno>(
-      `SELECT venda_id AS "vendaId", status, gateway_cobranca_id AS "cobrancaId", estorno_tentativas AS tentativas,
+      `SELECT venda_id AS "vendaId", valor, status, gateway_cobranca_id AS "cobrancaId", estorno_tentativas AS tentativas,
               estorno_solicitado_em AS "estornoSolicitadoEm"
          FROM pagamentos
         WHERE id = $1`,
@@ -351,6 +352,52 @@ export const pagamentoRepository = {
   },
 
   // ---------- eventos_webhook (#46) ----------
+
+  async buscarCobrancasDaVenda(vendaId: number): Promise<string[]> {
+    const { rows } = await db.query<{ cobrancaId: string }>(
+      `SELECT gateway_cobranca_id AS "cobrancaId" FROM pagamentos
+       WHERE venda_id = $1 AND gateway_cobranca_id IS NOT NULL AND status_detalhe IS DISTINCT FROM $2 ORDER BY id`,
+      [vendaId, detalheIndevido],
+    )
+    return rows.map((p) => p.cobrancaId)
+  },
+
+  async travarFinanceiro(vendaId: number, client: Queryable): Promise<boolean> {
+    const { rows } = await client.query<{ status: string; estorno: Date | null; detalhe: string | null }>(
+      `SELECT status, estorno_solicitado_em AS estorno, status_detalhe AS detalhe FROM pagamentos
+       WHERE venda_id = $1 AND status_detalhe IS DISTINCT FROM $2
+         AND status_detalhe IS DISTINCT FROM 'estorno manual' ORDER BY id FOR UPDATE`, [vendaId, detalheIndevido],
+    )
+    return rows.filter((p) => p.status === 'aprovado' && !p.estorno && p.detalhe !== 'valor divergente').length === 1
+      && !rows.some((p) => p.status === 'em_disputa' || p.status === 'estornado' || p.detalhe === 'valor divergente')
+  },
+
+  async reservarReconciliacao(limite: number): Promise<string[]> {
+    const { rows } = await db.query<{ cobrancaId: string }>(
+      `WITH candidatos AS (
+         SELECT p.id FROM pagamentos p JOIN vendas v ON v.id = p.venda_id
+          WHERE p.gateway_cobranca_id IS NOT NULL
+            AND (p.status <> 'estornado' OR v.status = 'cancelamento_solicitado')
+            AND (p.reconsultado_em IS NULL OR p.reconsultado_em < clock_timestamp() - interval '5 minutes')
+          ORDER BY p.reconsultado_em NULLS FIRST, p.id LIMIT $1 FOR UPDATE OF p SKIP LOCKED
+       ) UPDATE pagamentos p SET reconsultado_em = clock_timestamp() FROM candidatos c
+         WHERE p.id = c.id RETURNING p.gateway_cobranca_id AS "cobrancaId"`, [limite],
+    )
+    return rows.map((p) => p.cobrancaId)
+  },
+
+  async reservarEventosPendentes(limite: number): Promise<{ eventoId: string; tipo: string; cobrancaId: string }[]> {
+    const { rows } = await db.query<{ eventoId: string; tipo: string; cobrancaId: string }>(
+      `WITH candidatos AS (
+         SELECT id FROM eventos_webhook WHERE processado_em IS NULL
+           AND (reprocessar_apos IS NULL OR reprocessar_apos <= clock_timestamp())
+         ORDER BY reprocessar_apos NULLS FIRST, id LIMIT $1 FOR UPDATE SKIP LOCKED
+       ) UPDATE eventos_webhook e SET reprocessar_apos = clock_timestamp() + interval '5 minutes'
+         FROM candidatos c WHERE e.id = c.id
+         RETURNING e.gateway_notificacao_id AS "eventoId", e.tipo, e.payload->>'cobrancaId' AS "cobrancaId"`, [limite],
+    )
+    return rows
+  },
 
   // null = o evento já existia (ON CONFLICT DO NOTHING não devolve linha)
   async inserirEvento(notificacaoId: string, tipo: string, payload: { cobrancaId: string }): Promise<number | null> {

@@ -16,10 +16,13 @@ const permitidas = [
   ['pronta_retirada', 'entregue', 'admin'],
   ['paga', 'cancelamento_solicitado', 'cliente'],
   ['paga', 'cancelamento_solicitado', 'admin'],
+  ['paga', 'cancelamento_solicitado', 'sistema'],
   ['em_separacao', 'cancelamento_solicitado', 'cliente'],
   ['em_separacao', 'cancelamento_solicitado', 'admin'],
+  ['em_separacao', 'cancelamento_solicitado', 'sistema'],
   ['pronta_retirada', 'cancelamento_solicitado', 'cliente'],
   ['pronta_retirada', 'cancelamento_solicitado', 'admin'],
+  ['pronta_retirada', 'cancelamento_solicitado', 'sistema'],
   ['cancelamento_solicitado', 'cancelada', 'sistema'],
   ['cancelamento_solicitado', 'cancelada', 'admin'],
 ]
@@ -79,7 +82,7 @@ describe('Vendas — tabela de transições de status (#29)', () => {
     for (const s of status) for (const ator of atores) assert.equal(podeTransicionar(s, s, ator), false)
   })
 
-  it('exatamente as combinações da tabela são permitidas (as outras 239 são proibidas)', () => {
+  it('exatamente as combinações da tabela são permitidas (as outras 236 são proibidas)', () => {
     const esperadas = new Set(permitidas.map((linha) => linha.join('|')))
     let proibidas = 0
     for (const de of status) for (const para of status) for (const ator of atores) {
@@ -88,6 +91,6 @@ describe('Vendas — tabela de transições de status (#29)', () => {
       if (!permitida) proibidas++
     }
     assert.equal(proibidas, status.length * status.length * atores.length - permitidas.length)
-    assert.equal(proibidas, 239)
+    assert.equal(proibidas, 236)
   })
 })

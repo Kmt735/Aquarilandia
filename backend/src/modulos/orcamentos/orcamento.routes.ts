@@ -24,4 +24,4 @@ orcamentoRoutes.post('/', exigirOrigem, limiteOrcamento, orcamentoController.cri
 orcamentoRoutes.use(origemNasEscritas, autenticar, exigirAdmin)
 orcamentoRoutes.get('/', orcamentoController.listar)
 // Escrita administrativa: o exigirOrigem (CSRF) já rodou na guarda acima (origemNasEscritas)
-orcamentoRoutes.patch('/:id', orcamentoController.atualizarStatus)
+orcamentoRoutes.patch('/:id', orcamentoController.atualizar)

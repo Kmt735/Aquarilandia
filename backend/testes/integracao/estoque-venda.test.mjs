@@ -13,7 +13,7 @@ describe('Estoque por venda — transação do chamador e PostgreSQL real', { sk
   let c, pool, tx, estoque, server, origem, cors, clienteId, criado = false, urlApp
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect(); await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '30_estoque.sql', '31_estoque_vendas.sql']) await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '30_estoque.sql', '31_estoque_vendas.sql']) await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     clienteId = (await c.query("INSERT INTO clientes(nome,email,senha_hash,papel) VALUES('Admin fixture','stock@fixture.example','hash','admin') RETURNING id")).rows[0].id
     await c.query("INSERT INTO sessoes(token_hash,cliente_id,expira_em) VALUES($1,$2,now()+interval '1 hour')", [hashToken(token), clienteId])
     urlApp = new URL(url); urlApp.searchParams.set('options', `-c search_path=${schema}`); urlApp.searchParams.set('application_name', schema)

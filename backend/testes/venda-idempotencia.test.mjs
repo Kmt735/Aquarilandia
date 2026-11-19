@@ -49,12 +49,12 @@ describe('totalEsperado', () => {
   it('a venda exige totalEsperado e junta o erro com os outros', () => {
     assert.throws(() => pedidoDe({ itens: [item(1, 1)] }),
       erro422({ entrega: 'Escolha um endereço de entrega ou retirar na loja.', ...erro }))
-    assert.deepEqual(pedidoDe({ itens: [item(1, 1)], retirada: true, totalEsperado: 900 }).totalEsperado, 900)
+    assert.deepEqual(pedidoDe({ itens: [item(1, 1)], retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 900 }).totalEsperado, 900)
   })
 
   it('a cotação (#28) não muda: não exige nem devolve totalEsperado', () => {
-    assert.deepEqual(validarPedido({ itens: [item(1, 1)], retirada: true }, 'cep'), { itens: [{ produtoId: 1, quantidade: 1, indice: 0 }], entrega: { retirada: true } })
-    assert.equal('totalEsperado' in validarPedido({ itens: [item(1, 1)], retirada: true, totalEsperado: 'x' }, 'cep'), false)
+    assert.deepEqual(validarPedido({ itens: [item(1, 1)], retirada: true, unidadeRetirada: 'matosinhos' }, 'cep'), { itens: [{ produtoId: 1, quantidade: 1, indice: 0 }], entrega: { retirada: true } })
+    assert.equal('totalEsperado' in validarPedido({ itens: [item(1, 1)], retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 'x' }, 'cep'), false)
   })
 })
 
@@ -79,7 +79,7 @@ describe('hashDoPedido (forma canônica)', () => {
       { ...base, itens: [item(5, 2), item(4, 1)] },
       { ...base, itens: [item(5, 2)] },
       { ...base, enderecoId: 8 },
-      { itens: base.itens, retirada: true, totalEsperado: 5480 },
+      { itens: base.itens, retirada: true, unidadeRetirada: 'matosinhos', totalEsperado: 5480 },
       { ...base, totalEsperado: 5481 },
     ].map((body) => hashDoPedido(pedidoDe(body)))
     assert.equal(new Set([hash, ...outros]).size, outros.length + 1)

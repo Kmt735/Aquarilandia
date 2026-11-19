@@ -1,5 +1,9 @@
 # Deploy — Aquarilândia no ar (VPS + Docker + Caddy)
 
+Antes da primeira publicação, leia [correções e contratos de 17/11/2026](correcoes-pre-deploy-2026-11-17.md).
+Retirada e transporte: [migração 35, cadastro de embalagens e tarifas por serviço](entrega-logistica-2026-11-17.md).
+Sem tabela comercial aprovada, deixe `FRETE_TRANSPORTE_JSON` vazia: somente retirada fica disponível em produção.
+
 Roteiro para colocar o site no ar, num VPS Ubuntu (Hostinger) com domínio próprio. Siga **na ordem**, sem pular
 passo. Cada bloco de comandos diz onde rodar: **no seu computador** ou **no servidor**. Decisão e motivos: D-53, em
 `docs/decisoes.md`.
@@ -192,6 +196,9 @@ Confira que não sobrou nenhum placeholder (o comando não imprime os valores):
 grep -c TROQUE .env.producao   # tem que dar 0
 ```
 
+Use uma senha nova por ambiente; não reutilize a senha dos primeiros exemplos do repositório, que continua no
+histórico Git. Em banco já criado, editar o arquivo não altera a senha do usuário: veja a seção 10 para a rotação.
+
 ---
 
 ## 4. Subir
@@ -212,7 +219,7 @@ curl -sI http://SEU_DOMINIO | head -1           # 308: o HTTP redireciona para o
 
 Abra `https://SEU_DOMINIO` no navegador: o cadeado tem que aparecer, sem aviso de certificado.
 
-Se der errado, olhe os logs (eles não têm senha nem token):
+Se der errado, consulte os logs sem publicá-los (logs antigos podem conter credenciais):
 
 ```bash
 sudo docker compose --env-file .env.producao -f docker-compose.prod.yml logs --tail=50 app
@@ -291,19 +298,32 @@ sudo docker compose --env-file .env.producao -f docker-compose.prod.yml up -d
    ```bash
    curl -sI https://SEU_DOMINIO | grep -iE 'strict-transport|content-security|x-content-type|referrer-policy'
    ```
-   Os quatro têm que aparecer.
+   Os quatro têm que aparecer; `Referrer-Policy` precisa ser `no-referrer`, inclusive na página
+   `/redefinir-senha?token=fixture`.
 8. **Postgres fechado** (no seu computador, de FORA do servidor). Os dois têm que falhar:
    ```bash
    nc -vz -w 5 SEU_DOMINIO 5432       # tem que dar timeout ou "refused"
    nc -vz -w 5 SEU_DOMINIO 3333       # a app também não pode responder direto
    ```
-9. **Logs sem dados sensíveis** (no servidor). Os dois `grep` têm que dar 0 (o log de acesso do Caddy grava o caminho sem
-   a query string, e nada de cookie):
+9. **Logs sem dados sensíveis.** Depois de aplicar a configuração nova do Caddy (seção 8), envie um pedido com
+   valores **fictícios**. O `401` é esperado: o segredo não é o cadastrado. Não use segredos reais neste teste:
    ```bash
-   sudo docker compose --env-file .env.producao -f docker-compose.prod.yml logs > /tmp/logs.txt 2>&1
-   grep -c 'webhookSecret=' /tmp/logs.txt
-   grep -c 'sid=' /tmp/logs.txt
-   rm /tmp/logs.txt
+   curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
+     'https://SEU_DOMINIO/api/pagamentos/webhook?webhookSecret=AUDITORIA_QUERY' \
+     -H 'X-Webhook-Secret: AUDITORIA_HEADER' \
+     -H 'X-Webhook-Signature: AUDITORIA_ASSINATURA' \
+     -H 'Referer: https://SEU_DOMINIO/redefinir-senha?token=AUDITORIA_RECUPERACAO' \
+     -H 'Cookie: sid=AUDITORIA_COOKIE'
+   ```
+   **No servidor**, confira os logs recentes. O `grep` precisa mostrar `0`; o caminho
+   `/api/pagamentos/webhook` e o status continuam registrados, mas query string, segredo, assinatura, Referer e
+   cookies não. A captura temporária fica privada, inclusive se houver logs antigos sensíveis:
+   ```bash
+   umask 077
+   arquivo_logs=$(mktemp /tmp/aquarilandia-logs.XXXXXX)
+   sudo docker compose --env-file .env.producao -f docker-compose.prod.yml logs --since 2m > "$arquivo_logs" 2>&1
+   grep -Ec 'AUDITORIA_(QUERY|HEADER|ASSINATURA|RECUPERACAO|COOKIE)|webhookSecret=|sid=' "$arquivo_logs"
+   rm -- "$arquivo_logs"
    ```
 10. **Depois da demonstração:** volte `PERMITIR_SIMULACAO_PIX=false` e rode o `up -d`. A rota de simulação deixa de
     existir (404).
@@ -318,6 +338,16 @@ sudo docker compose --env-file .env.producao -f docker-compose.prod.yml up -d
 git pull
 sudo docker compose --env-file .env.producao -f docker-compose.prod.yml up -d --build
 ```
+
+Se `Caddyfile` mudou, recrie também o Caddy para remontar e carregar o arquivo novo. O `up -d --build` sozinho não
+garante isso, porque o proxy usa uma imagem pronta e lê a configuração na inicialização:
+
+```bash
+sudo docker compose --env-file .env.producao -f docker-compose.prod.yml up -d --no-deps --force-recreate caddy
+```
+
+A correção de logs e `Referrer-Policy` não muda rotas, payloads ou códigos HTTP e não exige migração de banco.
+O navegador deixa de mandar `Referer`; `Origin`, usado pela proteção CSRF da API, continua funcionando.
 
 > **Banco:** os arquivos de `db/init` só rodam na **primeira** subida (volume vazio). Se a atualização trouxer um
 > arquivo SQL novo (ex.: `23_*.sql`), aplique à mão, como diz o topo dele:
@@ -346,3 +376,61 @@ ssh deploy@IP_DO_VPS 'rm ~/backup-AAAA-MM-DD.dump'
 O backup tem dados pessoais dos clientes (nome, e-mail, telefone, endereço): guarde num lugar protegido e não mande
 por chat. Para restaurar (num banco vazio):
 `sudo docker compose --env-file .env.producao -f docker-compose.prod.yml exec -T db pg_restore -U aquarilandia -d aquarilandia --clean --if-exists < backup-AAAA-MM-DD.dump`.
+
+---
+
+## 10. Rotação de credenciais existentes
+
+Esta operação é feita no ambiente que usa a credencial. A correção do código não troca senhas do PostgreSQL nem
+segredos cadastrados na AbacatePay. Nunca copie o `.env` de desenvolvimento para produção.
+
+### Senha do PostgreSQL
+
+Para uma instalação nova, gere a senha exclusiva antes da primeira subida (seção 3). Para banco existente:
+
+1. Tenha backup protegido (seção 9) e programe uma janela curta para atualizar banco e app juntos.
+2. Abra o psql interativo no servidor. O exemplo usa usuário/banco `aquarilandia`; ajuste se a instalação usa outros:
+   ```bash
+   sudo docker compose --env-file .env.producao -f docker-compose.prod.yml exec db psql -U aquarilandia -d aquarilandia
+   ```
+3. Dentro do psql, execute `\password aquarilandia` e informe a senha nova nos dois prompts ocultos. Use esse comando
+   em vez de colocar a senha em `ALTER ROLE ... PASSWORD '...'`, argumentos de processo ou histórico do shell.
+   Saia com `\q`.
+4. Atualize `DB_PASSWORD` e a senha dentro de `DATABASE_URL` no `.env.producao` privado. Uma senha aleatória em
+   hexadecimal evita caracteres que precisariam de codificação na URL. Mantenha as duas cópias iguais.
+5. Recrie a app para descartar conexões antigas e usar a configuração nova:
+   ```bash
+   sudo docker compose --env-file .env.producao -f docker-compose.prod.yml up -d --no-deps --force-recreate app
+   curl -fsS https://SEU_DOMINIO/api/health
+   ```
+   Só conclua a operação quando o health indicar `banco: ok`. Se a app não conectar, confira usuário/banco e a
+   correspondência da senha configurada, sem imprimir a URL. Não use `down -v` ou reset para trocar senha.
+
+Editar apenas `DB_PASSWORD` no Compose não altera a senha de um volume existente. No desenvolvimento, o mesmo
+princípio vale com `.env` e `docker-compose.yml`; coordene a mudança com quem usa aquele banco.
+
+### Segredo do webhook e outras chaves
+
+- Se o segredo do webhook apareceu em logs, prepare um novo segredo aleatório de pelo menos 32 caracteres.
+  Em janela controlada, coordene a substituição do webhook na AbacatePay com a atualização de
+  `GATEWAY_WEBHOOK_SECRET` e a recriação da app. O segredo precisa coincidir nos dois lados; a API aceita um só.
+  Confira os pagamentos pendentes ao final da janela para recuperar eventos que possam ter sido recusados durante
+  a troca. Valide uma notificação de teste antes de encerrar a manutenção.
+- Restrinja o acesso às cópias antigas dos logs que contêm o segredo. A correção protege registros novos; não limpa
+  arquivos já exportados. Se links de recuperação foram expostos, invalide os tokens pendentes no ambiente afetado
+  em uma operação administrativa planejada.
+- Chaves de API da AbacatePay/Resend devem ser substituídas e revogadas no respectivo provedor se houver exposição.
+  Não é necessário trocar essas chaves apenas porque o filtro de logs foi corrigido: este achado envolve o segredo
+  do webhook e os tokens em URLs.
+
+### Validação local do filtro de logs
+
+Com o executável do Caddy da versão usada no deploy, de dentro de `backend/`:
+
+```bash
+CADDY_BIN=/caminho/para/caddy node --test testes/homologacao/logs-caddy.test.mjs
+```
+
+O teste adapta o `Caddyfile` real para HTTP local, substitui somente o upstream por um servidor de fixture e usa
+diretórios temporários. Verifica respostas 200/500, encaminhamento de headers e ausência dos segredos fictícios
+nos logs. Não acessa banco, gateway ou configuração de um Caddy em execução.

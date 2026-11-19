@@ -4,7 +4,7 @@ import PageTemplate from '../components/templates/PageTemplate'
 import { politicas } from '../data/loja'
 import { ROTAS } from '../utils/rotas'
 
-// Políticas do rodapé (item 26). Textos que faltam aparecem marcados "a definir com a loja".
+// Políticas comerciais fornecidas pela loja; somente documentos ainda pendentes exibem o aviso provisório.
 export default function PoliticaPage() {
   const { tipo } = useParams()
   const politica = politicas[tipo]
@@ -21,9 +21,14 @@ export default function PoliticaPage() {
         {politica.secoes.map((s) => (
           <section key={s.titulo} className="mb-8">
             <h2 className="mb-2 text-h3">{s.titulo}</h2>
-            <p className="text-corpo text-text-muted">{s.texto}</p>
+            <div className="space-y-3 text-corpo text-text-muted">
+              {(s.blocos ?? [s.texto]).map((bloco, indice) => typeof bloco === 'string' ? <p key={indice}>{bloco}</p>
+                : bloco.lista ? <ul key={indice} className="list-disc space-y-1 pl-6">{bloco.lista.map((item) => <li key={item}>{item}</li>)}</ul>
+                  : <div key={indice}><h3 className="font-semibold text-foreground">{bloco.subtitulo}</h3><p>{bloco.texto}</p></div>)}
+            </div>
           </section>
         ))}
+        {politica.conclusao && <p className="text-corpo text-text-muted">{politica.conclusao}</p>}
       </div>
     </PageTemplate>
   )

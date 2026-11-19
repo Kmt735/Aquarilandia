@@ -12,6 +12,15 @@ import { imagemPublicaRoutes } from '../modulos/catalogo/imagem/imagem.controlle
 
 export const routes = Router()
 
+// Contas, pedidos e pagamentos podem conter dados pessoais mesmo nas respostas de erro.
+routes.use((req, res, next) => {
+  if (/^\/(auth|clientes|vendas|pagamentos|orcamentos|estoque)(\/|$)/.test(req.path)) {
+    res.set('Cache-Control', 'no-store')
+    res.vary('Cookie')
+  }
+  next()
+})
+
 routes.get('/health', async (_req, res) => {
   try {
     await db.query('SELECT 1')

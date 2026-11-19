@@ -1,3 +1,4 @@
+import { lerUnidade } from './unidades.js'
 // Validação compartilhada pela cotação de frete (#28) e pela criação da venda (#30): as duas leem o body do mesmo
 // jeito, então um carrinho que passou na cotação passa (ou falha igual) na compra.
 // Só as chaves esperadas são lidas: precoUnitario, total, status, clienteId e qualquer outra são ignoradas
@@ -105,18 +106,23 @@ export function lerEntrega(dados: Record<string, unknown>, modo: 'cep' | 'endere
 
   if (retirada === true) {
     if (temDestino) throw new AppError(msgDadosInvalidos, 422, { entrega: msgEntrega })
-    return { retirada: true }
+    return modo === 'endereco' ? { retirada: true, unidadeRetirada: lerUnidade(dados.unidadeRetirada) } : { retirada: true }
   }
   if (!temDestino) throw new AppError(msgDadosInvalidos, 422, { entrega: msgEntrega })
 
+  let servicoFreteId: string | undefined
+  if (dados.servicoFreteId !== undefined) {
+    if (typeof dados.servicoFreteId !== 'string' || !/^[a-z0-9_-]{1,60}$/.test(dados.servicoFreteId)) throw new AppError(msgDadosInvalidos,422,{servicoFreteId:'Escolha um serviço de entrega válido.'})
+    servicoFreteId=dados.servicoFreteId
+  }
   if (modo === 'cep') {
     // Mesmo tratamento do cadastro de endereço: a máscara (36300-000) é tirada; sobra só número
     const cep = typeof destino === 'string' ? destino.replace(/\D/g, '') : ''
     if (!/^[0-9]{8}$/.test(cep)) throw new AppError(msgDadosInvalidos, 422, { cep: msgCep })
-    return { retirada: false, cep }
+    return { retirada: false, cep, ...(servicoFreteId ? {servicoFreteId} : {}) }
   }
   if (!ehIdValido(destino)) throw new AppError(msgDadosInvalidos, 422, { enderecoId: 'Endereço inválido.' })
-  return { retirada: false, enderecoId: destino }
+  return { retirada: false, enderecoId: destino, ...(servicoFreteId ? {servicoFreteId} : {}) }
 }
 
 // totalEsperado (só na venda): o total, em centavos, que a cotação mostrou ao cliente. Só serve para CONFERIR o
@@ -258,7 +264,7 @@ export function hashDoPedido(pedido: PedidoVenda): string {
   const itens = [...pedido.itens]
     .sort((a, b) => a.produtoId - b.produtoId)
     .map((item) => [item.produtoId, item.quantidade])
-  const entrega = pedido.entrega.retirada ? ['retirada'] : ['endereco', pedido.entrega.enderecoId]
+  const entrega = pedido.entrega.retirada ? ['retirada', pedido.entrega.unidadeRetirada] : ['endereco', pedido.entrega.enderecoId, pedido.entrega.servicoFreteId ?? null]
   return createHash('sha256').update(JSON.stringify([itens, entrega, pedido.totalEsperado])).digest('hex')
 }
 

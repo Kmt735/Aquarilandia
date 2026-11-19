@@ -1,6 +1,10 @@
 # Convenções da API — Aquarilândia
 
 Documento de referência para os dois devs do backend. **Leia antes de abrir um PR.**
+
+Entrega e retirada: [novo contrato de unidade, embalagem e serviços de frete](docs/entrega-logistica-2026-11-17.md).
+
+Atualização de segurança de 17/11/2026: [contratos alterados, reconciliação e preparação do deploy](docs/correcoes-pre-deploy-2026-11-17.md).
 Se precisar fugir de alguma regra, combine antes e atualize este arquivo no mesmo PR.
 
 | Domínio | Dono | Pasta | Prefixo de rota | Tabelas |
@@ -1130,8 +1134,8 @@ nas respostas administrativas e o `403` de Origin no POST.
 | Rota | Contrato |
 |---|---|
 | `POST /api/orcamentos` | Público, com Origin. `201` com o orçamento criado (DTO abaixo, `status` sempre `novo`). Rate limit de 5 pedidos por hora por IP, contando os que deram certo: o 6º → `429`. |
-| `GET /api/orcamentos` | Admin. `200` com `{ dados, total, pagina, limite }` (seção 4), do mais recente para o mais antigo. `?status=` opcional. |
-| `PATCH /api/orcamentos/:id` | Admin, com Origin. Body `{ status }`; lê só o `status`, o resto é ignorado. `200` com o orçamento. |
+| `GET /api/orcamentos` | Admin. `200` com `{ dados, total, pagina, limite }` (seção 4), do mais recente para o mais antigo. `?status=` e `?busca=` opcionais. Busca literal por nome, telefone ou serviço, até 120 caracteres; combina com status e paginação. |
+| `PATCH /api/orcamentos/:id` | Admin, com Origin. Body parcial com `nome`, `telefone`, `servico`, `mensagem` e/ou `status`. Campos omitidos são preservados; `id` e datas são ignorados. As validações dos dados são as mesmas do POST; mensagem vazia limpa o campo. `200` com o orçamento. |
 | `GET` e `DELETE /api/orcamentos/:id` | Continuam ausentes, atrás da guarda (`401`/`403`, e `404` para admin). |
 
 ```json
@@ -1207,7 +1211,7 @@ Recurso de outro cliente responde **404** (não 403), para não confirmar que el
 | `telefone` | só dígitos | exatamente 11 dígitos (celular com DDD) | Digite um celular com DDD. Exemplo: (32) 99999-0000. |
 | `aceiteTermos` | — | exatamente `true` | Para criar a conta, aceite os termos de uso e a política de privacidade. |
 
-- E-mail já cadastrado → `409` com detalhes `{ email: 'Este e-mail já está cadastrado.' }`.
+- `POST /api/auth/cadastro` válido → `202 { mensagem }`, igual para conta nova e e-mail já cadastrado. Não devolve DTO nem cria sessão; em seguida faça login. A mensagem orienta login/recuperação, sem confirmar a existência da conta. Validação continua `422`.
 - A `novaSenha` da redefinição de senha (seção 11) segue a mesma regra de `senha`.
 
 ### Orçamentos — implementado em 01/11/2026
@@ -1223,7 +1227,7 @@ Recurso de outro cliente responde **404** (não 403), para não confirmar que el
 
 - `?status=` do `GET` fora da lista → `400` `'Parâmetros inválidos'` com
   `{ status: 'Escolha um status válido: novo, em_atendimento ou concluido.' }`; `pagina`/`limite` seguem a seção 4.
-- `PATCH /api/orcamentos/:id`: body que não é objeto → `422` `{ body: 'Formato de dados inválido.' }`; `status` que não
+- `PATCH /api/orcamentos/:id`: envie pelo menos um campo editável. `status` é obrigatório apenas quando nenhum dado da solicitação é enviado. Dados inválidos não alteram o registro. Body que não é objeto → `422` `{ body: 'Formato de dados inválido.' }`; `status` que não
   seja exatamente `novo`, `em_atendimento` ou `concluido` (sem `trim`) → `422`
   `{ status: 'Escolha um status válido: novo, em_atendimento ou concluido.' }`; `:id` inválido → `400`;
   inexistente → `404` `'Orçamento não encontrado.'`.
@@ -1372,6 +1376,10 @@ inclusive se estiver desativado. Exige `Origin`.
 
 ### Frete e vendas — `POST /api/frete/calcular` (#28) e `POST /api/vendas` (#30, #31), implementados em 05/11/2026
 
+**Atualização de 17/11:** [unidade obrigatória na retirada e serviços por embalagem](docs/entrega-logistica-2026-11-17.md).
+O cálculo por faixas de CEP abaixo descreve o legado de development/test; produção usa `FRETE_TRANSPORTE_JSON`.
+`servicoFreteId` seleciona uma modalidade cotada pelo backend, e `unidadeRetirada` seleciona Centro/Matosinhos na venda.
+
 As duas rotas validam o body com as mesmas funções (`modulos/vendas/venda.validacao.ts`) e calculam o frete com a
 mesma `calcularFrete` (D-29). Só as chaves abaixo são lidas: `precoUnitario`, `subtotal`, `frete`, `total`,
 `status`, `clienteId` e qualquer outra são ignoradas (seção 11). Preço sempre de `produtos.preco`.
@@ -1407,7 +1415,7 @@ na loja.' }`. Lê o catálogo sem trava (`buscarParaVenda` sem executor). `200`:
 do momento da compra.
 
 **`POST /api/vendas`** — cliente logado (`autenticar`), exige `Origin` e o header **`Idempotency-Key`** (desde o Lote 9b).
-Body: `itens`, **`enderecoId`** (um endereço salvo do próprio cliente) **ou** `retirada: true`, e **`totalEsperado`**
+Body: `itens`, **`enderecoId`** (um endereço salvo do próprio cliente, com `servicoFreteId` para o serviço escolhido) **ou** `retirada: true` com **`unidadeRetirada: "centro" | "matosinhos"`**, e **`totalEsperado`**
 (centavos). Cria a venda em `aguardando_pagamento`, com `expira_em` = criação + 30 minutos, e baixa o estoque na mesma
 transação (fluxo na seção 8). `201`:
 
@@ -1645,9 +1653,9 @@ sem os ids).
 | `aprovado`, pagamento já aprovado | Nada (idempotente) |
 | `aprovado`, venda `aguardando_pagamento` (mesmo vencida, se a tarefa ainda não cancelou) | Pagamento `aprovado` (`gateway_pagamento_id` = id da cobrança); venda → `paga` (histórico com origem `gateway`). O estoque não muda |
 | `aprovado`, venda cancelada ou já paga por outro pagamento | Pagamento `aprovado` + `estorno_solicitado_em`: vira **devolução** (abaixo). A venda nunca é reaberta |
-| `estornado`, valor e cobrança conferidos | Pagamento `estornado` (se estava aprovado ou pendente). Se é o pagamento do cancelamento solicitado, conclui venda, histórico e devolução de estoque na mesma transação; também recupera estado local já `estornado`. Cobrança indevida/estorno manual não conclui automaticamente a venda |
+| `estornado`, valor e cobrança conferidos | Pagamento `estornado`. Antes de envio/entrega, conclui cancelamento, histórico e devolução de estoque na mesma transação, inclusive estorno externo sem solicitação local; também recupera estado local já `estornado`. Depois de envio/entrega não repõe estoque automaticamente. Cobrança indevida/estorno manual não conclui automaticamente a venda |
 | `cancelado` / `recusado` | O pagamento pendente vira esse status; a venda não muda |
-| `em_disputa` | Pagamento `em_disputa` e log |
+| `em_disputa` | Pagamento `em_disputa` e expedição bloqueada. Consulta posterior aprovada pode resolver disputa ganha; estorno é terminal |
 | `pendente` | Nada |
 
 3. Sucesso → `processado_em = now()` e `200`. Falha nossa ou do gateway → `tentativas + 1`, `ultimo_erro` com um
@@ -1693,7 +1701,7 @@ travada (`FOR UPDATE`), e toda mudança passa antes pelo `podeTransicionar`:
 |---|---|
 | `aguardando_pagamento` | Numa transação: `cancelada` (ator cliente ou admin), `estornarVenda` (o estoque volta) e o Pix `pendente` vira `cancelado` (o gateway não é chamado: o Pix vence sozinho; se for pago mesmo assim, o webhook devolve) |
 | `paga`, `em_separacao`, `pronta_retirada` | Em **três passos**: (1) numa transação, trava o pagamento que confirmou a venda (`aprovado` sem `estorno_solicitado_em`), a venda vai para `cancelamento_solicitado` e o pagamento ganha `estorno_solicitado_em`; (2) **fora** da transação, uma tentativa de estorno no gateway; (3) a resposta mostra o estado final: estorno aprovado → a venda já está `cancelada` (o passo 2 conclui); falhou → continua `cancelamento_solicitado` e a tarefa de 5 em 5 minutos tenta de novo. Sem pagamento aprovado → `409 'Não foi possível cancelar agora. Fale com a loja.'` |
-| `cancelamento_solicitado` | Cliente → `409 'O cancelamento desta compra já está em andamento.'`. Admin → só com as **5** tentativas automáticas esgotadas (senão `409 'O estorno ainda está sendo tentado automaticamente.'`) e com o motivo (senão `422 { motivo: 'Descreva como o estorno foi feito.' }`): ele confirma que devolveu pelo painel da AbacatePay; numa transação, o pagamento vira `estornado` (`status_detalhe 'estorno manual'`), a venda `cancelada` (ator admin, observação = motivo) e o estoque volta |
+| `cancelamento_solicitado` | Cliente → `409 'O cancelamento desta compra já está em andamento.'`. Admin → só com as **5** tentativas automáticas esgotadas (senão `409 'O estorno ainda está sendo tentado automaticamente.'`) e com o motivo (senão `422 { motivo: 'Descreva como o estorno foi feito.' }`): o backend exige consulta autenticada com estorno integral confirmado (cobrança e valor conferidos; caso contrário `409`, indisponibilidade `502`); numa transação, o pagamento vira `estornado` (`status_detalhe 'estorno manual'`), a venda `cancelada` (ator admin, observação = motivo) e o estoque volta |
 | `enviada`, `entregue`, `cancelada` | `409 'Esta compra não pode mais ser cancelada.'` |
 
 Resposta `200` (`Cache-Control: no-store`): para o cliente, o mesmo formato do `GET /api/clientes/me/vendas/:id`;
@@ -1727,7 +1735,7 @@ Só se o pagamento está `aprovado`, com `estorno_solicitado_em` e 5 tentativas 
 esperando uma devolução manual.'`); o pagamento da compra de uma venda em `cancelamento_solicitado` → `409 'Este é o
 pagamento da compra: conclua pelo cancelamento da venda.'`. Inexistente → `404 'Pagamento não encontrado.'`. `200`
 `{ id, vendaId, status: 'estornado', statusDetalhe: 'estorno manual' }`; o motivo fica em `estorno_ultimo_erro` (o
-pagamento em dobro não tem histórico de venda). A venda não muda.
+pagamento em dobro não tem histórico de venda). A venda não muda. Antes da transação, o backend consulta a cobrança e exige estado estornado e valor integral; uma declaração do admin sem essa confirmação retorna `409`.
 
 **Rotas de admin** — abaixo da guarda única `vendaRoutes.use(autenticar, exigirAdmin)` (D-41): sem login `401`,
 cliente `403`, também em caminho desconhecido. Todas com `Cache-Control: no-store`.

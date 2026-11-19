@@ -57,7 +57,9 @@ app.use(helmet({
   strictTransportSecurity: env.nodeEnv === 'production'
     ? { maxAge: 180 * 24 * 60 * 60, includeSubDomains: false, preload: false }
     : false,
-  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  // A recuperação recebe ?token= na URL. no-referrer impede que o navegador o copie para pedidos seguintes,
+  // inclusive à própria API/assets. A proteção de CSRF continua conferindo Origin (exigirOrigem), não Referer.
+  referrerPolicy: { policy: 'no-referrer' },
   xContentTypeOptions: true,
 }))
 app.use(cors({ origin: env.corsOrigin, credentials: true }))

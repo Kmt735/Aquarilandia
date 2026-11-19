@@ -21,7 +21,7 @@ describe('Estoque — bootstrap e migração incremental PostgreSQL', { skip: !u
     try { await executar() } finally { await cliente.query(`DROP SCHEMA ${schema} CASCADE`) }
   }
   async function base() {
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql']) {
       await cliente.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
   }

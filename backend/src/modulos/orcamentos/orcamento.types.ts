@@ -14,6 +14,7 @@ export interface Orcamento {
 export type NovoOrcamento = Pick<Orcamento, 'nome' | 'telefone' | 'servico' | 'mensagem'>
 
 export interface FiltrosOrcamento {
+  busca?: string
   status?: StatusOrcamento
   limite: number
   offset: number

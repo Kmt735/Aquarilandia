@@ -11,7 +11,7 @@ describe('produtoService.buscarParaVenda — PostgreSQL real', { skip: !url && '
   let c, pool, tx, produtos, estoque, adminId, criado = false
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect(); await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '30_estoque.sql', '31_estoque_vendas.sql']) await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '30_estoque.sql', '31_estoque_vendas.sql']) await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     adminId = (await c.query("INSERT INTO clientes(nome,email,senha_hash,papel) VALUES('Admin fixture','venda@fixture.example','hash','admin') RETURNING id")).rows[0].id
     const urlApp = new URL(url); urlApp.searchParams.set('options', `-c search_path=${schema}`); urlApp.searchParams.set('application_name', schema)
     process.env.DATABASE_URL = urlApp.toString()

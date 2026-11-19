@@ -1,4 +1,4 @@
-// Dados de demonstração (#14, Lote 13): 1 admin, 1 cliente com endereço em São João del Rei, 3 categorias e 8 produtos
+// Dados de demonstração: contas, endereço e catálogo variado com estoque e fichas técnicas.
 // de exemplo (2 peixes) com estoque. Usa SÓ as rotas da API (nenhum SQL); o admin nasce pelo criar-admin (D-06: admin
 // nunca nasce por rota HTTP). Idempotente: confere antes de criar, então rodar duas vezes não duplica nada.
 // Imprime só os e-mails e o que foi criado; nunca senha, cookie ou token.
@@ -111,24 +111,51 @@ interface ProdutoDemo { categoria: string; nome: string; descricao: string; marc
 
 const produtos: ProdutoDemo[] = [
   {
-    categoria: 'peixes', nome: 'Neon (demonstração)', descricao: 'Peixe de cardume, tranquilo e colorido.', marca: null, preco: 890, estoque: 30,
+    categoria: 'peixes', nome: 'Neon', descricao: 'Peixe de cardume, tranquilo e colorido.', marca: null, preco: 890, estoque: 30,
     ficha: { tipo: 'peixes', dados: { nomeCientifico: 'Paracheirodon innesi', tipoAgua: 'doce', tamanhoAdultoCm: 3.5, tempMinC: 22, tempMaxC: 26,
       phMin: 5.5, phMax: 7, aquarioMinLitros: 40, temperamento: 'pacifico', cardumeMinimo: 6, dificuldade: 'iniciante' } },
   },
   {
-    categoria: 'peixes', nome: 'Betta (demonstração)', descricao: 'Peixe de nadadeiras longas; um macho por aquário.', marca: null, preco: 2490, estoque: 8,
+    categoria: 'peixes', nome: 'Betta', descricao: 'Peixe de nadadeiras longas; um macho por aquário.', marca: null, preco: 2490, estoque: 8,
     ficha: { tipo: 'peixes', dados: { nomeCientifico: 'Betta splendens', tipoAgua: 'doce', tamanhoAdultoCm: 6.5, tempMinC: 24, tempMaxC: 28,
       phMin: 6, phMax: 7.5, aquarioMinLitros: 20, temperamento: 'semi_agressivo', cardumeMinimo: 1, dificuldade: 'iniciante' } },
   },
-  { categoria: 'racoes', nome: 'Ração em flocos 50 g (demonstração)', descricao: 'Para peixes tropicais de água doce.', marca: 'Marca Exemplo', preco: 1990, estoque: 20,
+  { categoria: 'racoes', nome: 'Ração em flocos 50 g', descricao: 'Para peixes tropicais de água doce.', marca: 'Marca Exemplo', preco: 1990, estoque: 20,
     ficha: { tipo: 'racoes', dados: { formato: 'flocos', pesoG: 50, tipoAgua: 'doce' } } },
-  { categoria: 'racoes', nome: 'Ração em grânulos 100 g (demonstração)', descricao: 'Grânulos que afundam devagar.', marca: 'Marca Exemplo', preco: 2790, estoque: 15,
+  { categoria: 'racoes', nome: 'Ração em grânulos 100 g', descricao: 'Grânulos que afundam devagar.', marca: 'Marca Exemplo', preco: 2790, estoque: 15,
     ficha: { tipo: 'racoes', dados: { formato: 'granulos', pesoG: 100, tipoAgua: 'doce' } } },
-  { categoria: 'racoes', nome: 'Ração marinha 40 g (demonstração)', descricao: 'Para peixes de água salgada.', marca: 'Marca Exemplo', preco: 3490, estoque: 10,
+  { categoria: 'racoes', nome: 'Ração marinha 40 g', descricao: 'Para peixes de água salgada.', marca: 'Marca Exemplo', preco: 3490, estoque: 10,
     ficha: { tipo: 'racoes', dados: { formato: 'flocos', pesoG: 40, tipoAgua: 'marinho' } } },
-  { categoria: 'acessorios', nome: 'Rede para peixes (demonstração)', descricao: 'Rede de malha fina, 10 cm.', marca: null, preco: 1290, estoque: 25 },
-  { categoria: 'acessorios', nome: 'Termômetro de vidro (demonstração)', descricao: 'Com ventosa, de 0 a 40 °C.', marca: null, preco: 1590, estoque: 25 },
-  { categoria: 'acessorios', nome: 'Sifão de limpeza (demonstração)', descricao: 'Para limpar o substrato na troca parcial de água.', marca: null, preco: 3990, estoque: 12 },
+  { categoria: 'acessorios', nome: 'Rede para peixes', descricao: 'Rede de malha fina, 10 cm.', marca: null, preco: 1290, estoque: 25 },
+  { categoria: 'acessorios', nome: 'Termômetro de vidro', descricao: 'Com ventosa, de 0 a 40 °C.', marca: null, preco: 1590, estoque: 25 },
+  { categoria: 'acessorios', nome: 'Sifão de limpeza', descricao: 'Para limpar o substrato na troca parcial de água.', marca: null, preco: 3990, estoque: 12 },
+  { categoria: 'aquarios', nome: 'Aquário plantado 40 L', descricao: 'Aquário de vidro para montagem de água doce.', marca: 'Linha Demo', preco: 24990, estoque: 6,
+    ficha: { tipo: 'aquarios', dados: { volumeLitros: 40, comprimentoCm: 50, larguraCm: 25, alturaCm: 32, material: 'vidro', tipoAgua: 'doce' } } },
+  { categoria: 'aquarios', nome: 'Aquário panorâmico 100 L', descricao: 'Modelo para demonstrar filtros e compatibilidade por volume.', marca: 'Linha Demo', preco: 59990, estoque: 3,
+    ficha: { tipo: 'aquarios', dados: { volumeLitros: 100, comprimentoCm: 80, larguraCm: 35, alturaCm: 40, material: 'vidro', tipoAgua: 'ambos' } } },
+  { categoria: 'filtros', nome: 'Filtro hang-on 400 L/h', descricao: 'Filtragem para aquários pequenos.', marca: 'Linha Demo', preco: 12990, estoque: 10,
+    ficha: { tipo: 'filtros', dados: { tipo: 'hang_on', vazaoLh: 400, aquarioMaxLitros: 60, potenciaW: 5, voltagem: 'bivolt' } } },
+  { categoria: 'filtros', nome: 'Filtro canister 1000 L/h', descricao: 'Filtragem externa para montagens maiores.', marca: 'Linha Demo', preco: 44990, estoque: 4,
+    ficha: { tipo: 'filtros', dados: { tipo: 'canister', vazaoLh: 1000, aquarioMaxLitros: 200, potenciaW: 15, voltagem: '220' } } },
+  { categoria: 'bombas', nome: 'Bomba submersa 600 L/h', descricao: 'Circulação de água.', marca: 'Linha Demo', preco: 8990, estoque: 9,
+    ficha: { tipo: 'bombas', dados: { tipo: 'submersa', vazaoLh: 600, potenciaW: 8, voltagem: '110' } } },
+  { categoria: 'iluminacao', nome: 'Luminária LED plantado 20 W', descricao: 'Iluminação para montagem plantada.', marca: 'Linha Demo', preco: 15990, estoque: 8,
+    ficha: { tipo: 'iluminacao', dados: { tecnologia: 'led', potenciaW: 20, comprimentoCm: 50, espectro: 'plantado', temperaturaCorK: 6500, voltagem: 'bivolt' } } },
+  { categoria: 'termostatos', nome: 'Termostato ajustável 100 W', descricao: 'Aquecimento com ajuste de temperatura.', marca: 'Linha Demo', preco: 7990, estoque: 12,
+    ficha: { tipo: 'termostatos', dados: { potenciaW: 100, aquarioMinLitros: 40, aquarioMaxLitros: 100, tempMinC: 20, tempMaxC: 32, ajustavel: true, voltagem: '220' } } },
+  { categoria: 'condicionadores', nome: 'Condicionador de água 100 ml', descricao: 'Exemplo de produto de tratamento de água.', marca: 'Linha Demo', preco: 2990, estoque: 18,
+    ficha: { tipo: 'condicionadores', dados: { tipo: 'condicionador', volumeMl: 100, tipoAgua: 'doce' } } },
+  { categoria: 'condicionadores', nome: 'Teste de pH', descricao: 'Exemplo para pesquisar por tipo de tratamento.', marca: 'Linha Demo', preco: 2490, estoque: 7,
+    ficha: { tipo: 'condicionadores', dados: { tipo: 'teste_agua', tipoAgua: 'ambos' } } },
+  { categoria: 'substratos', nome: 'Substrato fértil 2 kg', descricao: 'Base para aquário plantado.', marca: 'Linha Demo', preco: 6990, estoque: 14,
+    ficha: { tipo: 'substratos', dados: { tipo: 'fertil', pesoKg: 2, cor: 'Marrom', alteraPh: false } } },
+  { categoria: 'plantas', nome: 'Anubias nana', descricao: 'Planta de crescimento lento.', marca: null, preco: 3590, estoque: 10,
+    ficha: { tipo: 'plantas', dados: { nome: 'Anubias nana', posicao: 'epifita', iluminacaoExigida: 'baixa', precisaCo2: false, crescimento: 'lento', dificuldade: 'iniciante' } } },
+  { categoria: 'plantas', nome: 'Vallisneria', descricao: 'Planta para o fundo do aquário.', marca: null, preco: 1890, estoque: 15,
+    ficha: { tipo: 'plantas', dados: { nome: 'Vallisneria', posicao: 'fundo', iluminacaoExigida: 'media', precisaCo2: false, crescimento: 'rapido', dificuldade: 'iniciante' } } },
+  { categoria: 'decoracoes', nome: 'Tronco natural', descricao: 'Decoração para montagem de água doce.', marca: null, preco: 4990, estoque: 6,
+    ficha: { tipo: 'decoracoes', dados: { material: 'tronco', materialNatural: true, comprimentoCm: 20, seguroMarinho: false } } },
+  { categoria: 'acessorios', nome: 'Rede esgotada', descricao: 'Exemplo para demonstrar indisponibilidade e reposição.', marca: null, preco: 990, estoque: 0 },
 ]
 
 async function principal(): Promise<void> {
@@ -151,7 +178,7 @@ async function principal(): Promise<void> {
     const r = await pedir('POST', '/auth/cadastro', {
       body: { nome: 'Cliente Demonstração', email: clienteEmail, senha: senhaCliente, telefone: '32999990000', aceiteTermos: true },
     })
-    exigir(r, [201], 'cadastro do cliente')
+    exigir(r, [202], 'cadastro do cliente')
     cliente = await entrar(clienteEmail, senhaCliente)
     if (!cliente) throw new Error('o cliente foi cadastrado, mas o login falhou')
     console.log(`Cliente: ${clienteEmail} (criado)`)
@@ -163,7 +190,7 @@ async function principal(): Promise<void> {
   } else {
     const r = await pedir('POST', '/clientes/me/enderecos', {
       sessao: cliente,
-      body: { apelido: 'Casa', cep: '36300000', logradouro: 'Rua Getúlio Vargas', numero: '100', bairro: 'Centro',
+      body: { apelido: 'Casa', cep: '36307000', logradouro: 'Rua de demonstração', numero: '100', bairro: 'Centro',
         cidade: 'São João del Rei', uf: 'MG', principal: true },
     })
     exigir(r, [201], 'endereço do cliente')
@@ -200,7 +227,7 @@ async function principal(): Promise<void> {
     // Estoque só se ainda está zerado (a mesma chave de idempotência por produto garante uma entrada só)
     const saldo = await pedir('GET', `/estoque/${id}`, { sessao: admin })
     exigir(saldo, [200], `saldo do produto ${produto.nome}`)
-    if (saldo.corpo.saldoAtual === 0) {
+    if (produto.estoque > 0 && saldo.corpo.saldoAtual === 0) {
       const r = await pedir('POST', '/estoque/movimentacoes', {
         sessao: admin,
         chave: chaveDaEntrada(id),
@@ -208,6 +235,14 @@ async function principal(): Promise<void> {
       })
       exigir(r, [200, 201], `entrada de estoque de ${produto.nome}`)
       entradas++
+    }
+    if (process.env.DEMO_LOGISTICA === 'true') {
+      const aquario = produto.categoria === 'aquarios'
+      const r = await pedir('PUT', `/produtos/${id}/logistica`, { sessao: admin, body: {
+        pesoG: aquario ? 8000 : 500, comprimentoCm: aquario ? 90 : 25, larguraCm: aquario ? 45 : 20,
+        alturaCm: aquario ? 50 : 15, prazoPreparacaoDias: 1, envioConvencional: produto.categoria !== 'peixes',
+      } })
+      exigir(r, [200], `embalagem de demonstração de ${produto.nome}`)
     }
   }
   console.log(`Produtos: ${criados} criados, ${jaExistiam} já existiam; ${entradas} entradas de estoque`)

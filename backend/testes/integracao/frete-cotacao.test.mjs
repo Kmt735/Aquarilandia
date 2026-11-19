@@ -1,8 +1,9 @@
+import { instalarCepFixture } from '../fixtures/cep.mjs'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
-import { after, before, beforeEach, describe, it } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test'
 import pg from 'pg'
 
 const url = process.env.TEST_DATABASE_URL
@@ -13,7 +14,7 @@ describe('POST /api/frete/calcular (#28) — PostgreSQL real', { skip: !url && '
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     const urlApp = new URL(url); urlApp.searchParams.set('options', `-c search_path=${schema}`)
@@ -27,6 +28,8 @@ describe('POST /api/frete/calcular (#28) — PostgreSQL real', { skip: !url && '
     base = `http://127.0.0.1:${server.address().port}/api/frete/calcular`
   })
   beforeEach(() => limites.limiteFrete.resetKey('127.0.0.1'))
+  beforeEach(() => instalarCepFixture(mock))
+  afterEach(() => mock.restoreAll())
   after(async () => {
     try { if (server) await new Promise((r) => server.close(r)); if (pool) await pool.end() }
     finally { if (c) { try { if (criado) await c.query(`DROP SCHEMA ${schema} CASCADE`) } finally { await c.end() } } }
@@ -61,13 +64,13 @@ describe('POST /api/frete/calcular (#28) — PostgreSQL real', { skip: !url && '
     const sp = config.faixasBrasil.find((f) => '01001000' >= f.cepInicio && '01001000' <= f.cepFim)
     assert.deepEqual(longe.corpo, { frete: sp.valor, prazoDias: sp.prazoDias, tipoEntrega: 'correios', subtotal, total: subtotal + sp.valor })
 
-    const retirada = await cotar({ itens: pedido, retirada: true })
+    const retirada = await cotar({ itens: pedido, retirada: true, unidadeRetirada: 'matosinhos' })
     assert.deepEqual(retirada.corpo, { frete: 0, prazoDias: config.prazoRetiradaDias, tipoEntrega: 'retirada', subtotal, total: subtotal })
   })
 
   it('preço do body é ignorado: o subtotal vem só do catálogo', async () => {
     const p = await produto({ preco: 2500 })
-    const r = await cotar({ itens: [{ produtoId: p, quantidade: 2, precoUnitario: 1 }], retirada: true, subtotal: 1, total: 1 })
+    const r = await cotar({ itens: [{ produtoId: p, quantidade: 2, precoUnitario: 1 }], retirada: true, unidadeRetirada: 'matosinhos', subtotal: 1, total: 1 })
     assert.equal(r.corpo.subtotal, 5000); assert.equal(r.corpo.total, 5000)
   })
 
@@ -78,7 +81,7 @@ describe('POST /api/frete/calcular (#28) — PostgreSQL real', { skip: !url && '
     assert.deepEqual(r.corpo.detalhes, { 'itens.3.produtoId': 'Este peixe só pode ser entregue em São João del Rei.' })
     // O mesmo carrinho em São João del Rei ou na retirada passa
     assert.equal((await cotar({ itens: itens([a, 1], [a, 2], [b, 1], [peixe, 1]), cep: '36300000' })).status, 200)
-    assert.equal((await cotar({ itens: itens([a, 1], [peixe, 1]), retirada: true })).status, 200)
+    assert.equal((await cotar({ itens: itens([a, 1], [peixe, 1]), retirada: true, unidadeRetirada: 'matosinhos' })).status, 200)
   })
 
   it('3. inexistente e inativo → 422 no índice; body inválido → 422', async () => {
@@ -97,15 +100,15 @@ describe('POST /api/frete/calcular (#28) — PostgreSQL real', { skip: !url && '
 
   it('4. 30 cotações passam; a 31ª no mesmo minuto → 429', async () => {
     const p = await produto()
-    for (let i = 0; i < 30; i++) assert.equal((await cotar({ itens: itens([p, 1]), retirada: true })).status, 200, `cotação ${i + 1}`)
-    const bloqueada = await cotar({ itens: itens([p, 1]), retirada: true })
+    for (let i = 0; i < 30; i++) assert.equal((await cotar({ itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })).status, 200, `cotação ${i + 1}`)
+    const bloqueada = await cotar({ itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })
     assert.equal(bloqueada.status, 429)
   })
 
   it('5. sem login → 200; sem Origin → 403 (e não gasta o limite)', async () => {
     const p = await produto()
-    assert.equal((await cotar({ itens: itens([p, 1]), retirada: true })).status, 200)
-    const semOrigem = await cotar({ itens: itens([p, 1]), retirada: true }, { comOrigem: false })
+    assert.equal((await cotar({ itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' })).status, 200)
+    const semOrigem = await cotar({ itens: itens([p, 1]), retirada: true, unidadeRetirada: 'matosinhos' }, { comOrigem: false })
     assert.equal(semOrigem.status, 403)
   })
 })

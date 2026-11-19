@@ -17,7 +17,7 @@ describe('Homologação cruzada — estoque local + Backend 2 remoto', () => {
     assert.ok(process.env.TEST_DATABASE_URL, 'PostgreSQL descartável obrigatório')
     c = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '30_estoque.sql', '31_estoque_vendas.sql']) await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '30_estoque.sql', '31_estoque_vendas.sql']) await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     id = (await c.query("INSERT INTO clientes(nome,email,senha_hash,papel) VALUES('Admin fixture',$1,$2,'admin') RETURNING id", [email, await gerarHash(senha)])).rows[0].id
     produto = (await c.query("INSERT INTO produtos(categoria_id,nome,preco) SELECT id,'Fixture integração',100 FROM categorias WHERE slug='acessorios' RETURNING id")).rows[0].id
     const dbUrl = new URL(process.env.TEST_DATABASE_URL); dbUrl.searchParams.set('options', `-c search_path=${schema}`); process.env.DATABASE_URL = dbUrl.toString()

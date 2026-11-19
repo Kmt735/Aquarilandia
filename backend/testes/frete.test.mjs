@@ -60,17 +60,17 @@ describe('Frete — calcularFrete (#27)', () => {
 
   describe('retirada na loja', () => {
     it('sem cep → frete 0, prazo de retirada', () => {
-      assert.deepEqual(calcularFrete({ retirada: true, itens: [racao], subtotal: 5000 }),
+      assert.deepEqual(calcularFrete({ retirada: true, unidadeRetirada: 'matosinhos', itens: [racao], subtotal: 5000 }),
         { frete: 0, prazoDias: 1, tipoEntrega: 'retirada' })
     })
     it('com cep (inclusive inválido) → o cep é ignorado', () => {
       for (const cep of ['01310100', '36300000', 'abc']) {
-        assert.deepEqual(calcularFrete({ cep, retirada: true, itens: [racao], subtotal: 5000 }),
+        assert.deepEqual(calcularFrete({ cep, retirada: true, unidadeRetirada: 'matosinhos', itens: [racao], subtotal: 5000 }),
           { frete: 0, prazoDias: 1, tipoEntrega: 'retirada' })
       }
     })
     it('com peixe → aceita (o cliente busca na loja)', () => {
-      assert.deepEqual(calcularFrete({ cep: '01310100', retirada: true, itens: [peixe, racao], subtotal: 5000 }),
+      assert.deepEqual(calcularFrete({ cep: '01310100', retirada: true, unidadeRetirada: 'matosinhos', itens: [peixe, racao], subtotal: 5000 }),
         { frete: 0, prazoDias: 1, tipoEntrega: 'retirada' })
     })
   })

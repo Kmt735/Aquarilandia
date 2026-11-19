@@ -8,7 +8,12 @@ import { peixeController } from '../modulos/catalogo/peixe.controller.js'
 import { produtoController } from '../modulos/catalogo/produto.controller.js'
 import { imagemController, limiteUploadImagem } from '../modulos/catalogo/imagem/imagem.controller.js'
 
+import { logisticaRoutes } from '../modulos/catalogo/produto.logistica.js'
+
 export const catalogoRoutes = Router()
+// Apenas este subcaminho recebe a guarda administrativa; o catálogo público permanece acessível.
+catalogoRoutes.use('/produtos/:id/logistica', (_req, res, next) => { res.set('Cache-Control','no-store'); res.vary('Cookie'); next() })
+catalogoRoutes.use('/produtos', logisticaRoutes)
 
 // O valor literal true seleciona uma cadeia administrativa completa, sem fallback público.
 const consultaDeInativos: RequestHandler = (req, res, next) => {

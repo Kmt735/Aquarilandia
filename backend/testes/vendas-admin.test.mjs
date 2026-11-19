@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it, mock } from 'node:test'
-import { enderecoLoja } from '../src/modulos/vendas/frete.config.ts'
+import { unidadesRetirada } from '../src/modulos/vendas/unidades.ts'
 import { vendaRepository } from '../src/modulos/vendas/venda.repository.ts'
 import { vendaService } from '../src/modulos/vendas/venda.service.ts'
 import { montarAviso } from '../src/modulos/vendas/vendaNotificacoes.ts'
@@ -20,11 +20,10 @@ describe('montarAviso (e-mail de mudança de status)', () => {
     assert.equal(montarAviso('paga', dados).assunto, 'Pagamento confirmado — pedido #42')
     assert.equal(montarAviso('pronta_retirada', dados).assunto, 'Seu pedido está pronto para retirada — pedido #42')
   })
-  it('pronta_retirada: o texto traz o endereço da loja do frete.config.ts', () => {
-    assert.equal(enderecoLoja, 'Av. Josué de Queiroz, 115 – São João del Rei')
-    assert.equal(montarAviso('pronta_retirada', dados).texto,
-      'Olá, Maria. Seu pedido #42 está pronto para retirada. Retire na loja Aquarilândia (Av. Josué de Queiroz, 115 – ' +
-      'São João del Rei), no horário de funcionamento. Leve um documento com foto.')
+  it('pronta_retirada: o texto traz a unidade escolhida e o endereço correspondente', () => {
+    assert.equal(montarAviso('pronta_retirada', {...dados,unidadeRetirada:unidadesRetirada.matosinhos}).texto,
+      'Olá, Maria. Seu pedido #42 está pronto para retirada. Retire na Aquarilândia Matosinhos (Avenida Josué de Queiroz, 115 – ' +
+      'São João del-Rei/MG), no horário de funcionamento. Leve um documento com foto.')
   })
   it('enviada: com o rastreio quando há; cancelada: "O valor foi devolvido." só se houve devolução', () => {
     assert.match(montarAviso('enviada', { ...dados, codigoRastreio: 'BR123456789BR' }).texto, /Código de rastreio dos Correios: BR123456789BR\./)

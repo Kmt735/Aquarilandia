@@ -6,14 +6,16 @@
 
 	reverse_proxy app:3333
 
-	# Log de acesso em JSON no stdout (docker compose logs caddy). A query string NUNCA é gravada: o webhook da
-	# AbacatePay traz o webhookSecret na URL (?webhookSecret=...). Cookie, Set-Cookie e a assinatura do webhook
-	# também saem do log
+	# Log de acesso em JSON no stdout (docker compose logs caddy). O segredo do webhook pode chegar tanto
+	# na query string quanto em X-Webhook-Secret. Referer também pode conter o token de recuperação de senha.
+	# Estes dados são removidos só do log: continuam sendo encaminhados à app para validar a requisição.
 	log {
 		output stdout
 		format filter {
 			request>uri regexp \?.*$ ""
+			request>headers>X-Webhook-Secret delete
 			request>headers>X-Webhook-Signature delete
+			request>headers>Referer delete
 			request>headers>Cookie delete
 			resp_headers>Set-Cookie delete
 		}

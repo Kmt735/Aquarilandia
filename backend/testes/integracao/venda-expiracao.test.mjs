@@ -18,7 +18,7 @@ describe('Expiração de vendas (#32) — PostgreSQL real', { skip: !url && 'Def
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '21_vendas_idempotencia.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     adminId = (await c.query("INSERT INTO clientes (nome, email, senha_hash, papel) VALUES ('Admin', 'admin@expiracao.example', 'hash', 'admin') RETURNING id")).rows[0].id
@@ -65,7 +65,7 @@ describe('Expiração de vendas (#32) — PostgreSQL real', { skip: !url && 'Def
     const r = await fetch(`${api}/vendas`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: origem, Cookie: `sid=${quem.token}`, 'Idempotency-Key': randomUUID() },
-      body: JSON.stringify({ itens, retirada: true, totalEsperado }),
+      body: JSON.stringify({ itens, retirada: true, unidadeRetirada: 'matosinhos', totalEsperado }),
     })
     const corpo = await r.json()
     assert.equal(r.status, 201, JSON.stringify(corpo))
