@@ -11,8 +11,11 @@ import { ROTAS } from '../../utils/rotas'
 
 const ABAS = [
   { id: 'resumo', to: ROTAS.admin, rotulo: 'Resumo', end: true },
-  { id: 'catalogo', to: ROTAS.adminProdutos, rotulo: 'Peixes e produtos' },
+  { id: 'catalogo', to: ROTAS.adminProdutos, rotulo: 'Produtos' },
   { id: 'pedidos', to: ROTAS.adminPedidos, rotulo: 'Pedidos' },
+  { id: 'estoque', to: ROTAS.adminEstoque, rotulo: 'Estoque' },
+  { id: 'orcamentos', to: ROTAS.adminOrcamentos, rotulo: 'Orçamentos' },
+  { id: 'clientes', to: ROTAS.adminClientes, rotulo: 'Clientes' },
 ]
 
 // Área do administrador. Esta tela só esconde o painel de quem não é admin:

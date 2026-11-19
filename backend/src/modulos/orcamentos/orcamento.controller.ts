@@ -12,8 +12,8 @@ export const orcamentoController = {
     res.set('Cache-Control', 'no-store').json(await orcamentoService.listar(req.query))
   },
 
-  async atualizarStatus(req: Request<{ id: string }>, res: Response): Promise<void> {
+  async atualizar(req: Request<{ id: string }>, res: Response): Promise<void> {
     const id = idParam(req.params.id)
-    res.set('Cache-Control', 'no-store').json(await orcamentoService.atualizarStatus(id, req.body))
+    res.set('Cache-Control', 'no-store').json(await orcamentoService.atualizar(id, req.body))
   },
 }

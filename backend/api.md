@@ -1134,8 +1134,8 @@ nas respostas administrativas e o `403` de Origin no POST.
 | Rota | Contrato |
 |---|---|
 | `POST /api/orcamentos` | Público, com Origin. `201` com o orçamento criado (DTO abaixo, `status` sempre `novo`). Rate limit de 5 pedidos por hora por IP, contando os que deram certo: o 6º → `429`. |
-| `GET /api/orcamentos` | Admin. `200` com `{ dados, total, pagina, limite }` (seção 4), do mais recente para o mais antigo. `?status=` opcional. |
-| `PATCH /api/orcamentos/:id` | Admin, com Origin. Body `{ status }`; lê só o `status`, o resto é ignorado. `200` com o orçamento. |
+| `GET /api/orcamentos` | Admin. `200` com `{ dados, total, pagina, limite }` (seção 4), do mais recente para o mais antigo. `?status=` e `?busca=` opcionais. Busca literal por nome, telefone ou serviço, até 120 caracteres; combina com status e paginação. |
+| `PATCH /api/orcamentos/:id` | Admin, com Origin. Body parcial com `nome`, `telefone`, `servico`, `mensagem` e/ou `status`. Campos omitidos são preservados; `id` e datas são ignorados. As validações dos dados são as mesmas do POST; mensagem vazia limpa o campo. `200` com o orçamento. |
 | `GET` e `DELETE /api/orcamentos/:id` | Continuam ausentes, atrás da guarda (`401`/`403`, e `404` para admin). |
 
 ```json
@@ -1227,7 +1227,7 @@ Recurso de outro cliente responde **404** (não 403), para não confirmar que el
 
 - `?status=` do `GET` fora da lista → `400` `'Parâmetros inválidos'` com
   `{ status: 'Escolha um status válido: novo, em_atendimento ou concluido.' }`; `pagina`/`limite` seguem a seção 4.
-- `PATCH /api/orcamentos/:id`: body que não é objeto → `422` `{ body: 'Formato de dados inválido.' }`; `status` que não
+- `PATCH /api/orcamentos/:id`: envie pelo menos um campo editável. `status` é obrigatório apenas quando nenhum dado da solicitação é enviado. Dados inválidos não alteram o registro. Body que não é objeto → `422` `{ body: 'Formato de dados inválido.' }`; `status` que não
   seja exatamente `novo`, `em_atendimento` ou `concluido` (sem `trim`) → `422`
   `{ status: 'Escolha um status válido: novo, em_atendimento ou concluido.' }`; `:id` inválido → `400`;
   inexistente → `404` `'Orçamento não encontrado.'`.

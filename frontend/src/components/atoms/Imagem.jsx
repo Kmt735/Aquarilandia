@@ -12,7 +12,7 @@ export default function Imagem({ src, alt = '', categoria, proporcao = '4/3', cl
   return (
     <div className={`relative w-full overflow-hidden bg-surface-tint ${PROPORCOES[proporcao]} ${className}`}>
       {temFoto ? (
-        <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhouEm(src)} className="size-full object-cover" />
+        <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFalhouEm(src)} className="size-full object-contain" />
       ) : (
         <Cena categoria={categoria} compacta={compacta} />
       )}

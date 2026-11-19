@@ -1,4 +1,5 @@
 import LogisticaProduto from '../../components/organisms/LogisticaProduto'
+import FotoProduto from '../../components/organisms/FotoProduto'
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -24,8 +25,6 @@ import { regras } from '../../utils/validacao'
 const precoParaCentavos = (v) => Math.round(Number(String(v).trim().replace(',', '.')) * 100)
 const regraPreco = (v) =>
   /^\d{1,7}([.,]\d{1,2})?$/.test(String(v).trim()) && precoParaCentavos(v) > 0 ? null : 'Digite o preço em reais. Exemplo: 29,90.'
-const regraUrl = (v) =>
-  !String(v).trim() || /^(https?:\/\/|\/)\S+$/.test(String(v).trim()) ? null : 'Use um endereço que comece com https:// ou /.'
 
 export default function AdminItemFormPage() {
   const { id } = useParams()
@@ -90,16 +89,15 @@ function FormularioItem({ item, categorias }) {
     marca: item?.marca ?? '',
     descricao: item?.descricao ?? '',
     preco: item ? (item.preco / 100).toFixed(2).replace('.', ',') : '',
-    imagemUrl: item?.imagemUrl ?? '',
     ...valoresIniciaisFicha(),
     ...(item ? preencherFicha(item.categoria, item.ficha?.dados) : {}),
   }))
 
-  const regrasCampos = { nome: regras.obrigatorio, preco: regraPreco, imagemUrl: regraUrl, ...regrasFicha(slug) }
+  const regrasCampos = { nome: regras.obrigatorio, preco: regraPreco, ...regrasFicha(slug) }
   const { campo, erros, enviar, enviando, erroGeral, formRef } = useFormulario(inicial, regrasCampos)
 
   // Erros do servidor para campos que não existem na tela são mostrados em lista
-  const visiveis = new Set(['nome', 'marca', 'descricao', 'preco', 'imagemUrl', ...fichaCampos.map((c) => nomeCampo(slug, c.nome))])
+  const visiveis = new Set(['nome', 'marca', 'descricao', 'preco', ...fichaCampos.map((c) => nomeCampo(slug, c.nome))])
   const outrosErros = Object.entries(erros).filter(([nome]) => !visiveis.has(nome))
 
   const salvar = enviar(async (v) => {
@@ -112,7 +110,6 @@ function FormularioItem({ item, categorias }) {
       descricao: v.descricao.trim() || null,
       marca: v.marca.trim() || null,
       preco: precoParaCentavos(v.preco),
-      imagemUrl: v.imagemUrl.trim() || null,
       ficha: montarFicha(slug, v),
     }
     if (editando) {
@@ -189,15 +186,6 @@ function FormularioItem({ item, categorias }) {
           <Textarea rows={3} {...campo('descricao')} />
         </FormField>
 
-        <FormField
-          id="item-imagem"
-          label="Endereço da foto"
-          erro={erros.imagemUrl}
-          ajuda="Comece com https:// ou com /. Para uma foto do projeto, coloque o arquivo em public/ e use, por exemplo, /fotos_peixe/betta.jpg."
-        >
-          <Input inputMode="url" placeholder="https://…" {...campo('imagemUrl')} />
-        </FormField>
-
         {fichaCampos.length > 0 && (
           <fieldset className="mt-6 border-t border-border pt-6">
             <legend className="mb-4 font-display text-h4 font-extrabold">Ficha técnica</legend>
@@ -218,7 +206,7 @@ function FormularioItem({ item, categorias }) {
           </Button>
         </div>
       </form>
-      {editando ? <LogisticaProduto produtoId={item.id} /> : <p className="mt-4 text-pequeno text-text-muted">Após cadastrar o produto, abra a edição para informar embalagem e condições de envio.</p>}
+      {editando ? <><FotoProduto produtoId={item.id} imagemInicial={item.imagemUrl} /><LogisticaProduto produtoId={item.id} /></> : <p className="mt-4 text-pequeno text-text-muted">Após cadastrar o produto, abra a edição para enviar a foto e informar embalagem e condições de envio.</p>}
     </div>
   )
 }

@@ -69,7 +69,7 @@ export default function AdminProdutosPage() {
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 id="titulo-produtos" className="text-h3">
-            Peixes e produtos
+            Produtos
           </h2>
           <p className="mt-1 text-pequeno text-text-muted" aria-live="polite">
             {dados ? plural(dados.total, 'item', 'itens') : 'Carregando…'}
@@ -78,14 +78,13 @@ export default function AdminProdutosPage() {
         <Button asChild>
           <Link to={ROTAS.adminNovoItem}>
             <Plus aria-hidden="true" />
-            Novo item
+            Novo produto
           </Link>
         </Button>
       </div>
 
       <Aviso tipo="info" className="mb-5">
-        Para esconder um item da loja, use <strong>Tirar da loja</strong>. A quantidade em estoque ainda não pode ser alterada
-        por aqui, porque o servidor ainda não tem essa operação.
+        Edite nome, preço, descrição, fotos e ficha técnica em <strong>Editar produto</strong>. Para alterar quantidades, abra <Link className="font-semibold underline" to={ROTAS.adminEstoque}>Estoque</Link>.
       </Aviso>
 
       <div className="mb-5 grid gap-3 sm:grid-cols-[auto_1fr]">
@@ -149,7 +148,7 @@ export default function AdminProdutosPage() {
       {!carregando && !erro && itens.length > 0 && (
         <div className="overflow-x-auto rounded-card border border-border-strong">
           <table className="w-full min-w-[820px] text-left text-pequeno">
-            <caption className="sr-only">Peixes e produtos da loja</caption>
+            <caption className="sr-only">Produtos da loja</caption>
             <thead className="bg-surface-tint text-legenda text-text-muted">
               <tr>
                 <th scope="col" className="px-4 py-3 font-bold">Item</th>
@@ -181,13 +180,13 @@ export default function AdminProdutosPage() {
                         <Button variant="secundario" tamanho="sm" asChild>
                           <Link to={urlEditarItem(p.id)}>
                             <Pencil aria-hidden="true" />
-                            Editar
+                            Editar produto
                           </Link>
                         </Button>
                       ) : (
                         <Button variant="secundario" tamanho="sm" disabled title="Coloque o item de volta na loja para poder editar">
                           <Pencil aria-hidden="true" />
-                          Editar
+                          Editar produto
                         </Button>
                       )}
 

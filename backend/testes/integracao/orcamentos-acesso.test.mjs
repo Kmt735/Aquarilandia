@@ -144,7 +144,7 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
     assert.deepEqual(await linha(), antes)
   })
   it('PATCH: admin muda o status no banco, sem tocar em nome e telefone', async () => {
-    const resposta = await alterar('admin', criado.id, { status: 'em_atendimento', nome: 'Outro nome', telefone: '000' })
+    const resposta = await alterar('admin', criado.id, { status: 'em_atendimento' })
     assert.equal(resposta.status, 200)
     const corpo = await resposta.json()
     assert.equal(corpo.status, 'em_atendimento'); assert.ok(new Date(corpo.atualizadoEm) > new Date(corpo.criadoEm))
@@ -163,6 +163,25 @@ describe('Orçamentos — HTTP com sessões e papéis reais no PostgreSQL', {
     const inexistente = await alterar('admin', 999999, { status: 'novo' })
     assert.equal(inexistente.status, 404); assert.deepEqual(await inexistente.json(), { erro: 'Orçamento não encontrado.' })
     assert.deepEqual(await linha(), antes)
+  })
+  it('admin edita dados, preserva identidade e busca com paginação e situação', async () => {
+    const antes = await linha()
+    const invalida = await alterar('admin', criado.id, { nome: 'Contato atualizado', telefone: '000' })
+    assert.equal(invalida.status, 422); assert.deepEqual(await linha(), antes)
+    const resposta = await alterar('admin', criado.id, { nome: 'Contato atualizado', telefone: '(32) 98888-7777', servico: 'Manutenção', mensagem: '', id: 999 })
+    assert.equal(resposta.status, 200)
+    const corpo = await resposta.json()
+    assert.equal(corpo.id, criado.id); assert.equal(corpo.nome, 'Contato atualizado')
+    assert.equal(corpo.telefone, '32988887777'); assert.equal(corpo.mensagem, null)
+    assert.equal(corpo.status, antes.status); assert.equal(corpo.criadoEm, criado.criadoEm)
+    for (const busca of ['Contato atualizado', '98888', 'Manutenção']) {
+      const lista = await (await requisitar('admin', 'GET', `/api/orcamentos?status=em_atendimento&busca=${encodeURIComponent(busca)}&limite=1`)).json()
+      assert.equal(lista.total, 1); assert.equal(lista.dados[0].id, criado.id)
+    }
+    const vazia = await (await requisitar('admin', 'GET', '/api/orcamentos?busca=%25')).json()
+    assert.equal(vazia.total, 0)
+    const segundaPagina = await (await requisitar('admin', 'GET', '/api/orcamentos?busca=Contato&limite=1&pagina=2')).json()
+    assert.equal(segundaPagina.total, 1); assert.equal(segundaPagina.dados.length, 0)
   })
   it('o CHECK do banco recusa status fora da lista', async () => {
     await assert.rejects(cliente.query("UPDATE orcamentos SET status = 'xyz' WHERE id = $1", [criado.id]),
