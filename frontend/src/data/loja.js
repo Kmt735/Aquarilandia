@@ -55,8 +55,35 @@ export const politicas = {
   termos: {
     titulo: 'Termos de uso',
     secoes: [{ titulo: 'Texto em produção', texto: 'Texto dos termos de uso: a definir com a loja.' }],
+      acessibilidade: {
+    titulo: 'Acessibilidade',
+    provisoria: false,
+    secoes: [
+      {
+        titulo: 'Libras no site',
+        texto:
+          'O site usa o VLibras, o tradutor de português para Libras do governo federal. Clique no ícone do VLibras que aparece na tela, espere o avatar abrir e depois clique ou selecione o texto que você quer ver em Libras. A tradução é automática e pode ter imperfeições. Se algo não ficar claro, fale com a gente.',
+      },
+      {
+        titulo: 'Atendimento sem precisar de voz',
+        texto:
+          'Você não precisa ligar nem falar para comprar ou pedir um orçamento. Tudo pode ser feito pelo site e pelo WhatsApp, por texto.',
+      },
+      {
+        titulo: 'Uso pelo teclado',
+        texto:
+          'Use a tecla Tab para andar pela página. O link "Pular para o conteúdo" aparece no começo de cada página. A tecla / abre a busca e a tecla Esc fecha janelas e painéis.',
+      },
+      {
+        titulo: 'Encontrou um problema?',
+        texto:
+          'Se alguma parte do site for difícil de usar para você, conte pelo WhatsApp (por texto). Vamos corrigir o quanto antes.',
+      },
+    ],
+  },
   },
 }
+
 
 // Página "Perguntas frequentes" (item 10): entrega, trocas e pagamento
 export const perguntasLoja = [
