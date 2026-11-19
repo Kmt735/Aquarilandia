@@ -284,7 +284,7 @@
     }
     html {
         -webkit-text-size-adjust: 100%;
-        scroll-padding-top: 96px; /* altura do cabeçalho fixo */
+        scroll-padding-top: calc(96px + var(--altura-abas, 0px)); /* cabeçalho fixo (+ abas presas, quando a página tem) */
     }
     body {
         @apply bg-background font-sans text-corpo text-foreground antialiased;

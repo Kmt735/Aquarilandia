@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useToast from '../hooks/useToast'
 import useUI from '../hooks/useUI'
 import { obterProduto } from '../services/catalogo'
-import { aplicarConferencia, CHAVE_CARRINHO, conferirCarrinho, formatoParaSalvar, lerCarrinhoSalvo, LIMITE_QUANTIDADE, planejarAdicao } from '../services/carrinho'
+import { aplicarConferencia, CHAVE_CARRINHO, conferirCarrinho, estoqueConhecido, formatoParaSalvar, lerCarrinhoSalvo, LIMITE_QUANTIDADE, planejarAdicao } from '../services/carrinho'
 import { precoEmCentavos } from '../utils/dinheiro'
+import { plural } from '../utils/format'
 import { CartContext } from './contexts'
 
 const AVISO_FALHA = 'Não conseguimos conferir todos os produtos. Eles foram preservados para tentar novamente, sem usar preços salvos.'
@@ -18,10 +19,27 @@ function estadoInicial() {
   return { registros: lista(lido?.registros), avisos: lista(lido?.avisos), bloqueado: lido?.bloqueado === true, revisao: 0, conferida: null }
 }
 
+// Problema do item recém-adicionado encontrado na conferência: título curto + o que aconteceu com o carrinho
+function problemaDaAdicao(resultado, qtdPedida, nome) {
+  if (resultado.estado === 'removido') {
+    return resultado.motivo === 'esgotado'
+      ? { titulo: 'Esse produto esgotou', mensagem: `Tiramos ${nome} do carrinho. Use "Avise-me quando chegar" na página do produto.` }
+      : { titulo: 'Esse produto saiu do catálogo', mensagem: `Tiramos ${nome} do carrinho.` }
+  }
+  const estoque = estoqueConhecido(resultado.item)
+  if (resultado.estado === 'valido' && estoque !== null && qtdPedida > estoque) {
+    return { titulo: `Só temos ${plural(estoque, 'unidade')} em estoque`, mensagem: `Ajustamos a quantidade de ${nome} no carrinho para ${estoque}.` }
+  }
+  return null
+}
+
 export default function CartProvider({ children }) {
   const [estado, setEstado] = useState(estadoInicial)
   const [bump, setBump] = useState(0)
-  const { toast } = useToast()
+  const { toast, dispensar } = useToast()
+  // Último "Adicionado ao carrinho": se a conferência no catálogo achar problema com ESSE item,
+  // o aviso de sucesso é trocado por um erro claro (itens 1, 28 e 38)
+  const ultimaAdicao = useRef(null)
   const notificacaoInicial = useRef({ avisos: estado.avisos, enviada: false })
   const { abrirPainel, painel } = useUI()
   const aberto = painel === 'carrinho'
@@ -43,10 +61,23 @@ export default function CartProvider({ children }) {
   useEffect(() => {
     if (!conferindo) return
     let atual = true
-    conferirCarrinho(estado.registros, obterProduto).then((resultados) => {
+    const conferidos = estado.registros
+    conferirCarrinho(conferidos, obterProduto).then((resultados) => {
       if (!atual) return
+      const ultima = ultimaAdicao.current
+      const doUltimo = ultima && resultados.find((r) => r.id === ultima.id)
+      const problemaUltimo = doUltimo && problemaDaAdicao(doUltimo, conferidos.find((r) => r.id === ultima.id)?.qtd ?? 0, ultima.nome)
+      if (doUltimo) ultimaAdicao.current = null
+      if (problemaUltimo) {
+        dispensar(ultima.toastId)
+        toast(problemaUltimo.mensagem, { tipo: 'erro', titulo: problemaUltimo.titulo, acao: 'Ver carrinho', onAcao: () => abrirPainel('carrinho') })
+      }
+      // Os avisos gerais não repetem o problema do item que acabou de ganhar aviso próprio
+      const outros = problemaUltimo ? resultados.filter((r) => r.id !== ultima.id) : resultados
       const avisos = [
-        resultados.some((r) => r.estado === 'removido') && 'Produtos que saíram do catálogo ou estão esgotados foram removidos do carrinho.',
+        outros.some((r) => r.estado === 'removido') && 'Produtos que saíram do catálogo ou estão esgotados foram removidos do carrinho.',
+        outros.some((r) => r.estado === 'valido' && estoqueConhecido(r.item) !== null && (conferidos.find((c) => c.id === r.id)?.qtd ?? 0) > r.item.estoque)
+          && 'Algumas quantidades passaram do estoque e foram ajustadas.',
         resultados.some((r) => r.estado === 'erro') && AVISO_FALHA,
         resultados.some((r) => r.precoAlterado) && 'Os preços do carrinho foram atualizados conforme o catálogo.',
       ].filter(Boolean)
@@ -58,7 +89,7 @@ export default function CartProvider({ children }) {
       if (avisos.length) toast(avisos.join(' '), { tipo: 'info' })
     })
     return () => { atual = false }
-  }, [conferindo, chave, estado.registros, aberto, toast])
+  }, [conferindo, chave, estado.registros, aberto, toast, dispensar, abrirPainel])
 
   const revalidar = useCallback(() => setEstado((e) => ({ ...e, revisao: e.revisao + 1 })), [])
   useEffect(() => {
@@ -76,15 +107,32 @@ export default function CartProvider({ children }) {
     if (!Number.isInteger(item?.id) || item.id < 1 || item.id > 2147483647 || !Number.isSafeInteger(qtd) || qtd < 1) {
       toast('Não foi possível identificar este produto. Escolha-o no catálogo atual.', { tipo: 'erro' }); return
     }
+    const verCarrinho = { acao: 'Ver carrinho', onAcao: () => abrirPainel('carrinho') }
+    if (item.emEstoque === false) {
+      toast(`${item.nome} não pode ser adicionado agora. Use "Avise-me quando chegar".`, { tipo: 'erro', titulo: 'Esse produto esgotou' }); return
+    }
+    // Estoque conhecido (dados de demonstração) ou o teto de 99 por produto, descontando o que já está no carrinho
+    const estoque = estoqueConhecido(item)
+    const teto = estoque !== null && estoque < LIMITE_QUANTIDADE ? estoque : LIMITE_QUANTIDADE
+    const noCarrinho = estado.registros.find((r) => r.id === item.id)?.qtd ?? 0
+    const quantidade = Math.min(qtd, teto - noCarrinho)
+    const tituloLimite = teto === estoque ? `Só temos ${plural(teto, 'unidade')} em estoque` : `Limite de ${LIMITE_QUANTIDADE} por produto`
+    if (quantidade <= 0) {
+      toast(`Todas as unidades de ${item.nome} já estão no seu carrinho.`, { tipo: 'erro', titulo: tituloLimite, ...verCarrinho }); return
+    }
+    // O item entra na hora (o contador do cabeçalho anima); a conferência no catálogo segue em segundo plano
     setEstado((e) => {
       const existe = e.registros.some((r) => r.id === item.id)
-      const registros = existe ? e.registros.map((r) => r.id === item.id ? { ...r, qtd: Math.min(r.qtd + qtd, LIMITE_QUANTIDADE) } : r)
-        : [...e.registros, { id: item.id, qtd: Math.min(qtd, LIMITE_QUANTIDADE), item: null, erro: false }]
+      const registros = existe ? e.registros.map((r) => r.id === item.id ? { ...r, qtd: Math.min(r.qtd + quantidade, LIMITE_QUANTIDADE) } : r)
+        : [...e.registros, { id: item.id, qtd: quantidade, item: null, erro: false }]
       return { ...e, registros, revisao: e.revisao + 1 }
     })
     setBump((b) => b + 1)
-    toast('Conferindo o produto no catálogo para atualizar seu carrinho.', { tipo: 'info', acao: 'Ver carrinho', onAcao: () => abrirPainel('carrinho') })
-  }, [estado.bloqueado, toast, abrirPainel])
+    const toastId = quantidade < qtd
+      ? toast(`Adicionamos ${quantidade} de ${item.nome} ao carrinho.`, { tipo: 'info', titulo: tituloLimite, ...verCarrinho })
+      : toast(quantidade > 1 ? `${quantidade} × ${item.nome}` : item.nome, { tipo: 'sucesso', titulo: 'Adicionado ao carrinho', ...verCarrinho })
+    ultimaAdicao.current = { id: item.id, nome: item.nome, toastId }
+  }, [estado.bloqueado, estado.registros, toast, abrirPainel])
 
   // Vários itens numa ação só (ex.: "Monte seu Aquário"). Não mostra toast: quem chama decide a mensagem
   // com o resultado ({ adicionados, limitados, ignorados } ou { bloqueado: true }).

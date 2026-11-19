@@ -12,6 +12,7 @@ import useToast from '../../hooks/useToast'
 import { ROTAS, urlPolitica } from '../../utils/rotas'
 import { mascararTelefone } from '../../utils/telefone'
 import { regras } from '../../utils/validacao'
+import MensagemErro from '../../components/atoms/MensagemErro'
 
 // Mensagens de erro idênticas às do backend (utils/validacao.js)
 const REGRAS = { nome: regras.nome, email: regras.email, senha: regras.senha, telefone: regras.telefone, aceiteTermos: regras.aceiteTermos }
@@ -96,8 +97,8 @@ export default function CriarContaPage() {
             . <span className="text-danger-text" aria-hidden="true">*</span>
           </Checkbox>
           {erros.aceiteTermos && (
-            <p id="cad-termos-erro" className="mt-1 text-legenda font-semibold text-danger-text">
-              {erros.aceiteTermos}
+            <p id="cad-termos-erro" className="mt-1 text-legenda text-danger-text">
+              <MensagemErro>{erros.aceiteTermos}</MensagemErro>
             </p>
           )}
         </div>

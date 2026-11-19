@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router'
 import Button from '../atoms/Button'
 import Eyebrow from '../atoms/Eyebrow'
 import Highlight from '../atoms/Highlight'
-import IlustracaoAquario from '../molecules/IlustracaoAquario'
 import useReducedMotion from '../../hooks/useReducedMotion'
 import { ROTAS } from '../../utils/rotas'
+import heroAquario640 from '../../assets/hero-aquario-640.webp'
+import heroAquario1040 from '../../assets/hero-aquario-1040.webp'
+import heroAquarioJpg from '../../assets/hero-aquario-1040.jpg'
 
 const BOLHAS = [
   { left: '8%', size: 10, dur: 16, delay: 0 },
@@ -54,7 +56,22 @@ export default function Hero() {
             Loja física em São João del Rei/MG
           </p>
         </div>
-        <IlustracaoAquario className="mx-auto w-full max-w-[420px] max-sm:hidden desk:max-w-[520px]" />
+        {/* Foto real do aquário da loja: acima da dobra, então carrega com prioridade (sem lazy) */}
+        <picture className="mx-auto block w-full max-w-[420px] max-sm:hidden desk:max-w-[520px]">
+          {/* No celular a foto fica oculta (como a ilustração): GIF de 1px evita baixar a imagem à toa */}
+          <source media="(max-width: 639.98px)" srcSet="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" />
+          <source type="image/webp" srcSet={`${heroAquario640} 640w, ${heroAquario1040} 1040w`} sizes="(min-width: 900px) 520px, 420px" />
+          <img
+            src={heroAquarioJpg}
+            alt="Aquário da loja Aquarilândia com iluminação LED"
+            width={1040}
+            height={739}
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
+            className="h-auto w-full rounded-card border border-border-strong object-cover shadow-sm"
+          />
+        </picture>
       </div>
     </section>
   )

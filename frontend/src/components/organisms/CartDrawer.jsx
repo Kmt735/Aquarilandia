@@ -17,6 +17,7 @@ import { analisarCompatibilidade } from '../../utils/compatibilidade'
 import { mascararCep } from '../../utils/cep'
 import { formatarPreco, plural } from '../../utils/format'
 import { ROTAS, urlEtapaCheckout } from '../../utils/rotas'
+import MensagemErro from '../atoms/MensagemErro'
 
 // Gaveta do carrinho: foco preso, Esc fecha e o foco volta ao botão que abriu (Radix Dialog).
 export default function CartDrawer() {
@@ -122,6 +123,7 @@ function CalculoFrete({ linhas }) {
       salvar({ cep })
       setEstado({ carregando: false, erro: null, resultado })
     } catch (erro) {
+      // "CEP inválido." + como corrigir: a mensagem completa do campo já começa pelo erro curto
       setEstado({ carregando: false, erro: erro.detalhes?.cep ?? erro.erro, resultado: null })
     }
   }
@@ -152,8 +154,8 @@ function CalculoFrete({ linhas }) {
         </Button>
       </form>
       {estado.erro && (
-        <p id="cep-carrinho-erro" className="mt-1.5 text-legenda font-semibold text-danger-text">
-          {estado.erro}
+        <p id="cep-carrinho-erro" role="alert" className="mt-1.5 text-legenda text-danger-text">
+          <MensagemErro>{estado.erro}</MensagemErro>
         </p>
       )}
       <div aria-live="polite">

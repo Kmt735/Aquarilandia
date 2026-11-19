@@ -42,10 +42,18 @@ export const faixasPreco = [
   { valor: 'acima-200', rotulo: 'R$ 200 ou mais', min: 20000, max: Infinity },
 ]
 
+// "Relevância" é a ordem padrão da API. "z-a" saiu do menu, mas links antigos com ?ordem=z-a continuam valendo.
 export const ordenacoes = [
-  { valor: 'padrao', rotulo: 'Nome (padrão)' },
+  { valor: 'padrao', rotulo: 'Relevância' },
   { valor: 'menor-preco', rotulo: 'Menor preço' },
   { valor: 'maior-preco', rotulo: 'Maior preço' },
-  { valor: 'a-z', rotulo: 'Nome: A a Z' },
-  { valor: 'z-a', rotulo: 'Nome: Z a A' },
+  { valor: 'a-z', rotulo: 'Nome (A a Z)' },
 ]
+
+// Tipo de água na Loja. A API só filtra as categorias que têm esse dado na ficha (backend/produto.repository).
+export const tiposAgua = [
+  { valor: 'doce', rotulo: 'Água doce', curto: 'Doce' },
+  { valor: 'salgada', rotulo: 'Água salgada', curto: 'Salgada' },
+  { valor: 'salobra', rotulo: 'Água salobra', curto: 'Salobra' },
+]
+export const CATEGORIAS_COM_AGUA = ['peixes', 'aquarios', 'racoes', 'condicionadores', 'decoracoes']

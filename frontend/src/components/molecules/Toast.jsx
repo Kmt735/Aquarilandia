@@ -8,11 +8,14 @@ const ICONES = {
   carregando: <Spinner className="shrink-0 text-primary-text" />,
 }
 
-export default function Toast({ mensagem, tipo, acao, onAcao, onFechar }) {
+export default function Toast({ titulo, mensagem, tipo, acao, onAcao, onFechar }) {
   return (
     <div className="pointer-events-auto flex w-full animate-toast-in items-center gap-3 rounded-2xl border border-border-strong bg-surface-elevated py-2 pr-2 pl-4 text-pequeno font-medium text-foreground shadow-pop">
       {ICONES[tipo]}
-      <span className="min-w-0 flex-1 py-1.5">{mensagem}</span>
+      <span className="flex min-w-0 flex-1 flex-col py-1.5">
+        {titulo && <span className="font-bold">{titulo}</span>}
+        {mensagem && <span className={titulo ? 'text-text-muted' : undefined}>{mensagem}</span>}
+      </span>
       {acao && (
         <button
           type="button"
