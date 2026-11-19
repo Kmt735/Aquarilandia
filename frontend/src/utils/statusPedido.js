@@ -10,7 +10,7 @@ export const STATUS_PEDIDO = {
     icone: 'relogio',
   },
   cancelada: { rotulo: 'Cancelada', tom: 'neutro', icone: 'x' },
-  em_separacao: { rotulo: 'Pgreparando o pedido', tom: 'info', icone: 'caixa' },
+  em_separacao: { rotulo: 'Preparando o pedido', tom: 'info', icone: 'caixa' },
   enviada: { rotulo: 'Saiu para entrega', tom: 'info', icone: 'caminhao' },
   entregue: { rotulo: 'Chegou', tom: 'sucesso', icone: 'check' },
 }

@@ -1,27 +1,38 @@
+// Consulta paginada e operações administrativas protegidas pela API.
 import { requisitarApi } from './api.js'
 import { mapearPedido } from './pedidos.js'
+import { ErroApi } from './http.js'
+import { STATUS_PEDIDO } from '../utils/statusPedido.js'
 
-const filtros = {
-  todos: () => true, abertos: (p) => !['entregue', 'cancelada'].includes(p.status),
-  pagamento_pendente: (p) => p.status === 'aguardando_pagamento', concluidos: (p) => p.status === 'entregue',
-  cancelados: (p) => ['cancelada', 'cancelamento_solicitado'].includes(p.status),
+const resumoValido = (p) => Number.isSafeInteger(p?.id) && p.id > 0 && Object.hasOwn(STATUS_PEDIDO, p.status)
+  && typeof p.clienteNome === 'string' && Number.isSafeInteger(p.total) && p.total >= 0
+  && Number.isSafeInteger(p.quantidadeItens) && p.quantidadeItens >= 0
+  && ['retirada', 'propria', 'correios'].includes(p.tipoEntrega) && Number.isFinite(Date.parse(p.criadoEm))
+
+export async function listarPedidosAdmin({ status = '', pagina = 1, limite = 20 } = {}) {
+  const query = new URLSearchParams({ pagina, limite })
+  if (status) query.set('status', status)
+  const resposta = await requisitarApi(`/vendas?${query}`)
+  if (!Array.isArray(resposta?.dados) || !resposta.dados.every(resumoValido)
+    || !Number.isSafeInteger(resposta.total) || resposta.total < 0
+    || resposta.pagina !== pagina || resposta.limite !== limite || resposta.total < resposta.dados.length) {
+    throw new ErroApi('O servidor enviou uma lista de pedidos inválida. Tente novamente.', {}, 502)
+  }
+  return { itens: resposta.dados, total: resposta.total, pagina,
+    totalPaginas: Math.max(1, Math.ceil(resposta.total / limite)) }
 }
-export async function listarPedidosAdmin({ filtro = 'todos', busca = '', pagina = 1, limite = 20 } = {}) {
-  const lista = []
-  let atual = 1, total
-  do {
-    const resposta = await requisitarApi(`/vendas?pagina=${atual++}&limite=100`)
-    lista.push(...resposta.dados)
-    total = resposta.total
-    if (!resposta.dados.length) break
-  } while (lista.length < total)
-  const termo = busca.trim().toLocaleLowerCase('pt-BR')
-  const filtrados = lista.filter(filtros[filtro] ?? filtros.todos)
-    .filter((p) => !termo || `${p.id} ${p.clienteNome}`.toLocaleLowerCase('pt-BR').includes(termo))
-  return { itens: filtrados.slice((pagina - 1) * limite, pagina * limite).map(mapearPedido), total: filtrados.length,
-    pagina, totalPaginas: Math.max(1, Math.ceil(filtrados.length / limite)) }
+
+export async function obterPedidoAdmin(id) {
+  const pedido = await requisitarApi(`/vendas/${encodeURIComponent(id)}`)
+  if (!Number.isSafeInteger(pedido?.id) || !Object.hasOwn(STATUS_PEDIDO, pedido.status)
+    || !Array.isArray(pedido.itens) || !Number.isSafeInteger(pedido.total)
+    || !pedido.itens.every(i => Number.isSafeInteger(i.produtoId) && typeof i.nomeProduto === 'string'
+      && Number.isSafeInteger(i.quantidade) && Number.isSafeInteger(i.subtotal))) {
+    throw new ErroApi('O servidor enviou um pedido inválido.', {}, 502)
+  }
+  return mapearPedido(pedido)
 }
-export async function obterPedidoAdmin(id) { return mapearPedido(await requisitarApi(`/vendas/${encodeURIComponent(id)}`)) }
+
 export async function atualizarPedidoAdmin(id, { status, rastreio, observacao }) {
   return mapearPedido(await requisitarApi(`/vendas/${encodeURIComponent(id)}/status`, {
     metodo: 'POST', corpo: { status, observacao, ...(rastreio?.trim() ? { codigoRastreio: rastreio.trim() } : {}) },

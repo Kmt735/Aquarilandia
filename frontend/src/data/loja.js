@@ -43,7 +43,8 @@ export const politicas = {
     titulo: 'Termos de uso',
     provisoria: true,
     secoes: [{ titulo: 'Texto em produção', texto: 'Texto dos termos de uso: a definir com a loja.' }],
-      acessibilidade: {
+  },
+  acessibilidade: {
     titulo: 'Acessibilidade',
     provisoria: false,
     secoes: [
@@ -68,7 +69,6 @@ export const politicas = {
           'Se alguma parte do site for difícil de usar para você, conte pelo WhatsApp (por texto). Vamos corrigir o quanto antes.',
       },
     ],
-  },
   },
 }
 

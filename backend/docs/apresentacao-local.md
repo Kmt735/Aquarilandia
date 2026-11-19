@@ -38,7 +38,7 @@ O preparo inicial deixou 23 produtos nas 12 categorias, 4 contas, 6 pedidos e 3 
 3. Na própria tela do Pix, clicar em **Simular pagamento de teste**. O botão aparece somente quando o backend permite simulação e usa chave Dev. A AbacatePay simula o recebimento e o servidor consulta a confirmação; não precisa entrar como admin nem transferir dinheiro real. A ação também existe ao retomar o pagamento em **Minhas compras**.
 4. A tela mostra **Pagamento aprovado!** e conclui a compra após consultar o status real. No painel, avançar para preparação, pronta para retirada e entrega; ou cancelar antes da entrega e acompanhar o estorno Dev.
 5. Em **Produtos**, cadastrar/editar um produto. Abrir sua edição para enviar/remover foto e cadastrar embalagem. Desativar e reativar para conferir a visibilidade na loja.
-6. Em **Estoque**, buscar um produto, abrir **Ajustar quantidade**, registrar entrada/saída com motivo e verificar saldo e histórico. Uma saída acima do saldo deve ser recusada.
+6. Em **Estoque**, buscar um produto, usar **Dar entrada** para reposição ou **Saídas e ajustes** para baixas/correções com motivo e verificar saldo e histórico. Uma saída acima do saldo deve ser recusada.
 7. Solicitar um serviço pela loja e acompanhar a solicitação em **Orçamentos**, abrindo **Ver e editar** para atualizar os dados e o andamento do atendimento.
 8. Em **Clientes**, consultar cadastros e bloquear/reativar a conta fictícia Bruno Demonstração. O bloqueio revoga suas sessões. Não bloquear o cliente principal durante a compra demonstrada.
 

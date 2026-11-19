@@ -1,10 +1,17 @@
 import { requisitarApi } from './api.js'
+import { ErroApi } from './http.js'
+
+function usuarioDaApi(dados) {
+  if (!Number.isSafeInteger(dados?.id) || dados.id < 1 || typeof dados.nome !== 'string'
+    || !['admin', 'cliente'].includes(dados.papel)) throw new ErroApi('Resposta de sessão inválida.', {}, 502)
+  return dados
+}
 
 export async function sessaoAtual() {
-  try { return await requisitarApi('/auth/sessao') }
+  try { return usuarioDaApi(await requisitarApi('/auth/sessao')) }
   catch (erro) { if (erro.status === 401) return null; throw erro }
 }
-export const entrar = ({ email, senha }) => requisitarApi('/auth/login', { metodo: 'POST', corpo: { email, senha } })
+export const entrar = async ({ email, senha }) => usuarioDaApi(await requisitarApi('/auth/login', { metodo: 'POST', corpo: { email, senha } }))
 export const cadastrar = (dados) => requisitarApi('/auth/cadastro', { metodo: 'POST', corpo: dados })
 export async function sair() {
   try { await requisitarApi('/auth/logout', { metodo: 'POST' }) }

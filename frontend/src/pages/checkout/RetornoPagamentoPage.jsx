@@ -123,7 +123,7 @@ function Falha() {
       {/* Título exatamente como no item 9 do PDF */}
       <h1 className="text-h2">Pagamento recusado – tente outro cartão</h1>
       <p className="mt-2 text-corpo text-text-muted">
-        Fique tranquilo: nada foi cobrado e seu carrinho continua salvo. Se preferir, você também pode pagar com PIX.
+        Confira a situação da compra antes de tentar pagar novamente. A confirmação é consultada na AbacatePay; você também pode escolher Pix.
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         <Button asChild tamanho="lg">

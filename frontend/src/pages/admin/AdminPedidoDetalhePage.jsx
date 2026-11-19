@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import Button from '../../components/atoms/Button'
 import Input from '../../components/atoms/Input'
@@ -10,12 +10,14 @@ import ResumoPedido from '../../components/organisms/ResumoPedido'
 import useConsulta from '../../hooks/useConsulta'
 import { atualizarPedidoAdmin, concluirEstorno, obterPedidoAdmin, simularPix } from '../../services/admin-pedidos'
 import { cancelarPedido } from '../../services/pedidos'
+import { marcarVisto } from '../../utils/pedidosVistos'
 import { ROTAS } from '../../utils/rotas'
 import { STATUS_PEDIDO, podeCancelar } from '../../utils/statusPedido'
 
 export default function AdminPedidoDetalhePage() {
   const { id } = useParams()
   const { dados, erro, carregando, recarregar } = useConsulta(() => obterPedidoAdmin(id), [id])
+  useEffect(() => { if (dados) marcarVisto(String(dados.id)) }, [dados])
   if (carregando) return <p role="status">Carregando pedido…</p>
   if (erro) return <ErroCompacto onTentar={recarregar}>{erro.message}</ErroCompacto>
   return <Detalhe key={dados.id} pedido={dados} recarregar={recarregar} />

@@ -24,7 +24,7 @@ import { regras } from '../../utils/validacao'
 
 const precoParaCentavos = (v) => Math.round(Number(String(v).trim().replace(',', '.')) * 100)
 const regraPreco = (v) =>
-  /^\d{1,7}([.,]\d{1,2})?$/.test(String(v).trim()) && precoParaCentavos(v) > 0 ? null : 'Digite o preço em reais. Exemplo: 29,90.'
+  /^\d{1,8}([.,]\d{1,2})?$/.test(String(v).trim()) && precoParaCentavos(v) >= 0 && precoParaCentavos(v) <= 2147483647 ? null : 'Digite o preço em reais. Exemplo: 29,90.'
 
 export default function AdminItemFormPage() {
   const { id } = useParams()
@@ -112,14 +112,25 @@ function FormularioItem({ item, categorias }) {
       preco: precoParaCentavos(v.preco),
       ficha: montarFicha(slug, v),
     }
+    try {
     if (editando) {
-      await editarItem(item.id, dados)
+      const { ficha, ...basicos } = dados
+      await editarItem(item.id, { ...basicos, ...(ficha && { ficha: { dados: ficha.dados } }) })
       toast(`“${dados.nome}” foi atualizado.`, { tipo: 'sucesso' })
     } else {
       await criarItem({ ...dados, categoriaId: categoria.id })
       toast(`“${dados.nome}” foi cadastrado.`, { tipo: 'sucesso' })
     }
     navigate(ROTAS.adminProdutos)
+    } catch (erro) {
+      if (erro.detalhes) {
+        if (erro.detalhes.categoriaId) setErroCategoria(erro.detalhes.categoriaId)
+        erro.detalhes = Object.fromEntries(Object.entries(erro.detalhes).map(([chave, mensagem]) => [
+          chave.startsWith('ficha.dados.') ? nomeCampo(slug, chave.slice('ficha.dados.'.length)) : chave, mensagem,
+        ]))
+      }
+      throw erro
+    }
   })
 
   return (
