@@ -125,3 +125,15 @@ test('planejarAdicao respeita estoque, teto de 99, esgotados e o que já está n
   assert.deepEqual(r.limitados.map((l) => [l.item.id, l.pedido, l.adicionado, l.motivo]), [[1, 4, 3, 'estoque'], [2, 150, 99, 'limite']])
   assert.deepEqual(r.ignorados.map((i) => [i.item.id, i.motivo]), [[3, 'esgotado'], [5, 'limite'], ['x', 'invalido']])
 })
+
+test('conferência diz por que o item saiu (esgotado ou fora do catálogo) e baixa a quantidade até o estoque', async () => {
+  const registros = [{ id: 1, qtd: 1, item: null, erro: false }, { id: 2, qtd: 1, item: null, erro: false }, { id: 3, qtd: 5, item: null, erro: false }]
+  const resultados = await conferirCarrinho(registros, async (id) => {
+    if (id === 2) { const e = new Error('404'); e.status = 404; throw e }
+    return produto(id, id === 1 ? { emEstoque: false } : { estoque: 3 })
+  })
+  assert.equal(resultados[0].motivo, 'esgotado')
+  assert.equal(resultados[1].motivo, 'naoEncontrado')
+  const prontos = aplicarConferencia(registros, resultados)
+  assert.deepEqual(prontos.map((r) => [r.id, r.qtd]), [[3, 3]])
+})

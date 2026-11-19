@@ -8,7 +8,10 @@ export default function useFiltrosUrl(chaves) {
 
   const aplicar = useCallback(
     (mudanca, { manterPagina = false, replace = false } = {}) => {
-      const proximo = { ...Object.fromEntries(params), ...mudanca }
+      // Lê a URL de AGORA (não a do último render): dois filtros seguidos (ex.: clicar em "Doce" e logo
+      // o preço aplicar sozinho) não podem um apagar o outro
+      const atuais = typeof window === 'undefined' ? params : new URLSearchParams(window.location.search)
+      const proximo = { ...Object.fromEntries(atuais), ...mudanca }
       if (!manterPagina && !('pagina' in mudanca)) delete proximo.pagina
       setParams(Object.fromEntries(Object.entries(proximo).filter(([, v]) => v)), { replace })
     },

@@ -1,6 +1,8 @@
 // O armazenamento guarda intenção (IDs/quantidades), nunca autoridade de preço/estoque.
 export const CHAVE_CARRINHO = 'aquarilandia-carrinho'
 export const LIMITE_QUANTIDADE = 99 // mesmo limite visual do seletor existente, não saldo de estoque
+// Quantidade em estoque quando o catálogo informa (hoje só os dados de demonstração); senão null
+export const estoqueConhecido = (item) => (Number.isSafeInteger(item?.estoque) && item.estoque > 0 ? item.estoque : null)
 const idValido = (id) => Number.isInteger(id) && id > 0 && id <= 2147483647
 
 export function lerCarrinhoSalvo(bruto) {
@@ -51,11 +53,11 @@ export async function conferirCarrinho(registros, obterProduto) {
       try {
         const item = await obterProduto(registro.id)
         if (item.id !== registro.id || !Number.isInteger(item.preco) || item.preco < 0 || item.centavos !== true || typeof item.emEstoque !== 'boolean') throw new Error('Contrato inválido')
-        resultados[indice] = { id: registro.id, estado: item.emEstoque ? 'valido' : 'removido', item,
+        resultados[indice] = { id: registro.id, estado: item.emEstoque ? 'valido' : 'removido', motivo: item.emEstoque ? undefined : 'esgotado', item,
           precoAlterado: Boolean(registro.item && registro.item.preco !== item.preco) }
       } catch (erro) {
         // Falha temporária mantém a intenção persistida, mas sem item comprável ou preço salvo.
-        resultados[indice] = { id: registro.id, estado: erro?.status === 404 ? 'removido' : 'erro', item: null }
+        resultados[indice] = { id: registro.id, estado: erro?.status === 404 ? 'removido' : 'erro', motivo: erro?.status === 404 ? 'naoEncontrado' : undefined, item: null }
       }
     }
   }
@@ -70,7 +72,10 @@ export function aplicarConferencia(registrosAtuais, resultados) {
     if (!resultado) return [registro]
     if (resultado.estado === 'removido') return []
     // Quantidade/remoção feitas durante a consulta não são substituídas pelo snapshot da requisição.
-    return [{ ...registro, item: resultado.item, erro: resultado.estado === 'erro' }]
+    // Se o catálogo informa o estoque e o carrinho passou dele, a quantidade desce até o que existe.
+    const estoque = estoqueConhecido(resultado.item)
+    const qtd = estoque !== null && registro.qtd > estoque ? estoque : registro.qtd
+    return [{ ...registro, qtd, item: resultado.item, erro: resultado.estado === 'erro' }]
   })
 }
 

@@ -1,4 +1,4 @@
-import { ArrowRight, Droplets, Fish, FlaskConical, Layers, Lightbulb, Package, TestTube, ThermometerSun } from 'lucide-react'
+import { ArrowRight, Droplets, Fish, FlaskConical, Layers, Lightbulb, ListChecks, Package, TestTube, ThermometerSun } from 'lucide-react'
 import { Link } from 'react-router'
 import Button from '../atoms/Button'
 import Termo from '../atoms/Termo'
@@ -8,7 +8,7 @@ import Callout from '../molecules/Callout'
 import MaintenanceChecklist from '../molecules/MaintenanceChecklist'
 import ParameterTable from '../molecules/ParameterTable'
 import { dicasPeixes, equipamentos, frequenciaTestes, parametrosAgua, rotinaManutencao, semanasCiclagem } from '../../data/guia'
-import { urlCategoria, urlPeixes } from '../../utils/rotas'
+import { urlCategoria, urlMontar, urlPeixes } from '../../utils/rotas'
 
 const ICONES = {
   aquario: AquarioIcon,
@@ -21,36 +21,78 @@ const ICONES = {
   rede: Package,
 }
 
+// Peças do guia reaproveitadas no montador ("Saiba mais"): cada texto mora em data/guia.js e aparece igual nos dois
+// lugares (sem conteúdo repetido). `compacto` = versão do montador, sem cartão nem link para a loja.
+export function ItemEquipamento({ id, compacto = false, nivel = 3 }) {
+  const item = equipamentos.find((e) => e.id === id)
+  const Icone = ICONES[item.id]
+  const Titulo = `h${nivel}`
+  return (
+    <div className={compacto ? 'flex gap-3' : 'flex gap-3 rounded-card border border-border-strong bg-surface p-4'}>
+      <Icone aria-hidden="true" className="mt-0.5 size-6 shrink-0 text-primary-text" />
+      <div className="min-w-0">
+        <Titulo className="text-h4">{item.termo ? <Termo id={item.termo}>{item.nome}</Termo> : item.nome}</Titulo>
+        <p className="mt-1 text-pequeno text-text-muted">{item.texto}</p>
+        {!compacto && item.categoria && (
+          <Link
+            to={urlCategoria(item.categoria)}
+            className="alvo-toque mt-2 inline-flex items-center gap-1 rounded-sm text-pequeno font-bold text-primary-text underline decoration-transparent decoration-2 underline-offset-4 transition-colors hover:decoration-accent"
+          >
+            Ver na loja<span className="sr-only">: {item.categoria}</span>
+            <ArrowRight aria-hidden="true" className="size-4" />
+          </Link>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function DicasPeixes({ compacto = false, nivel = 3, ids }) {
+  const Titulo = `h${nivel}`
+  return (
+    <ul className={compacto ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-4 sm:grid-cols-2'}>
+      {dicasPeixes.filter((d) => !ids || ids.includes(d.id)).map((d) => (
+        <li key={d.id} className={compacto ? '' : 'rounded-card border border-border-strong bg-surface p-4'}>
+          <Titulo className="text-h4">{d.titulo}</Titulo>
+          <p className="mt-1 text-pequeno text-text-muted">
+            <TextoComTermos>{d.texto}</TextoComTermos>
+          </p>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// Do guia para o montador, já na etapa certa
+function IrParaMontador({ etapa, children }) {
+  return (
+    <Button asChild>
+      <Link to={urlMontar(etapa)}>
+        <ListChecks aria-hidden="true" />
+        {children}
+      </Link>
+    </Button>
+  )
+}
+
 // TODO: validar com a loja — textos dos avisos deste arquivo (Dica/Atenção de cada passo)
 function PassoEquipamentos() {
   return (
     <>
       <ul className="grid gap-4 sm:grid-cols-2">
-        {equipamentos.map((item) => {
-          const Icone = ICONES[item.id]
-          return (
-            <li key={item.id} className="flex gap-3 rounded-card border border-border-strong bg-surface p-4">
-              <Icone aria-hidden="true" className="mt-0.5 size-6 shrink-0 text-primary-text" />
-              <div className="min-w-0">
-                <h3 className="text-h4">{item.termo ? <Termo id={item.termo}>{item.nome}</Termo> : item.nome}</h3>
-                <p className="mt-1 text-pequeno text-text-muted">{item.texto}</p>
-                {item.categoria && (
-                  <Link
-                    to={urlCategoria(item.categoria)}
-                    className="alvo-toque mt-2 inline-flex items-center gap-1 rounded-sm text-pequeno font-bold text-primary-text underline decoration-transparent decoration-2 underline-offset-4 transition-colors hover:decoration-accent"
-                  >
-                    Ver na loja<span className="sr-only">: {item.categoria}</span>
-                    <ArrowRight aria-hidden="true" className="size-4" />
-                  </Link>
-                )}
-              </div>
-            </li>
-          )
-        })}
+        {equipamentos.map((item) => (
+          <li key={item.id}>
+            <ItemEquipamento id={item.id} />
+          </li>
+        ))}
       </ul>
       <Callout>
         Filtro, bomba, iluminação e termostato precisam ser compatíveis com o volume do aquário. Na hora de decorar, use pedras e troncos pensando também nos peixes escolhidos.
       </Callout>
+      <div>
+        <IrParaMontador etapa="aquario">Escolher os meus equipamentos</IrParaMontador>
+        <p className="mt-2 text-legenda text-text-muted">Na aba “Montar o meu”, mostramos o que serve para o tamanho do seu aquário.</p>
+      </div>
     </>
   )
 }
@@ -114,22 +156,16 @@ function PassoAgua() {
 function PassoPeixes() {
   return (
     <>
-      <ul className="grid gap-4 sm:grid-cols-2">
-        {dicasPeixes.map((d) => (
-          <li key={d.id} className="rounded-card border border-border-strong bg-surface p-4">
-            <h3 className="text-h4">{d.titulo}</h3>
-            <p className="mt-1 text-pequeno text-text-muted">
-              <TextoComTermos>{d.texto}</TextoComTermos>
-            </p>
-          </li>
-        ))}
-      </ul>
-      <Button variant="secundario" asChild>
-        <Link to={urlPeixes({ dificuldade: 'iniciante' })}>
-          <Fish aria-hidden="true" />
-          Ver peixes para iniciantes
-        </Link>
-      </Button>
+      <DicasPeixes />
+      <div className="flex flex-wrap gap-3">
+        <IrParaMontador etapa="peixes">Escolher os meus peixes</IrParaMontador>
+        <Button variant="secundario" asChild>
+          <Link to={urlPeixes({ dificuldade: 'iniciante' })}>
+            <Fish aria-hidden="true" />
+            Ver peixes para iniciantes
+          </Link>
+        </Button>
+      </div>
     </>
   )
 }

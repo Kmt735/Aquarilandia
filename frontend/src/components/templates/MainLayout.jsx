@@ -15,17 +15,23 @@ import useWhatsApp from '../../hooks/useWhatsApp'
 import { CATALOGO_MOCK } from '../../config/ambiente'
 import { ROTAS } from '../../utils/rotas'
 
+// A troca de página recria o <main> (animação de entrada e foco limpo). As abas de Meu Primeiro Aquário
+// (Aprender e Montar o meu) são a MESMA página: trocar de aba não recria nada nem perde o foco do teclado.
+const chavePagina = (pathname) => (pathname.startsWith(ROTAS.primeiroAquario) ? ROTAS.primeiroAquario : pathname)
+
 export default function MainLayout() {
   const { pathname } = useLocation()
   const { painel, abrirPainel, fecharPaineis } = useUI()
   const abrirWhatsApp = useWhatsApp()
   const noCheckout = pathname.startsWith('/checkout') || pathname.startsWith('/pagamento')
   // O montador tem barra fixa embaixo e o próprio botão de WhatsApp ("Pedir orientação da loja")
-  const noMontador = pathname === ROTAS.monteSeuAquario
+  const noMontador = pathname === ROTAS.montarAquario
 
-  // Com âncora na URL (ex.: #ciclagem) quem posiciona a rolagem é a própria página
+  // Com âncora na URL (ex.: #ciclagem) quem posiciona a rolagem é a própria página; trocar de aba
+  // (Meu Primeiro Aquário › Aprender/Montar) também não volta ao topo
+  // (o React Router guarda o `state` da navegação em history.state.usr)
   useEffect(() => {
-    if (window.location.hash) return
+    if (window.location.hash || window.history.state?.usr?.manterRolagem === true) return
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [pathname])
 
@@ -46,7 +52,7 @@ export default function MainLayout() {
   return (
     <>
       <SiteNav />
-      <main id="conteudo" tabIndex={-1} key={pathname} className="animate-fade outline-none">
+      <main id="conteudo" tabIndex={-1} key={chavePagina(pathname)} className="animate-fade outline-none">
         <Suspense fallback={<Carregando />}>
           <Outlet />
         </Suspense>

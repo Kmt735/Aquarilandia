@@ -1,6 +1,7 @@
 import { CircleAlert } from 'lucide-react'
 import { Children, cloneElement, isValidElement } from 'react'
 import { Label } from '@/components/ui/label'
+import MensagemErro from '../atoms/MensagemErro'
 
 // Rótulo + campo + ajuda + erro. Liga o erro ao campo (aria-describedby) e marca aria-invalid.
 // O campo recebe `id`, `erro` e `aria-describedby` automaticamente.
@@ -32,7 +33,7 @@ export default function FormField({ id, label, obrigatorio = false, ajuda, erro,
       {erro && (
         <p id={idErro} className="mt-1.5 flex items-start gap-1.5 text-legenda font-semibold text-danger-text">
           <CircleAlert aria-hidden="true" className="mt-px size-4 shrink-0" />
-          {erro}
+          <MensagemErro>{erro}</MensagemErro>
         </p>
       )}
     </div>

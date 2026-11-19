@@ -98,6 +98,17 @@ function paginar(itens, { pagina = 1, limite = 20 }) {
   return { itens: itens.slice((p - 1) * l, p * l), total: itens.length }
 }
 
+// Mesma regra do backend (produto.repository): peixe pelo tipo exato; aquário, ração e condicionador
+// aceitam "ambos" (só doce/marinho); decoração serve na doce e, na salgada, só se for segura para marinho.
+// As outras categorias não têm tipo de água e saem da lista.
+function combinaComAgua(p, agua) {
+  const dados = p.ficha?.dados ?? {}
+  if (p.categoria === 'peixes') return dados.tipoAgua === agua
+  if (['aquarios', 'racoes', 'condicionadores'].includes(p.categoria)) return agua !== 'salobra' && [agua, 'ambos'].includes(dados.tipoAgua)
+  if (p.categoria === 'decoracoes') return agua === 'doce' || (agua === 'marinho' && Boolean(dados.seguroMarinho))
+  return false
+}
+
 function filtrar(itens, parametros) {
   let lista = itens
   if (parametros.busca) {
@@ -108,9 +119,9 @@ function filtrar(itens, parametros) {
   if (parametros.preco_min != null) lista = lista.filter((p) => p.preco >= Number(parametros.preco_min))
   if (parametros.preco_max != null) lista = lista.filter((p) => p.preco <= Number(parametros.preco_max))
   if (parametros.em_estoque) lista = lista.filter((p) => String(p.emEstoque) === parametros.em_estoque)
-  for (const campo of ['tipo_agua', 'temperamento', 'dificuldade']) {
-    const chave = campo === 'tipo_agua' ? 'tipoAgua' : campo
-    if (parametros[campo]) lista = lista.filter((p) => p.ficha?.dados[chave] === parametros[campo])
+  if (parametros.tipo_agua) lista = lista.filter((p) => combinaComAgua(p, parametros.tipo_agua))
+  for (const campo of ['temperamento', 'dificuldade']) {
+    if (parametros[campo]) lista = lista.filter((p) => p.ficha?.dados[campo] === parametros[campo])
   }
   const ordem = parametros.ordem ?? 'nome'
   const fator = ordem.startsWith('-') ? -1 : 1

@@ -13,10 +13,11 @@ export default function PoliticaPage() {
   return (
     <PageTemplate titulo={politica.titulo} trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: politica.titulo }]}>
       <div className="mx-auto max-w-[760px] px-4 py-10 sm:px-6 desk:py-14">
-        {politica.provisoria && <Aviso tipo="aviso" titulo="Texto provisório" className="mb-8">
-          Esta página ainda está sendo escrita com a loja. Os trechos marcados “a definir com a loja” vão ser completados.
-        </Aviso>}
-        {politica.introducao && <p className="mb-8 text-corpo text-text-muted">{politica.introducao}</p>}
+          {politica.provisoria !== false && (
+          <Aviso tipo="aviso" titulo="Texto provisório" className="mb-8">
+            Esta página ainda está sendo escrita com a loja. Os trechos marcados “a definir com a loja” vão ser completados.
+          </Aviso>
+        )}
         {politica.secoes.map((s) => (
           <section key={s.titulo} className="mb-8">
             <h2 className="mb-2 text-h3">{s.titulo}</h2>

@@ -129,7 +129,7 @@ export function regrasFicha(slug) {
   for (const c of FICHAS[slug] ?? []) {
     if (c.tipo === 'sim-nao') continue
     regras[nomeCampo(slug, c.nome)] = (v) => {
-      if (String(v ?? '').trim() === '') return c.obrigatorio ? 'Preencha este campo.' : null
+      if (String(v ?? '').trim() === '') return c.obrigatorio ? 'Campo obrigatório. Preencha para continuar.' : null
       if (c.tipo === 'numero' && (!Number.isFinite(numero(v)) || numero(v) < 0)) return 'Digite um número. Exemplo: 6,5.'
       return null
     }

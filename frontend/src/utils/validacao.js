@@ -1,19 +1,20 @@
-import { cepValido } from './cep'
-import { telefoneValido } from './telefone'
+import { cepValido } from './cep.js'
+import { telefoneValido } from './telefone.js'
 
-// Mensagens iguais às do backend (auth.service.ts). Formato de erro: { campo: 'mensagem' },
-// o mesmo de `detalhes` em { erro, detalhes } — os formulários mostram cada uma embaixo do campo.
+// Padrão do item 9 do PDF: primeiro o erro curto, depois como corrigir ("CEP inválido. Digite os 8 números…").
+// A <MensagemErro> mostra a primeira frase em destaque e o resto na linha de baixo.
+// Formato de erro: { campo: 'mensagem' }, o mesmo de `detalhes` em { erro, detalhes } — cada uma aparece embaixo do campo.
 export const MENSAGENS = {
-  nome: 'Digite seu nome (pelo menos 2 letras).',
-  email: 'Digite um e-mail válido. Exemplo: nome@email.com.',
-  senha: 'A senha precisa ter pelo menos 8 caracteres.',
-  telefone: 'Digite um celular com DDD. Exemplo: (32) 99999-0000.',
-  aceiteTermos: 'Para criar a conta, aceite os termos de uso e a política de privacidade.',
-  senhaLogin: 'Digite sua senha.',
-  confirmarSenha: 'As duas senhas precisam ser iguais.',
-  cep: 'Digite um CEP com 8 números. Exemplo: 36300-000.',
-  obrigatorio: 'Preencha este campo.',
-  servico: 'Escolha um serviço da lista.',
+  nome: 'Nome muito curto. Digite pelo menos 2 letras.',
+  email: 'E-mail inválido. Use o formato nome@email.com.',
+  senha: 'Senha muito curta. Use pelo menos 8 caracteres.',
+  telefone: 'Celular inválido. Digite com DDD, como (32) 99999-0000.',
+  aceiteTermos: 'Termos não aceitos. Marque a caixa para criar a conta.',
+  senhaLogin: 'Senha em branco. Digite sua senha.',
+  confirmarSenha: 'As senhas não conferem. Digite a mesma senha nos dois campos.',
+  cep: 'CEP inválido. Digite os 8 números, como 36300-000.',
+  obrigatorio: 'Campo obrigatório. Preencha para continuar.',
+  servico: 'Serviço não escolhido. Escolha um da lista.',
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -38,4 +39,10 @@ export function validar(valores, mapaRegras) {
     if (msg) erros[campo] = msg
   }
   return erros
+}
+
+// Divide "Erro curto. Como corrigir." em { erro, ajuda }. Sem segunda frase, tudo fica em `erro`.
+export function dividirMensagem(texto) {
+  const m = String(texto ?? '').match(/^(.+?)[.!]\s+(.+)$/s)
+  return m ? { erro: m[1], ajuda: m[2] } : { erro: String(texto ?? ''), ajuda: '' }
 }

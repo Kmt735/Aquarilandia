@@ -7,7 +7,7 @@ import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
 
 // Grade de cards com os estados: carregando (skeleton), erro (com "Tentar de novo") e vazio útil (item 9)
-export default function GradeItens({ itens, carregando, erro, onRecarregar, onLimpar, assuntoWhatsApp, renderExtra }) {
+export default function GradeItens({ itens, carregando, erro, onRecarregar, onLimpar, assuntoWhatsApp, renderExtra, dica }) {
   const { adicionar } = useCart()
   const { abrirAviseMe } = useUI()
   const abrirWhatsApp = useWhatsApp()
@@ -21,6 +21,15 @@ export default function GradeItens({ itens, carregando, erro, onRecarregar, onLi
           <CardItemSkeleton key={i} />
         ))}
       </div>
+    )
+  }
+
+  // Filtro inválido na URL (ex.: mínimo maior que o máximo, categoria que não existe): explica e oferece limpar
+  if (erro && [400, 404].includes(erro.status)) {
+    return (
+      <EmptyState icone={<SearchX />} titulo="Não deu para aplicar esses filtros" acoes={<Button onClick={onLimpar}>Limpar filtros</Button>}>
+        {erro.erro ?? erro.message ?? 'Algum filtro do link não é válido.'} Limpe os filtros e escolha de novo.
+      </EmptyState>
     )
   }
 
@@ -47,7 +56,7 @@ export default function GradeItens({ itens, carregando, erro, onRecarregar, onLi
           </>
         }
       >
-        Limpe os filtros ou fale com a gente: a loja física pode ter o que você procura.
+        {dica ?? 'Tente remover um filtro ou buscar por outro nome.'} Se preferir, fale com a gente: a loja física pode ter o que você procura.
       </EmptyState>
     )
   }

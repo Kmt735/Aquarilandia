@@ -12,6 +12,9 @@ export const ROTAS = {
   compararPeixes: '/peixes/comparar',
   primeiroAquario: '/meu-primeiro-aquario',
   primeiroAquarioAntigo: '/primeiro-aquario',
+  // "Meu Primeiro Aquário" tem duas abas: Aprender (o guia) e Montar o meu (o montador)
+  montarAquario: '/meu-primeiro-aquario/montar',
+  // Endereço antigo do montador: redireciona para a aba Montar
   monteSeuAquario: '/monte-seu-aquario',
   servicos: '/servicos',
   perguntas: '/perguntas-frequentes',
@@ -53,3 +56,5 @@ export const urlCompra = (id) => `${ROTAS.minhaConta}/compras/${id}`
 export const urlEtapaCheckout = (etapa) => `${ROTAS.checkout}/${etapa}`
 export const urlEditarItem = (id) => `${ROTAS.adminProdutos}/${id}/editar`
 export const urlPedidoAdmin = (id) => `${ROTAS.adminPedidos}/${id}`
+// Montador numa etapa específica (ex.: o guia leva direto à escolha dos peixes)
+export const urlMontar = (etapa) => (etapa ? `${ROTAS.montarAquario}?etapa=${etapa}` : ROTAS.montarAquario)
