@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { once } from 'node:events'
+import { createServer as criarServidorHttp } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 
@@ -42,10 +43,9 @@ export const test = base.extend({
       const url = new URL(process.env.TEST_DATABASE_URL)
       url.searchParams.set('options', `-c search_path=${schema}`)
       process.env.DATABASE_URL = url.toString()
-      const { app } = await import('../../../backend/dist/app.js')
-      const { db } = await import('../../../backend/dist/config/db.js')
-      pool = db
-      servidor = app.listen(0, '127.0.0.1')
+      // Reserve as portas antes de importar env/app: as escritas do navegador precisam do Origin real do Vite.
+      servidor = criarServidorHttp()
+      servidor.listen(0, '127.0.0.1')
       await once(servidor, 'listening')
       const backend = `http://127.0.0.1:${servidor.address().port}`
       const root = fileURLToPath(new URL('../..', import.meta.url))
@@ -53,6 +53,11 @@ export const test = base.extend({
       vite = await createServer({ root, configFile: `${root}/vite.config.js`, server: { host: '127.0.0.1', port: 0, proxy: { '/api': backend } } })
       await vite.listen()
       const origem = `http://127.0.0.1:${vite.httpServer.address().port}`
+      process.env.CORS_ORIGIN = origem
+      const { app } = await import('../../../backend/dist/app.js')
+      const { db } = await import('../../../backend/dist/config/db.js')
+      pool = db
+      servidor.on('request', app)
       await use({ origem, backend, cliente, ids: { aquario, semFicha, peixe, outroPeixe, inativo, peixeSemFicha } })
     } finally {
       if (vite) await vite.close()

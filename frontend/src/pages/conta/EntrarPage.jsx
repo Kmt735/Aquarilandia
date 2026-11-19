@@ -14,11 +14,12 @@ import { regras } from '../../utils/validacao'
 const REGRAS = { email: regras.email, senha: regras.senhaLogin }
 
 export default function EntrarPage() {
-  const { entrar } = useAuth()
+  const { entrar, avisoSessao } = useAuth()
   const { toast } = useToast()
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const voltar = params.get('voltar') || ROTAS.minhaConta
+  const destino = params.get('voltar')
+  const voltar = destino?.startsWith('/') && !destino.startsWith('//') ? destino : ROTAS.minhaConta
   const { campo, erros, enviar, enviando, erroGeral, formRef } = useFormulario({ email: '', senha: '' }, REGRAS)
 
   return (
@@ -43,6 +44,7 @@ export default function EntrarPage() {
           navigate(logado.papel === 'admin' && !params.get('voltar') ? ROTAS.admin : voltar)
         })}
       >
+        {avisoSessao && <Aviso tipo="aviso" role="status" className="mb-4">{avisoSessao}</Aviso>}
         {erroGeral && (
           <Aviso tipo="erro" role="alert" className="mb-4">
             {erroGeral}
@@ -62,7 +64,6 @@ export default function EntrarPage() {
         <Button type="submit" tamanho="lg" largo disabled={enviando}>
           {enviando ? 'Entrando…' : 'Entrar'}
         </Button>
-        <p className="mt-4 text-center text-legenda text-text-muted">Protótipo: qualquer e-mail válido entra numa conta de exemplo.</p>
       </form>
     </FormTemplate>
   )

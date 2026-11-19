@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { ROTAS } from '../../utils/rotas'
 
 const CARTOES = [
-  { to: ROTAS.adminPedidos, Icone: ClipboardList, titulo: 'Pedidos', texto: 'Veja os pedidos que chegaram e atualize o andamento, o pagamento e a entrega.' },
+  { to: ROTAS.adminPedidos, Icone: ClipboardList, titulo: 'Pedidos', texto: 'Consulte os pedidos registrados e sua situação atual.' },
   { to: ROTAS.adminProdutos, Icone: Package, titulo: 'Peixes e produtos', texto: 'Cadastre, edite e tire da loja o que não está disponível.' },
 ]
 

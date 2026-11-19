@@ -8,7 +8,7 @@ import Skeleton from '../../components/atoms/Skeleton'
 import Textarea from '../../components/atoms/Textarea'
 import Aviso from '../../components/molecules/Aviso'
 import CampoOpcoes from '../../components/molecules/CampoOpcoes'
-import ErroCompacto from '../../components/molecules/ErroCompacto'
+import ErroAdmin from '../../components/molecules/ErroAdmin'
 import FormField from '../../components/molecules/FormField'
 import { FICHAS, montarFicha, nomeCampo, preencherFicha, regrasFicha, valoresIniciaisFicha } from '../../data/fichas-admin'
 import useConsulta from '../../hooks/useConsulta'
@@ -22,9 +22,8 @@ import { regras } from '../../utils/validacao'
 
 const precoParaCentavos = (v) => Math.round(Number(String(v).trim().replace(',', '.')) * 100)
 const regraPreco = (v) =>
-  /^\d{1,7}([.,]\d{1,2})?$/.test(String(v).trim()) && precoParaCentavos(v) > 0 ? null : 'Digite o preço em reais. Exemplo: 29,90.'
-const regraUrl = (v) =>
-  !String(v).trim() || /^(https?:\/\/|\/)\S+$/.test(String(v).trim()) ? null : 'Use um endereço que comece com https:// ou /.'
+  /^\d{1,8}([.,]\d{1,2})?$/.test(String(v).trim()) && precoParaCentavos(v) >= 0 && precoParaCentavos(v) <= 2147483647 ? null : 'Digite o preço em reais. Exemplo: 29,90.'
+
 
 export default function AdminItemFormPage() {
   const { id } = useParams()
@@ -46,14 +45,7 @@ export default function AdminItemFormPage() {
   const erro = categorias.erro ?? item.erro
   if (erro) {
     return (
-      <ErroCompacto
-        onTentar={() => {
-          categorias.recarregar()
-          item.recarregar()
-        }}
-      >
-        {erro.message}
-      </ErroCompacto>
+      <ErroAdmin erro={erro} recarregar={() => { categorias.recarregar(); item.recarregar() }} />
     )
   }
   if (item.dados && item.dados.ativo === false) {
@@ -89,16 +81,15 @@ function FormularioItem({ item, categorias }) {
     marca: item?.marca ?? '',
     descricao: item?.descricao ?? '',
     preco: item ? (item.preco / 100).toFixed(2).replace('.', ',') : '',
-    imagemUrl: item?.imagemUrl ?? '',
     ...valoresIniciaisFicha(),
     ...(item ? preencherFicha(item.categoria, item.ficha?.dados) : {}),
   }))
 
-  const regrasCampos = { nome: regras.obrigatorio, preco: regraPreco, imagemUrl: regraUrl, ...regrasFicha(slug) }
+  const regrasCampos = { nome: regras.obrigatorio, preco: regraPreco, ...regrasFicha(slug) }
   const { campo, erros, enviar, enviando, erroGeral, formRef } = useFormulario(inicial, regrasCampos)
 
   // Erros do servidor para campos que não existem na tela são mostrados em lista
-  const visiveis = new Set(['nome', 'marca', 'descricao', 'preco', 'imagemUrl', ...fichaCampos.map((c) => nomeCampo(slug, c.nome))])
+  const visiveis = new Set(['nome', 'marca', 'descricao', 'preco', ...fichaCampos.map((c) => nomeCampo(slug, c.nome))])
   const outrosErros = Object.entries(erros).filter(([nome]) => !visiveis.has(nome))
 
   const salvar = enviar(async (v) => {
@@ -111,17 +102,27 @@ function FormularioItem({ item, categorias }) {
       descricao: v.descricao.trim() || null,
       marca: v.marca.trim() || null,
       preco: precoParaCentavos(v.preco),
-      imagemUrl: v.imagemUrl.trim() || null,
       ficha: montarFicha(slug, v),
     }
+    try {
     if (editando) {
-      await editarItem(item.id, dados)
+      const { ficha, ...basicos } = dados
+      await editarItem(item.id, { ...basicos, ...(ficha && { ficha: { dados: ficha.dados } }) })
       toast(`“${dados.nome}” foi atualizado.`, { tipo: 'sucesso' })
     } else {
       await criarItem({ ...dados, categoriaId: categoria.id })
       toast(`“${dados.nome}” foi cadastrado.`, { tipo: 'sucesso' })
     }
     navigate(ROTAS.adminProdutos)
+    } catch (erro) {
+      if (erro.detalhes) {
+        if (erro.detalhes.categoriaId) setErroCategoria(erro.detalhes.categoriaId)
+        erro.detalhes = Object.fromEntries(Object.entries(erro.detalhes).map(([chave, mensagem]) => [
+          chave.startsWith('ficha.dados.') ? nomeCampo(slug, chave.slice('ficha.dados.'.length)) : chave, mensagem,
+        ]))
+      }
+      throw erro
+    }
   })
 
   return (
@@ -188,14 +189,7 @@ function FormularioItem({ item, categorias }) {
           <Textarea rows={3} {...campo('descricao')} />
         </FormField>
 
-        <FormField
-          id="item-imagem"
-          label="Endereço da foto"
-          erro={erros.imagemUrl}
-          ajuda="Comece com https:// ou com /. Para uma foto do projeto, coloque o arquivo em public/ e use, por exemplo, /fotos_peixe/betta.jpg."
-        >
-          <Input inputMode="url" placeholder="https://…" {...campo('imagemUrl')} />
-        </FormField>
+        <p className="text-pequeno text-text-muted">O item será exibido com placeholder quando não houver imagem. O estoque começa em zero; registre uma entrada após cadastrar.</p>
 
         {fichaCampos.length > 0 && (
           <fieldset className="mt-6 border-t border-border pt-6">

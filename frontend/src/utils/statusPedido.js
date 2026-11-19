@@ -2,10 +2,7 @@
 export const STATUS_PEDIDO = {
   aguardando_pagamento: { rotulo: 'Aguardando pagamento', tom: 'aviso', icone: 'relogio' },
   paga: { rotulo: 'Pagamento aprovado', tom: 'sucesso', icone: 'check' },
-  em_separacao: { rotulo: 'Em separação', tom: 'info', icone: 'caixa' },
-  enviada: { rotulo: 'Enviada', tom: 'info', icone: 'caminhao' },
   pronta_retirada: { rotulo: 'Pronta para retirada na loja', tom: 'sucesso', icone: 'loja' },
-  entregue: { rotulo: 'Entregue', tom: 'sucesso', icone: 'check' },
   cancelamento_solicitado: {
     rotulo: 'Cancelamento em processamento',
     descricao: 'Cancelamento em processamento: estamos devolvendo o seu pagamento.',
@@ -13,7 +10,7 @@ export const STATUS_PEDIDO = {
     icone: 'relogio',
   },
   cancelada: { rotulo: 'Cancelada', tom: 'neutro', icone: 'x' },
-  em_separacao: { rotulo: 'Pgreparando o pedido', tom: 'info', icone: 'caixa' },
+  em_separacao: { rotulo: 'Preparando o pedido', tom: 'info', icone: 'caixa' },
   enviada: { rotulo: 'Saiu para entrega', tom: 'info', icone: 'caminhao' },
   entregue: { rotulo: 'Chegou', tom: 'sucesso', icone: 'check' },
 }

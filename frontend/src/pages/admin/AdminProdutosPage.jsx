@@ -9,7 +9,8 @@ import StatusBadge from '../../components/atoms/StatusBadge'
 import Aviso from '../../components/molecules/Aviso'
 import CampoOpcoes from '../../components/molecules/CampoOpcoes'
 import EmptyState from '../../components/molecules/EmptyState'
-import ErroCompacto from '../../components/molecules/ErroCompacto'
+import ErroAdmin from '../../components/molecules/ErroAdmin'
+import EntradaEstoqueDialog from '../../components/organisms/EntradaEstoqueDialog'
 import Paginacao from '../../components/molecules/Paginacao'
 import { Badge } from '@/components/ui/badge'
 import useConsulta from '../../hooks/useConsulta'
@@ -34,6 +35,7 @@ export default function AdminProdutosPage() {
   const [pagina, setPagina] = useState(1)
   const [confirmando, setConfirmando] = useState(null)
   const [ocupado, setOcupado] = useState(null)
+  const [entrada, setEntrada] = useState(null)
 
   const categorias = useConsulta(listarCategorias, [])
   const { dados, carregando, erro, recarregar } = useConsulta(
@@ -72,7 +74,7 @@ export default function AdminProdutosPage() {
             Peixes e produtos
           </h2>
           <p className="mt-1 text-pequeno text-text-muted" aria-live="polite">
-            {dados ? plural(dados.total, 'item', 'itens') : 'Carregando…'}
+            {carregando ? 'Carregando…' : erro ? 'Consulta indisponível.' : plural(dados.total, 'item', 'itens')}
           </p>
         </div>
         <Button asChild>
@@ -84,8 +86,8 @@ export default function AdminProdutosPage() {
       </div>
 
       <Aviso tipo="info" className="mb-5">
-        Para esconder um item da loja, use <strong>Tirar da loja</strong>. A quantidade em estoque ainda não pode ser alterada
-        por aqui, porque o servidor ainda não tem essa operação.
+        Para esconder um item da loja, use <strong>Tirar da loja</strong>. Para repor unidades, use <strong>Dar entrada no estoque</strong>:
+        toda entrada exige quantidade e motivo e fica registrada no histórico.
       </Aviso>
 
       <div className="mb-5 grid gap-3 sm:grid-cols-[auto_1fr]">
@@ -140,7 +142,7 @@ export default function AdminProdutosPage() {
         </div>
       )}
 
-      {erro && <ErroCompacto onTentar={recarregar}>{erro.message}</ErroCompacto>}
+      {erro && <ErroAdmin erro={erro} recarregar={recarregar} />}
 
       {!carregando && !erro && itens.length === 0 && (
         <EmptyState titulo="Nenhum item encontrado">Tente outro filtro ou cadastre um item novo.</EmptyState>
@@ -177,6 +179,7 @@ export default function AdminProdutosPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="secundario" tamanho="sm" aria-label={`Dar entrada no estoque: ${p.nome}`} onClick={() => setEntrada(p)}>Dar entrada no estoque</Button>
                       {p.ativo ? (
                         <Button variant="secundario" tamanho="sm" asChild>
                           <Link to={urlEditarItem(p.id)}>
@@ -222,6 +225,7 @@ export default function AdminProdutosPage() {
       )}
 
       {dados && <Paginacao pagina={dados.pagina} totalPaginas={dados.totalPaginas} onMudar={setPagina} />}
+      {entrada && <EntradaEstoqueDialog key={entrada.id} item={entrada} aoFechar={() => setEntrada(null)} aoSalvar={recarregar} />}
     </section>
   )
 }

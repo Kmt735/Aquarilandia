@@ -17,6 +17,12 @@ npm ci
 npm run dev      # http://localhost:5173
 ```
 
+### Demo com admin e catálogo reais
+
+Para demonstrar login de admin → cadastro → entrada de estoque → loja → carrinho, use o
+[roteiro local isolado](backend/docs/demo-admin-2026-11-19.md). Ele usa PostgreSQL exclusivo, sessão real e
+movimentações rastreáveis; não usa o catálogo mock e bloqueia vendas, pagamentos e e-mail nesse launcher.
+
 ### Dados de demonstração (sem backend com produtos)
 
 O seed do banco cria só as categorias, então a loja, a vitrine e o **Monte seu Aquário** ficam vazios sem

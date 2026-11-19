@@ -1,5 +1,5 @@
 import { LogOut } from 'lucide-react'
-import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import Button from '../atoms/Button'
 import PageHead from '../molecules/PageHead'
 import { Badge } from '@/components/ui/badge'
@@ -18,12 +18,18 @@ const ABAS = [
 // Área do administrador. Esta tela só esconde o painel de quem não é admin:
 // quem protege os dados de verdade é o servidor (autenticar + exigirAdmin).
 export default function AdminLayout() {
-  const { usuario } = useAuth()
+  const { usuario, carregando, erroSessao, recarregarSessao } = useAuth()
   const { pathname } = useLocation()
   useTituloPagina('Painel do administrador')
 
+  if (carregando) return <p role="status" className="p-6">Verificando sua sessão…</p>
+  if (erroSessao) return <div role="alert" className="p-6">{erroSessao} <Button onClick={recarregarSessao}>Tentar novamente</Button></div>
+
   if (!usuario) return <Navigate to={`${ROTAS.entrar}?voltar=${encodeURIComponent(pathname)}`} replace />
-  if (usuario.papel !== 'admin') return <Navigate to={ROTAS.inicio} replace />
+  if (usuario.papel !== 'admin') return <div role="alert" className="p-6">
+    <p>Esta conta não tem permissão de administrador.</p>
+    <Link className="alvo-toque inline-flex items-center text-primary-text underline" to={`${ROTAS.entrar}?voltar=${encodeURIComponent(pathname)}`}>Entrar com outra conta</Link>
+  </div>
   return <PainelAdmin usuario={usuario} />
 }
 
@@ -70,9 +76,11 @@ function PainelAdmin({ usuario }) {
           <Button
             variant="terciario"
             onClick={async () => {
-              await sair()
-              toast('Você saiu da sua conta.', { tipo: 'info' })
-              navigate(ROTAS.inicio)
+              try {
+                await sair()
+                toast('Você saiu da sua conta.', { tipo: 'info' })
+                navigate(ROTAS.inicio)
+              } catch { toast('Não foi possível sair. Confira sua conexão e tente novamente.', { tipo: 'erro' }) }
             }}
           >
             <LogOut aria-hidden="true" />
