@@ -148,7 +148,7 @@ export function escolherPagamento(pagamentos: readonly LinhaPagamento[]): Pagame
 export function mensagemDoPagamento(pagamento: PagamentoEscolhido, statusVenda: StatusVenda): string {
   switch (pagamento.status) {
     case 'pendente':
-      return 'Aguardando o pagamento do Pix.'
+      return pagamento.metodo === 'cartao' ? 'Aguardando a confirmação do pagamento com cartão.' : 'Aguardando o pagamento do Pix.'
     case 'aprovado':
       // Só chega aqui um aprovado com devolução pedida quando não há outro aprovado: a compra está sendo cancelada
       // (pedido do cliente ou do admin, #35) ou foi cancelada antes de o Pix ser pago
@@ -159,10 +159,10 @@ export function mensagemDoPagamento(pagamento: PagamentoEscolhido, statusVenda: 
       return 'Pagamento confirmado.'
     case 'cancelado':
       return statusVenda === 'aguardando_pagamento'
-        ? 'O código Pix expirou. Gere um novo código para pagar.'
+        ? pagamento.metodo === 'cartao' ? 'O pagamento com cartão foi cancelado. Tente novamente.' : 'O código Pix expirou. Gere um novo código para pagar.'
         : 'Pagamento não concluído.'
     case 'recusado':
-      return 'O pagamento não foi aprovado. Gere um novo código Pix.'
+      return pagamento.metodo === 'cartao' ? 'O cartão não foi aprovado. Tente novamente ou escolha Pix.' : 'O pagamento não foi aprovado. Gere um novo código Pix.'
     case 'estornado':
       return 'Pagamento devolvido.'
     case 'em_disputa':

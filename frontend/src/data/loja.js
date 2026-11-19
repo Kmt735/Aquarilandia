@@ -28,9 +28,9 @@ export const redes = [
   { nome: 'Facebook', url: 'https://www.facebook.com/aquarilandiasjdr/?locale=pt_BR' },
 ]
 
-export const formasPagamento = ['PIX']
+export const formasPagamento = ['PIX', 'Cartão']
 export const AVISO_PAGAMENTO =
-  'O pagamento é feito por Pix no próprio site, com QR code e copia e cola gerados pela AbacatePay. A compra é confirmada após a confirmação do pagamento.'
+  'Pague por Pix no site ou por cartão de crédito ou débito na página da AbacatePay. A compra é confirmada após a aprovação do pagamento.'
 
 export const politicas = {
   ...politicasComerciais,
@@ -59,7 +59,7 @@ export const perguntasLoja = [
     resposta: 'A retirada é gratuita nas unidades Centro e Matosinhos e depende da confirmação de disponibilidade do pedido na unidade escolhida. Clientes de qualquer cidade podem retirar, inclusive pedidos com peixes.',
   },
   { grupo: 'Entrega', pergunta: 'Qual o prazo e o valor do frete?', resposta: 'O frete aparece no carrinho depois que você informa o CEP. Valores e prazos: a definir com a loja.', pendente: true },
-  { grupo: 'Pagamento', pergunta: 'Quais as formas de pagamento?', resposta: 'Pix, com QR code e copia e cola na página da compra.' },
+  { grupo: 'Pagamento', pergunta: 'Quais as formas de pagamento?', resposta: 'Pix, com QR code e copia e cola no site, ou cartão de crédito ou débito na página de pagamento da AbacatePay.' },
   {
     grupo: 'Pagamento',
     pergunta: 'Paguei. Como sei que deu certo?',

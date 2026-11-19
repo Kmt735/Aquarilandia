@@ -8,7 +8,7 @@ import { vendaRepository } from '../vendas/venda.repository.js'
 import { podeTransicionar } from '../vendas/venda.transicoes.js'
 import { notificarMudancaStatus } from '../vendas/vendaNotificacoes.js'
 import type { LinhaPagamento, PagamentoAdmin, PixGerado, StatusVenda } from '../vendas/venda.types.js'
-import { gatewayPix, simulacaoPixPermitida, simuladorPix } from './gateway.js'
+import { gatewayCartao, CheckoutRecusado, gatewayPix, simulacaoPixPermitida, simuladorPix } from './gateway.js'
 import type { ConsultaCobranca } from './gateway.js'
 import { detalheIndevido, pagamentoRepository } from './pagamento.repository.js'
 import type { PagamentoDaCobranca, PagamentoTravado } from './pagamento.repository.js'
@@ -131,6 +131,44 @@ async function gerarPix(clienteId: number, vendaId: number): Promise<PixGerado> 
 
   // O código Pix NÃO é gravado: só existe nesta resposta (e numa nova chamada com o mesmo pagamentoId)
   return { pagamentoId, codigoPix: cobranca.codigoPix, qrCodeImagem: cobranca.qrCodeImagem, expiraEm: cobranca.expiraEm }
+}
+
+// Cartão: a AbacatePay recebe os dados na página hospedada. O servidor trabalha só com a referência.
+async function gerarCartao(clienteId: number, vendaId: number) {
+  const reserva = await comTransacao(async (client) => {
+    if (!(await clienteRepository.travarParaAlteracao(clienteId, client))) throw new AppError('Faça login para continuar.', 401)
+    const venda = await vendaRepository.travarDoCliente(vendaId, clienteId, client)
+    if (!venda) throw new AppError('Compra não encontrada.', 404)
+    if (venda.status !== 'aguardando_pagamento' || !venda.podePagar) throw new AppError(msgNaoPodePagar, 409)
+    if (venda.total < 100) throw new AppError('O valor mínimo para pagar com cartão é R$ 1,00.', 422)
+    const pendente = await pagamentoRepository.buscarPendente(vendaId, client, 'cartao')
+    const pagamentoId = pendente?.id ?? await pagamentoRepository.inserirPendente(vendaId, venda.total, nomeGateway, client, 'cartao')
+    const referencia = await pagamentoRepository.referenciaCheckout(pagamentoId, client)
+    return { pagamentoId, vendaId, valor: pendente?.valor ?? venda.total, referencia, expiraEm: venda.expiraEm }
+  })
+  if (reserva.expiraEm.getTime() - Date.now() < folgaMinimaMs) throw new AppError(msgNaoPodePagar, 409)
+  let checkout = await gatewayCartao.recuperarCheckout(reserva.referencia)
+  if (!checkout) {
+    await gatewayCartao.prepararProdutoCheckout(reserva)
+    if (!await pagamentoRepository.reservarEnvioCheckout(reserva.pagamentoId)) {
+      throw new AppError('Estamos verificando a criação do pagamento com cartão. Aguarde alguns instantes e tente novamente.', 409)
+    }
+    try { checkout = await gatewayCartao.criarCheckout(reserva) }
+    catch (err) {
+      if (err instanceof CheckoutRecusado) await pagamentoRepository.liberarEnvioCheckout(reserva.pagamentoId)
+      throw err
+    }
+  }
+  if (checkout.valor !== reserva.valor || checkout.externalId !== reserva.referencia) throw new AppError(msgIndisponivel, 502)
+  let gravou = false
+  try { gravou = await pagamentoRepository.gravarCobranca(reserva.pagamentoId, checkout.cobrancaId) }
+  catch (err) { if (!cobrancaDeOutroPagamento(err)) throw err }
+  if (!gravou) throw new AppError(msgIndisponivel, 502)
+  if (checkout.status !== 'pendente') {
+    await processarCobranca(checkout.cobrancaId)
+    throw new AppError(checkout.status === 'aprovado' ? msgNaoPodePagar : 'Este pagamento não está mais disponível. Tente novamente.', 409)
+  }
+  return { pagamentoId: reserva.pagamentoId, metodo: 'cartao', url: checkout.url, expiraEm: reserva.expiraEm }
 }
 
 // ---------- #46/#47 processar a cobrança (webhook e rede de proteção) ----------
@@ -472,18 +510,37 @@ async function concluirEstornoManual(
 async function simularPagamento(
   adminId: number,
   pagamentoId: number,
+  ator: 'admin' | 'cliente' = 'admin',
 ): Promise<{ pagamentoId: number; vendaId: number; resultado: ResultadoCobranca }> {
   if (!simulacaoPixPermitida()) throw new Error('Simulação de Pix desligada.')
   const pagamento = await pagamentoRepository.buscarParaEstorno(pagamentoId)
   if (!pagamento) throw new AppError('Pagamento não encontrado.', 404)
-  if (pagamento.status !== 'pendente' || !pagamento.cobrancaId) {
+  if (pagamento.status !== 'pendente' || !pagamento.cobrancaId || !pagamento.cobrancaId.startsWith('pix_char_')) {
     throw new AppError('Só um Pix pendente, já gerado, pode ter o pagamento simulado.', 409)
   }
   // Fora de transação, como toda chamada ao gateway
   await simuladorPix.simularPagamentoPix(pagamento.cobrancaId)
-  console.info(`[pagamento] pagamento ${pagamentoId}: pagamento simulado pelo admin ${adminId} (demonstração)`)
+  console.info(`[pagamento] pagamento ${pagamentoId}: pagamento simulado pelo ${ator} ${adminId} (demonstração)`)
   const resultado = await processarCobranca(pagamento.cobrancaId)
   return { pagamentoId, vendaId: pagamento.vendaId, resultado }
+}
+
+// O dono vem da sessão; status, pagamento e cobrança vêm do banco, nunca do corpo da requisição.
+async function simularPagamentoDoCliente(clienteId: number, vendaId: number): Promise<void> {
+  if (!simulacaoPixPermitida()) throw new AppError('Simulação de pagamento indisponível.', 404)
+  const pagamentoId = await comTransacao(async (client) => {
+    if (!await clienteRepository.travarParaAlteracao(clienteId, client)) throw new AppError('Faça login para continuar.', 401)
+    const venda = await vendaRepository.travarDoCliente(vendaId, clienteId, client)
+    if (!venda) throw new AppError('Compra não encontrada.', 404)
+    if (['paga', 'em_separacao', 'enviada', 'pronta_retirada', 'entregue'].includes(venda.status)) return null
+    if (venda.status !== 'aguardando_pagamento' || venda.expiraEm.getTime() <= Date.now()) {
+      throw new AppError(msgNaoPodePagar, 409)
+    }
+    const pendente = await pagamentoRepository.buscarPendente(vendaId, client, 'pix')
+    if (!pendente) throw new AppError('Gere o Pix desta compra antes de simular o pagamento.', 409)
+    return pendente.id
+  })
+  if (pagamentoId !== null) await simularPagamento(clienteId, pagamentoId, 'cliente')
 }
 
 // ---------- rede de proteção (reconsulta) ----------
@@ -512,6 +569,8 @@ async function exigirEstornoNoGateway(cobrancaId: string | null, valor: number):
 }
 
 export const pagamentoService = {
+  simularPagamentoDoCliente,
+  gerarCartao,
   codigoDoErro,
   gerarPix,
   processarCobranca,

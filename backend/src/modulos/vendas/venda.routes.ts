@@ -4,6 +4,7 @@ import { autenticar } from '../../middlewares/autenticar.js'
 import { exigirAdmin } from '../../middlewares/exigirAdmin.js'
 import { exigirOrigem } from '../../middlewares/exigirOrigem.js'
 import { limitePagamento } from '../../middlewares/rateLimit.js'
+import { simulacaoPixPermitida } from '../pagamentos/gateway.js'
 import { vendaController } from './venda.controller.js'
 
 export const vendaRoutes = Router()
@@ -13,6 +14,14 @@ vendaRoutes.post('/', exigirOrigem, autenticar, vendaController.criar)
 // #44: gera o Pix da compra (o controller chama o pagamentoService). O limite vem depois do login, então pedido sem
 // Origin ou sem sessão não gasta a cota
 vendaRoutes.post('/:id/pagamentos', exigirOrigem, autenticar, limitePagamento, vendaController.gerarPix)
+// O cliente pode testar somente o próprio Pix, quando a API usa chave Dev e a simulação está habilitada.
+vendaRoutes.post('/:id/simular-pagamento', (_req, _res, next) => {
+  if (!simulacaoPixPermitida()) {
+    _res.status(404).json({ erro: `Rota não encontrada: ${_req.method} ${_req.originalUrl}` }); return
+  }
+  next()
+}, exigirOrigem, autenticar, limitePagamento, vendaController.simularPagamentoDoCliente)
+
 // #35: cliente (só a própria venda) e admin (qualquer uma). Fica ACIMA de qualquer guarda de admin
 vendaRoutes.post('/:id/cancelar', exigirOrigem, autenticar, vendaController.cancelar)
 

@@ -42,7 +42,7 @@ export const test = base.extend({
       for (let n = 1; n <= 11; n++) await inserir(`Aquário Paginação ${String(n).padStart(2, '0')}`, 'aquarios', 5000 + n)
       await cliente.query("INSERT INTO categorias (nome,slug) VALUES ('Categoria API nova','categoria-api-nova')")
       for (const arquivo of ['15_orcamentos.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql',
-        '30_estoque.sql', '31_estoque_vendas.sql', '32_produto_imagem.sql', '33_estoque_consultas.sql', '34_pagamentos_reconciliacao.sql']) {
+        '30_estoque.sql', '31_estoque_vendas.sql', '32_produto_imagem.sql', '33_estoque_consultas.sql', '34_pagamentos_reconciliacao.sql', '36_pagamentos_cartao.sql']) {
         await cliente.query(await readFile(new URL(`../../../backend/db/init/${arquivo}`, import.meta.url), 'utf8'))
       }
       const url = new URL(process.env.TEST_DATABASE_URL)
@@ -58,10 +58,24 @@ export const test = base.extend({
       const { app } = await import('../../../backend/dist/app.js')
       const { db } = await import('../../../backend/dist/config/db.js')
       const { env } = await import('../../../backend/dist/config/env.js')
-      const { gatewayPix } = await import('../../../backend/dist/modulos/pagamentos/gateway.js')
+      const { gatewayPix, gatewayCartao, simuladorPix } = await import('../../../backend/dist/modulos/pagamentos/gateway.js')
       const { pagamentoService } = await import('../../../backend/dist/modulos/pagamentos/pagamento.service.js')
       const { cepService } = await import('../../../backend/dist/modulos/vendas/cep.service.js')
       const trocar = (obj, campo, valor) => { const anterior = obj[campo]; restaurar.push(() => { obj[campo] = anterior }); obj[campo] = valor }
+      trocar(env, 'permitirSimulacaoPix', false)
+      trocar(env, 'gatewayAccessToken', undefined)
+      trocar(simuladorPix, 'simularPagamentoPix', async (id) => {
+        if (!cobrancas.has(id)) throw new Error('Cobrança de fixture ausente')
+        cobrancas.get(id).status = 'aprovado'
+      })
+      const definirSimulacaoPix = (ativa) => { env.permitirSimulacaoPix = ativa; env.gatewayAccessToken = ativa ? 'abc_dev_FIXTURE_SEM_REDE' : undefined }
+      trocar(gatewayCartao, 'recuperarCheckout', async (referencia) => [...cobrancas.values()].find(p => p.externalId === referencia) ?? null)
+      trocar(gatewayCartao, 'prepararProdutoCheckout', async () => {})
+      trocar(gatewayCartao, 'criarCheckout', async ({ pagamentoId, vendaId, valor, referencia }) => {
+        const id = `bill_fixture${pagamentoId}`
+        const dados = { cobrancaId: id, status: 'pendente', valor, vendaId, pagamentoId, externalId: referencia, url: `https://app.abacatepay.com/pay/${id}` }
+        cobrancas.set(id, dados); return dados
+      })
       trocar(gatewayPix, 'criarCobrancaPix', async ({ pagamentoId, vendaId, valor, expiraEm }) => {
         const id = `pix_char_fixture${pagamentoId}`
         if (!cobrancas.has(id)) cobrancas.set(id, { cobrancaId: id, status: 'pendente', valor, vendaId, pagamentoId, externalId: `pagamento-${pagamentoId}` })
@@ -104,7 +118,7 @@ export const test = base.extend({
         cobranca.status = 'aprovado'
         await pagamentoService.processarCobranca(cobranca.cobrancaId)
       }
-      await use({ origem, backend, cliente, emails, confirmarPagamento, ids: { aquario, semFicha, peixe, outroPeixe, inativo, peixeSemFicha } })
+      await use({ origem, backend, cliente, emails, confirmarPagamento, definirSimulacaoPix, ids: { aquario, semFicha, peixe, outroPeixe, inativo, peixeSemFicha } })
     } finally {
       if (vite) await vite.close()
       if (servidor) await new Promise((resolve) => servidor.close(resolve))

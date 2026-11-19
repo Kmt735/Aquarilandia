@@ -1,5 +1,5 @@
 import { ShoppingCart } from 'lucide-react'
-import { Link, Outlet, useLocation } from 'react-router'
+import { Link, Navigate, Outlet, useLocation } from 'react-router'
 import Button from '../atoms/Button'
 import EmptyState from '../molecules/EmptyState'
 import Stepper from '../molecules/Stepper'
@@ -11,10 +11,15 @@ import { ROTAS, urlEtapaCheckout } from '../../utils/rotas'
 
 // Checkout em 4 etapas com progresso visível (item 1) e volta sem perder dados (item 3)
 export default function CheckoutLayout() {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const { linhas } = useCart()
   const rascunho = useCheckoutRascunho()
   const atual = Math.max(0, ETAPAS_CHECKOUT.findIndex((e) => pathname.endsWith(e.id)))
+
+  const pagamentoExistente = pathname.endsWith('/pagamento') && new URLSearchParams(search).has('pedido')
+  if (linhas.length === 0 && !pagamentoExistente && pathname.endsWith('/pagamento') && rascunho.rascunho.compra?.pedidoId) {
+    return <Navigate to={`${pathname}?pedido=${encodeURIComponent(rascunho.rascunho.compra.pedidoId)}`} replace />
+  }
 
   return (
     <CheckoutContext value={rascunho}>
@@ -35,7 +40,7 @@ export default function CheckoutLayout() {
         </div>
       </div>
       <div className="mx-auto max-w-[1100px] px-4 py-8 sm:px-6 desk:py-12">
-        {linhas.length === 0 ? (
+        {linhas.length === 0 && !pagamentoExistente ? (
           <EmptyState
             icone={<ShoppingCart />}
             titulo="Seu carrinho está vazio"

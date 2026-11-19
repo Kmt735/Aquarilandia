@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it, mock } from 'node:test'
 import { env } from '../src/config/env.ts'
 import {
+  gatewayCartao,
+  CheckoutRecusado,
   consultarCobranca,
   consultarStatusCobranca,
   criarCobrancaPix,
@@ -295,5 +297,65 @@ describe('Gateway AbacatePay — ids e Dev mode', () => {
   it('simularPagamentoPix com HTTP 403 → 502', async () => {
     responder({ data: null, success: false, error: 'Forbidden' }, 403)
     await assert.rejects(simularPagamentoPix('pix_char_abc123'), eh502)
+  })
+})
+
+
+describe('Gateway AbacatePay — cartão hospedado', () => {
+  const dados = { pagamentoId: 42, vendaId: 7, valor: 12345, referencia: 'referencia-unica-fixture' }
+  const checkout = (extra = {}) => ({ id: 'bill_fixture123', amount: 12345, paidAmount: null, status: 'PENDING',
+    externalId: dados.referencia, url: 'https://app.abacatepay.com/pay/bill_fixture123', metadata: { vendaId: 7, pagamentoId: 42 }, ...extra })
+  it('cria somente CARD, à vista, total fixo com entrega e URLs de retorno da loja', async () => {
+    responder(ok(checkout()))
+    const r = await gatewayCartao.criarCheckout(dados)
+    const body = JSON.parse(chamadas[0].opcoes.body)
+    assert.equal(chamadas[0].url, 'https://api.abacatepay.com/v2/checkouts/create')
+    assert.deepEqual(body.methods, ['CARD']); assert.deepEqual(body.items, [{ id: dados.referencia, quantity: 1 }])
+    assert.deepEqual(body.card, { maxInstallments: 1, passFeesToCustomer: false })
+    assert.equal(body.externalId, dados.referencia)
+    assert.equal(new URL(body.completionUrl).pathname, '/pagamento/sucesso')
+    assert.equal(new URL(body.returnUrl).searchParams.get('pedido'), '7')
+    assert.equal(r.valor, 12345); assert.equal(r.url, checkout().url)
+  })
+  it('consulta checkout autenticado; PAID exige valor efetivamente pago e id solicitado', async () => {
+    responder(ok(checkout({ status: 'PAID', paidAmount: 12345 })))
+    assert.equal((await consultarCobranca('bill_fixture123')).status, 'aprovado')
+    assert.equal(chamadas[0].url, 'https://api.abacatepay.com/v2/checkouts/get?id=bill_fixture123')
+    responder(ok(checkout({ status: 'PAID', paidAmount: 100 })))
+    await assert.rejects(consultarCobranca('bill_fixture123'), eh502)
+    responder(ok(checkout({ id: 'bill_outro', url: 'https://app.abacatepay.com/pay/bill_outro' })))
+    await assert.rejects(consultarCobranca('bill_fixture123'), eh502)
+  })
+  for (const url of ['https://evil.example/pay/bill_fixture123', 'javascript:alert(1)', 'http://app.abacatepay.com/pay/bill_fixture123', 'https://app.abacatepay.com.evil.example/pay/bill_fixture123']) {
+    it(`recusa redirecionamento inválido: ${url}`, async () => {
+      responder(ok(checkout({ url }))); await assert.rejects(gatewayCartao.criarCheckout(dados), eh502)
+    })
+  }
+  it('rejeição explícita permite nova tentativa; timeout permanece incerto', async () => {
+    responder({ success: false, data: null, error: 'CARD is not available for this store' }, 400)
+    await assert.rejects(gatewayCartao.criarCheckout(dados), err => err instanceof CheckoutRecusado)
+    falharRede()
+    await assert.rejects(gatewayCartao.criarCheckout(dados), err => eh502(err) && !(err instanceof CheckoutRecusado))
+  })
+  it('recupera por referência e só trata ausência confirmada como não encontrado', async () => {
+    responder({ error: 'Billing not found' }, 404)
+    assert.equal(await gatewayCartao.recuperarCheckout(dados.referencia), null)
+    responder({ error: 'Internal error' }, 500)
+    await assert.rejects(gatewayCartao.recuperarCheckout(dados.referencia), eh502)
+    responder(ok(checkout()))
+    assert.equal((await gatewayCartao.recuperarCheckout(dados.referencia)).cobrancaId, 'bill_fixture123')
+  })
+  it('produto do pedido congela o valor em centavos, incluindo a entrega', async () => {
+    responder(ok({ externalId: dados.referencia, price: dados.valor }))
+    await gatewayCartao.prepararProdutoCheckout(dados)
+    const body = JSON.parse(chamadas[0].opcoes.body)
+    assert.equal(body.price, 12345); assert.equal(body.externalId, dados.referencia)
+    responder(ok({ externalId: dados.referencia, price: 1 }))
+    await assert.rejects(gatewayCartao.prepararProdutoCheckout(dados), eh502)
+  })
+  it('estorno de cartão usa a rota de checkout e confere valor e cobrança', async () => {
+    responder(ok({ originalId: 'bill_fixture123', status: 'COMPLETE', amount: 12345 }))
+    assert.equal((await estornar('bill_fixture123', 'Cancelamento', 12345)).aprovado, true)
+    assert.equal(chamadas[0].url, 'https://api.abacatepay.com/v2/checkouts/refund')
   })
 })

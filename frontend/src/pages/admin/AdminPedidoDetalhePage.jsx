@@ -42,11 +42,11 @@ function Detalhe({ pedido, recarregar }) {
     <section className="rounded-card border p-5"><h3 className="text-h3">Pagamento</h3>
       <p>{pedido.financeiro?.mensagem ?? 'Nenhum pagamento gerado.'}</p>
       <ul>{pedido.pagamentos.map((p) => <li className="mt-3" key={p.id}>
-        Pagamento {p.id}: {p.status} · {p.estornoTentativas} tentativa(s) de estorno
+        Pagamento {p.id}: {p.status} · {p.metodo === 'cartao' ? 'Cartão de crédito ou débito' : p.metodo === 'pix' ? 'Pix' : p.metodo} · {p.estornoTentativas} tentativa(s) de estorno
         {p.estornoUltimoErro && <p>{p.estornoUltimoErro}</p>}
         {p.status === 'aprovado' && p.estornoSolicitadoEm && p.estornoTentativas >= 5 && p.statusDetalhe === 'pagamento indevido'
           && <Button disabled={ocupado || !motivo.trim()} onClick={() => executar(() => concluirEstorno(p.id, motivo))}>Confirmar estorno no gateway</Button>}
-        {import.meta.env.VITE_SIMULACAO_PIX === 'true' && p.status === 'pendente'
+        {import.meta.env.VITE_SIMULACAO_PIX === 'true' && p.status === 'pendente' && p.metodo === 'pix'
           && <Button disabled={ocupado} onClick={() => executar(() => simularPix(p.id))}>Simular Pix de teste</Button>}
       </li>)}</ul>
     </section>

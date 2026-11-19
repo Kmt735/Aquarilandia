@@ -18,7 +18,7 @@ import useWhatsApp from '../../hooks/useWhatsApp'
 import { obterProduto } from '../../services/catalogo'
 import { cancelarPedido, obterPedido } from '../../services/pedidos'
 import { formatarData } from '../../utils/format'
-import { ROTAS } from '../../utils/rotas'
+import { ROTAS, urlEtapaCheckout } from '../../utils/rotas'
 import { podeCancelar, STATUS_PEDIDO } from '../../utils/statusPedido'
 
 export default function CompraDetalhePage() {
@@ -108,6 +108,10 @@ export default function CompraDetalhePage() {
               </p>
             )}
           </section>
+          {pedido.financeiro && <section aria-labelledby="titulo-pagamento-compra" className="rounded-card border border-border-strong bg-surface p-5">
+            <h3 id="titulo-pagamento-compra" className="mb-1 text-h4">{pedido.financeiro.metodo === 'cartao' ? 'Cartão de crédito ou débito' : 'Pagamento Pix'}</h3>
+            <p className="text-pequeno text-text-muted">{pedido.financeiro.mensagem}</p>
+          </section>}
           <section aria-labelledby="titulo-entrega-compra" className="rounded-card border border-border-strong bg-surface p-5">
             <h3 id="titulo-entrega-compra" className="mb-1 text-h4">
               Entrega
@@ -118,6 +122,7 @@ export default function CompraDetalhePage() {
 
         <ResumoPedido itens={pedido.itens} frete={pedido.entrega.frete} subtotalCentavos={pedido.subtotal} totalCentavos={pedido.total}>
           <div className="mt-5 flex flex-col gap-2">
+            {pedido.status === 'aguardando_pagamento' && <Button asChild largo><Link to={`${urlEtapaCheckout('pagamento')}?pedido=${encodeURIComponent(pedido.id)}`}>Continuar pagamento</Link></Button>}
             <Button variant="secundario" largo onClick={comprarNovamente}>
               <RotateCcw aria-hidden="true" />
               Comprar novamente

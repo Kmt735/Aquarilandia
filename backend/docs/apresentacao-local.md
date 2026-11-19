@@ -11,6 +11,8 @@ Preparação de 18/11/2026. Banco da apresentação: `aquarilandia`, PostgreSQL 
 - Cliente principal: endereço definido em `DEMO_CLIENTE_EMAIL` no arquivo privado abaixo.
 - Senhas e e-mails de acesso: `backend/.env.demo-acessos`, arquivo local ignorado pelo Git. Não copiar seu conteúdo para relatórios, commits ou mensagens.
 
+Use `http://localhost:5173` para manter a origem esperada pela API. O Vite redireciona a abertura por `127.0.0.1:5173` para esse endereço; as escritas da API continuam exigindo a origem configurada.
+
 Abra uma janela anônima para não reaproveitar sessão ou carrinho do banco anterior. A conta administrativa entra pelo mesmo formulário de login; o papel retornado pela API direciona ao painel.
 
 Para iniciar, em terminais separados:
@@ -22,7 +24,7 @@ npm run dev
 
 ```bash
 cd frontend
-npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+npm run dev -- --host 127.0.0.1 --open http://localhost:5173
 ```
 
 Não inicie outra cópia se esses serviços já estiverem rodando nas mesmas portas.
@@ -33,8 +35,8 @@ O preparo inicial deixou 23 produtos nas 12 categorias, 4 contas, 6 pedidos e 3 
 
 1. Na loja, pesquisar, filtrar, comparar peixes e montar um aquário com produtos compatíveis. Mostrar o item esgotado.
 2. Entrar como cliente, escolher itens, retirada no Centro ou Matosinhos e gerar Pix.
-3. Em outra janela, entrar como admin e abrir o pedido. O botão **Simular Pix de teste** existe somente com a configuração local de demonstração e a chave Dev. Não efetuar transferência bancária real.
-4. Acompanhar a confirmação na janela do cliente. No painel, avançar para preparação, pronta para retirada e entrega; ou cancelar antes da entrega e acompanhar o estorno Dev.
+3. Na própria tela do Pix, clicar em **Simular pagamento de teste**. O botão aparece somente quando o backend permite simulação e usa chave Dev. A AbacatePay simula o recebimento e o servidor consulta a confirmação; não precisa entrar como admin nem transferir dinheiro real. A ação também existe ao retomar o pagamento em **Minhas compras**.
+4. A tela mostra **Pagamento aprovado!** e conclui a compra após consultar o status real. No painel, avançar para preparação, pronta para retirada e entrega; ou cancelar antes da entrega e acompanhar o estorno Dev.
 5. Em **Produtos**, cadastrar/editar um produto. Abrir sua edição para enviar/remover foto e cadastrar embalagem. Desativar e reativar para conferir a visibilidade na loja.
 6. Em **Estoque**, buscar um produto, abrir **Ajustar quantidade**, registrar entrada/saída com motivo e verificar saldo e histórico. Uma saída acima do saldo deve ser recusada.
 7. Solicitar um serviço pela loja e acompanhar a solicitação em **Orçamentos**, abrindo **Ver e editar** para atualizar os dados e o andamento do atendimento.

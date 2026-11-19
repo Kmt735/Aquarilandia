@@ -1,3 +1,4 @@
+import { AppError } from '../../utils/AppError.js'
 import type { Request, Response } from 'express'
 import { idParam } from '../../utils/validacao.js'
 import { pagamentoService } from '../pagamentos/pagamento.service.js'
@@ -7,6 +8,12 @@ import { validarChaveIdempotencia } from './venda.validacao.js'
 // O `!` em req.usuario é seguro só porque a rota passa antes pelo `autenticar`.
 // O dono vem da sessão: nenhum clienteId do body é lido (api.md, seção 11)
 export const vendaController = {
+  async simularPagamentoDoCliente(req: Request<{ id: string }>, res: Response): Promise<void> {
+    const id = idParam(req.params.id)
+    await pagamentoService.simularPagamentoDoCliente(req.usuario!.id, id)
+    res.set('Cache-Control', 'no-store').json(await vendaService.buscarDoCliente(id, req.usuario!.id))
+  },
+
   async criar(req: Request, res: Response): Promise<void> {
     // Header obrigatório, conferido antes do body (mesmo padrão do POST /api/estoque/movimentacoes)
     const chave = validarChaveIdempotencia(req.get('Idempotency-Key'))
@@ -55,10 +62,14 @@ export const vendaController = {
     res.json(venda)
   },
 
-  // POST /api/vendas/:id/pagamentos (#44). Nenhum campo do body é lido: valor, vencimento e dono vêm do banco.
+  // POST /api/vendas/:id/pagamentos. Só a modalidade vem do body; valor, vencimento e dono vêm do banco.
   // no-store: a resposta tem o código Pix, que não pode ficar em cache
   async gerarPix(req: Request<{ id: string }>, res: Response): Promise<void> {
-    const pix = await pagamentoService.gerarPix(req.usuario!.id, idParam(req.params.id))
+    const metodo = req.body?.metodo ?? 'pix'
+    if (metodo !== 'pix' && metodo !== 'cartao') throw new AppError('Escolha Pix ou cartão.', 422)
+    const pix = metodo === 'cartao'
+      ? await pagamentoService.gerarCartao(req.usuario!.id, idParam(req.params.id))
+      : await pagamentoService.gerarPix(req.usuario!.id, idParam(req.params.id))
     res.set('Cache-Control', 'no-store')
     res.status(201).json(pix)
   },

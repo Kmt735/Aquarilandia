@@ -80,26 +80,48 @@ export const pagamentoRepository = {
   // ---------- #44 gerar o Pix ----------
 
   // Quem chama já travou a venda (FOR UPDATE): nenhum outro pedido cria ou muda pagamento desta venda até o COMMIT
-  async buscarPendente(vendaId: number, executor: Queryable): Promise<PagamentoPendente | null> {
+  async buscarPendente(vendaId: number, executor: Queryable, metodo = 'pix'): Promise<PagamentoPendente | null> {
     const { rows } = await executor.query<PagamentoPendente>(
       `SELECT id, valor FROM pagamentos
-        WHERE venda_id = $1 AND status = 'pendente'
+        WHERE venda_id = $1 AND status = 'pendente' AND COALESCE(metodo, 'pix') = $2
         ORDER BY id DESC
         LIMIT 1`,
-      [vendaId],
+      [vendaId, metodo],
     )
     return rows[0] ?? null
   },
 
   // Sem cobrança ainda (gateway_cobranca_id NULL): ela só é gravada depois da chamada ao gateway, fora da transação
-  async inserirPendente(vendaId: number, valor: number, gateway: string, executor: Queryable): Promise<number> {
+  async inserirPendente(vendaId: number, valor: number, gateway: string, executor: Queryable, metodo = 'pix'): Promise<number> {
     const { rows } = await executor.query<{ id: number }>(
       `INSERT INTO pagamentos (venda_id, gateway, metodo, valor, status)
-       VALUES ($1, $2, 'pix', $3, 'pendente')
+       VALUES ($1, $2, $4, $3, 'pendente')
        RETURNING id`,
-      [vendaId, gateway, valor],
+      [vendaId, gateway, valor, metodo],
     )
     return rows[0].id
+  },
+
+  async referenciaCheckout(pagamentoId: number, executor: Queryable): Promise<string> {
+    const { rows } = await executor.query<{ referencia: string }>(
+      `INSERT INTO pagamentos_checkout(pagamento_id) VALUES ($1)
+       ON CONFLICT(pagamento_id) DO UPDATE SET pagamento_id = EXCLUDED.pagamento_id
+       RETURNING referencia`, [pagamentoId],
+    )
+    return rows[0].referencia
+  },
+
+  // Persistido antes do POST externo: timeout não autoriza criar um segundo checkout.
+  async reservarEnvioCheckout(pagamentoId: number): Promise<boolean> {
+    const { rowCount } = await db.query(
+      `UPDATE pagamentos_checkout SET envio_iniciado_em = now()
+       WHERE pagamento_id = $1 AND envio_iniciado_em IS NULL`, [pagamentoId],
+    )
+    return rowCount === 1
+  },
+
+  async liberarEnvioCheckout(pagamentoId: number): Promise<void> {
+    await db.query('UPDATE pagamentos_checkout SET envio_iniciado_em = NULL WHERE pagamento_id = $1', [pagamentoId])
   },
 
   // Grava a cobrança só se o pagamento ainda não tem uma, ou já tem ESTA. false = já tinha outra (nunca sobrescreve)
@@ -132,6 +154,7 @@ export const pagamentoRepository = {
     const { rows } = await db.query<PagamentoDaCobranca>(
       `UPDATE pagamentos SET gateway_cobranca_id = $4, atualizado_em = now()
         WHERE id = $1 AND venda_id = $2 AND valor = $3 AND gateway_cobranca_id IS NULL
+          AND COALESCE(metodo, 'pix') = CASE WHEN starts_with($4, 'bill_') THEN 'cartao' ELSE 'pix' END
         RETURNING id, venda_id AS "vendaId"`,
       [pagamentoId, vendaId, valor, cobrancaId],
     )
@@ -286,7 +309,8 @@ export const pagamentoRepository = {
         WHERE id = (
                 SELECT id FROM pagamentos
                  WHERE venda_id = $1 AND status = 'pendente' AND gateway_cobranca_id IS NOT NULL
-                 ORDER BY id DESC
+                   AND atualizado_em < now() - interval '20 seconds'
+                 ORDER BY atualizado_em, id
                  LIMIT 1
               )
           AND status = 'pendente'
