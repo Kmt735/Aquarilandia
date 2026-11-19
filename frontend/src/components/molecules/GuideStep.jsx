@@ -5,7 +5,8 @@ import IlustracaoPasso from './IlustracaoPasso'
 import { cn } from '@/lib/utils'
 
 // O html já desconta o cabeçalho (scroll-padding-top); aqui entra só a barra do guia no celular
-export const ROLAGEM_GUIA = 'scroll-mt-5 desk:scroll-mt-0'
+// No celular o seletor de passos (48px) também fica preso no topo, então a seção para um pouco mais abaixo
+export const ROLAGEM_GUIA = 'scroll-mt-12 desk:scroll-mt-0'
 
 // Um passo do guia: número + título (H2), introdução, conteúdo e navegação para os vizinhos
 export default function GuideStep({ passo, numero, total, anterior, proximo, entendido, onEntendi, onIr, children }) {

@@ -191,3 +191,45 @@ test('HTTP diferencia rede indisponível e JSON inválido sem fallback', async (
   globalThis.fetch = async () => new Response('<html>proxy</html>')
   await assert.rejects(consultarApi('/categorias'), { status: 502 })
 })
+
+test('loja: tipo de água e preço livre (em reais) viram parâmetros da API; campos valem mais que a faixa antiga', async () => {
+  const api = catalogoCom(async (rota, params) => {
+    assert.equal(rota, '/produtos')
+    assert.deepEqual(params, { busca: undefined, tipo_agua: 'marinho', categoria: 'aquarios', preco_min: 4990, preco_max: 20000, ordem: 'nome', pagina: 1, limite: 9 })
+    return { itens: [], total: 0 }
+  })
+  await api.listarProdutos({ categoria: 'aquarios', agua: 'salgada', min: '49,90', max: '200', preco: 'ate-50' })
+})
+
+test('loja: só mínimo, só máximo e ordem antiga z-a continuam aceitos', async () => {
+  const vistos = []
+  const api = catalogoCom(async (_, params) => { vistos.push(params); return { itens: [], total: 0 } })
+  await api.listarProdutos({ min: '200' })
+  await api.listarProdutos({ max: '49.99' })
+  assert.equal(vistos[0].preco_min, 20000)
+  assert.equal(vistos[0].preco_max, undefined)
+  assert.equal(vistos[1].preco_min, undefined)
+  assert.equal(vistos[1].preco_max, 4999)
+  await api.listarProdutos({ ordem: 'z-a' })
+})
+
+for (const filtros of [{ min: 'abc' }, { max: '-5' }, { min: '300', max: '100' }, { agua: 'lago' }]) {
+  test(`loja: filtro inválido é recusado sem consultar: ${JSON.stringify(filtros)}`, async () => {
+    await assert.rejects(catalogoCom(async () => assert.fail('Não deve consultar produtos')).listarProdutos(filtros), { status: 400 })
+  })
+}
+
+test('peixes: faixa livre de preço filtra localmente sobre o conjunto completo', async () => {
+  const api = catalogoCom(async () => ({ itens: [produto(1, { preco: 999, categoria: 'peixes', ficha }), produto(2, { preco: 5000, categoria: 'peixes', ficha }), produto(3, { preco: 9000, categoria: 'peixes', ficha })], total: 3 }))
+  const r = await api.listarPeixes({ min: '10', max: '80' })
+  assert.deepEqual(r.itens.map((p) => p.id), [2])
+})
+
+test('mock da loja segue a regra do backend para tipo de água', async () => {
+  const { consultarMock } = await import('../src/mocks/catalogo-api.js')
+  const nomes = async (tipo_agua) => (await consultarMock('/produtos', { tipo_agua, limite: 100 })).itens.map((p) => p.categoria)
+  const salgada = await nomes('marinho')
+  assert.ok(salgada.includes('aquarios') && salgada.includes('decoracoes') && salgada.includes('peixes'))
+  assert.ok(!salgada.includes('filtros') && !salgada.includes('plantas'))
+  assert.deepEqual([...new Set(await nomes('salobra'))], ['peixes'])
+})

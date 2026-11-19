@@ -116,9 +116,10 @@ function Falha() {
   return (
     <div role="alert">
       <CircleX aria-hidden="true" className="mx-auto mb-4 size-14 text-danger-text" />
-      <h1 className="text-h2">Pagamento não aprovado</h1>
+      {/* Título exatamente como no item 9 do PDF */}
+      <h1 className="text-h2">Pagamento recusado – tente outro cartão</h1>
       <p className="mt-2 text-corpo text-text-muted">
-        Nada foi cobrado. Seu carrinho continua salvo: tente de novo com outro cartão ou pague com PIX.
+        Fique tranquilo: nada foi cobrado e seu carrinho continua salvo. Se preferir, você também pode pagar com PIX.
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         <Button asChild tamanho="lg">

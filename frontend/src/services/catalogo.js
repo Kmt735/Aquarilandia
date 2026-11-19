@@ -16,6 +16,28 @@ const escolher = (valor, opcoes) => {
   return valor || undefined
 }
 const idValido = (id) => inteiro(id, '', 2147483647)
+// Tipo de água da URL (doce, salgada ou salobra) → valor da API (doce, marinho, salobra)
+const AGUA_API = { doce: 'doce', salgada: 'marinho', marinho: 'marinho', salobra: 'salobra' }
+// Preço digitado em reais ("49,90" ou "50") → centavos; vazio = sem limite
+const reaisParaCentavos = (valor) => {
+  if (valor === undefined || valor === null || valor === '') return undefined
+  const texto = String(valor).trim().replace(',', '.')
+  if (!/^\d{1,7}(\.\d{1,2})?$/.test(texto)) throw new ErroApi('Faixa de preço inválida.')
+  return Math.round(Number(texto) * 100)
+}
+// Faixa de preço em centavos: os campos mínimo/máximo valem mais que a faixa pronta (links antigos com ?preco=)
+export function limitesPreco({ min, max, preco } = {}) {
+  const faixa = faixasPreco.find((x) => x.valor === preco)
+  if (preco && !faixa) throw new ErroApi('Faixa de preço inválida.')
+  let minimo = reaisParaCentavos(min)
+  let maximo = reaisParaCentavos(max)
+  if (minimo === undefined && maximo === undefined && faixa) {
+    minimo = faixa.min || undefined
+    maximo = Number.isFinite(faixa.max) ? faixa.max : undefined
+  }
+  if (minimo !== undefined && maximo !== undefined && minimo > maximo) throw new ErroApi('O preço mínimo é maior que o máximo.')
+  return { minimo, maximo }
+}
 
 // Injeção apenas da consulta permite testar o contrato sem mocks de catálogo em produção.
 export function criarCatalogo(consultar = consultarApi) {
@@ -35,13 +57,15 @@ export function criarCatalogo(consultar = consultarApi) {
     const limite = inteiro(filtros.limite, 9, 100)
     const ordem = escolher(filtros.ordem, Object.keys(ORDENS))
     const disponibilidade = escolher(filtros.disponibilidade, ['in', 'out', 'disponivel', 'esgotado'])
-    const faixa = faixasPreco.find((x) => x.valor === filtros.preco)
-    if (filtros.preco && !faixa) throw new ErroApi('Faixa de preço inválida.')
+    const { minimo, maximo } = limitesPreco(filtros)
+    const faixa = minimo !== undefined || maximo !== undefined
+    if (filtros.agua && !AGUA_API[filtros.agua]) throw new ErroApi('Filtro inválido.')
     // Peixes já trazem categoria e ficha no próprio DTO; metadados do menu são independentes.
     const categorias = peixes ? [] : await listarCategorias()
     const parametros = { busca: filtros.busca?.trim() || undefined }
+    if (filtros.agua) parametros.tipo_agua = AGUA_API[filtros.agua]
     if (peixes) {
-      parametros.tipo_agua = escolher(filtros.agua === 'salgada' ? 'marinho' : filtros.agua, ['doce', 'marinho', 'salobra'])
+      parametros.tipo_agua = AGUA_API[filtros.agua]
       parametros.temperamento = escolher(filtros.temperamento, ['pacifico', 'semi_agressivo', 'agressivo'])
       parametros.dificuldade = escolher(filtros.dificuldade, ['iniciante', 'intermediario', 'avancado'])
       if (disponibilidade) parametros.em_estoque = String(['in', 'disponivel'].includes(disponibilidade))
@@ -49,8 +73,8 @@ export function criarCatalogo(consultar = consultarApi) {
       const categoria = categorias.find((c) => c.slug === filtros.categoria || c.nome === filtros.categoria)
       if (filtros.categoria && !categoria) throw new ErroApi('Categoria não encontrada.', {}, 404)
       parametros.categoria = categoria?.slug
-      parametros.preco_min = faixa?.min
-      parametros.preco_max = Number.isFinite(faixa?.max) ? faixa.max : undefined
+      parametros.preco_min = minimo
+      parametros.preco_max = maximo
       parametros.ordem = ORDENS[ordem ?? 'padrao']
     }
     const caminho = peixes ? '/peixes' : '/produtos'
@@ -60,7 +84,7 @@ export function criarCatalogo(consultar = consultarApi) {
     if (local) {
       let itens = (await todasPaginas(caminho, parametros)).map((p) => normalizarProduto(p, categorias))
       if (disponibilidade) itens = itens.filter((p) => p.emEstoque === ['in', 'disponivel'].includes(disponibilidade))
-      if (peixes && faixa) itens = itens.filter((p) => p.preco >= faixa.min && p.preco <= faixa.max)
+      if (peixes && faixa) itens = itens.filter((p) => p.preco >= (minimo ?? 0) && p.preco <= (maximo ?? Infinity))
       itens = ordenarItens(itens, ordem ?? 'a-z')
       return { itens: itens.slice((pagina - 1) * limite, pagina * limite), total: itens.length, pagina, totalPaginas: Math.max(1, Math.ceil(itens.length / limite)) }
     }

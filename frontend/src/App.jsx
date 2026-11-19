@@ -19,7 +19,6 @@ import { ROTAS } from './utils/rotas'
 const CompararPeixesPage = lazy(() => import('./pages/CompararPeixesPage'))
 const AdminPedidosPage = lazy(() => import('./pages/admin/AdminPedidosPage'))
 const AdminPedidoDetalhePage = lazy(() => import('./pages/admin/AdminPedidoDetalhePage'))
-const MonteSeuAquarioPage = lazy(() => import('./pages/MonteSeuAquarioPage'))
 const NaoEncontradaPage = lazy(() => import('./pages/NaoEncontradaPage'))
 const PerguntasFrequentesPage = lazy(() => import('./pages/PerguntasFrequentesPage'))
 const PoliticaPage = lazy(() => import('./pages/PoliticaPage'))
@@ -48,6 +47,12 @@ function RedirecionarPrimeiroAquario() {
   return <Navigate to={{ pathname: ROTAS.primeiroAquario, hash }} replace />
 }
 
+// Endereço antigo do montador (/monte-seu-aquario): vai para a aba "Montar o meu", mantendo ?etapa= e âncora
+function RedirecionarMontador() {
+  const { search, hash } = useLocation()
+  return <Navigate to={{ pathname: ROTAS.montarAquario, search, hash }} replace />
+}
+
 // As URLs antigas continuam iguais (ex.: /peixes/acara-disco); as novas só se somam a elas
 export default function App() {
   return (
@@ -65,9 +70,10 @@ export default function App() {
                     <Route path={ROTAS.peixes} element={<PeixesPage />} />
                     <Route path={ROTAS.compararPeixes} element={<CompararPeixesPage />} />
                     <Route path={`${ROTAS.peixes}/:id`} element={<PeixeDetalhePage />} />
-                    <Route path={ROTAS.primeiroAquario} element={<PrimeiroAquarioPage />} />
+                    {/* Uma rota só para as duas abas (/meu-primeiro-aquario e /meu-primeiro-aquario/montar): trocar de aba não recria a página */}
+                    <Route path={`${ROTAS.primeiroAquario}/:aba?`} element={<PrimeiroAquarioPage />} />
                     <Route path={ROTAS.primeiroAquarioAntigo} element={<RedirecionarPrimeiroAquario />} />
-                    <Route path={ROTAS.monteSeuAquario} element={<MonteSeuAquarioPage />} />
+                    <Route path={ROTAS.monteSeuAquario} element={<RedirecionarMontador />} />
                     <Route path={ROTAS.servicos} element={<ServicosPage />} />
                     <Route path={ROTAS.perguntas} element={<PerguntasFrequentesPage />} />
                     <Route path={`${ROTAS.politicas}/:tipo`} element={<PoliticaPage />} />

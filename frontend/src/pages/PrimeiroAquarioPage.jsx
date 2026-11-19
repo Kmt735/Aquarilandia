@@ -1,114 +1,144 @@
-import { BookOpen, Play } from 'lucide-react'
-import { useCallback, useEffect } from 'react'
-import { useLocation } from 'react-router'
+import { BookOpen, ListChecks, Play } from 'lucide-react'
+import { lazy, Suspense, useLayoutEffect, useRef } from 'react'
+import { Link, Navigate, useNavigate, useParams } from 'react-router'
 import Button from '../components/atoms/Button'
-import GuideStep from '../components/molecules/GuideStep'
+import { CardItemSkeleton } from '../components/molecules/CardItem'
 import IlustracaoAquario from '../components/molecules/IlustracaoAquario'
-import Faq from '../components/organisms/Faq'
-import Glossario from '../components/organisms/Glossario'
-import GuiaConteudo from '../components/organisms/GuiaConteudo'
-import GuiaResumo from '../components/organisms/GuiaResumo'
-import ProblemasComuns from '../components/organisms/ProblemasComuns'
-import SpecialistCta from '../components/organisms/SpecialistCta'
-import StepNav from '../components/organisms/StepNav'
 import PageTemplate from '../components/templates/PageTemplate'
-import { perguntasFrequentes } from '../data/faq'
-import { glossarioGuia } from '../data/glossario'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { etapasMontagem } from '../data/montagem'
 import { passosGuia } from '../data/guia'
+import useMontagem from '../hooks/useMontagem'
 import useProgressoGuia from '../hooks/useProgressoGuia'
 import useReducedMotion from '../hooks/useReducedMotion'
-import useScrollSpy from '../hooks/useScrollSpy'
 import { ROTAS } from '../utils/rotas'
+import GuiaAprender from './GuiaAprender'
 
-const IDS = passosGuia.map((p) => p.id)
+// O montador (e o catálogo que ele consulta) só carrega quando a aba "Montar o meu" abre
+const MontadorAquario = lazy(() => import('./MontadorAquario'))
 
-// Depois do último passo vem o resumo
-const proximoDe = (i) =>
-  i < passosGuia.length - 1 ? { id: passosGuia[i + 1].id, rotulo: `Próximo passo: ${passosGuia[i + 1].titulo}` } : { id: 'resumo', rotulo: 'Ver o resumo' }
+const ABAS = {
+  aprender: {
+    caminho: ROTAS.primeiroAquario,
+    documento: 'Meu Primeiro Aquário',
+    meta: 'Guia para iniciantes: equipamentos, ciclagem, qualidade da água, escolha dos peixes e manutenção, em 5 passos simples, e um montador para escolher os itens do seu aquário com preço estimado.',
+  },
+  montar: {
+    caminho: ROTAS.montarAquario,
+    documento: 'Montar o meu aquário · Meu Primeiro Aquário',
+    meta: 'Monte seu primeiro aquário passo a passo: escolha aquário, filtro, aquecedor, substrato, plantas e peixes, veja o preço estimado e os avisos de compatibilidade.',
+  },
+}
+const ALTURA_ABAS = '3.5rem'
 
+// Meu Primeiro Aquário (nome do item 10 do PDF): uma página, duas abas com endereço próprio.
+// - Aprender (/meu-primeiro-aquario): o guia em 5 passos.
+// - Montar o meu (/meu-primeiro-aquario/montar): o montador em 6 etapas. /monte-seu-aquario redireciona para cá.
+// O progresso das duas fica salvo no navegador e aparece na própria aba.
 export default function PrimeiroAquarioPage() {
-  const { hash } = useLocation()
+  const { aba: segmento } = useParams()
+  const navigate = useNavigate()
   const reduzido = useReducedMotion()
-  const ativo = useScrollSpy(IDS)
+  const aba = segmento === 'montar' ? 'montar' : 'aprender'
   const [entendidos, alternarEntendido] = useProgressoGuia()
+  const montagemApi = useMontagem()
+  const refAncora = useRef(null)
 
-  // A URL acompanha a rolagem sem criar histórico: voltar sai da página, não refaz a rolagem
-  useEffect(() => {
-    if (ativo) window.history.replaceState(window.history.state, '', `#${ativo}`)
-  }, [ativo])
+  const lidos = passosGuia.filter((p) => entendidos.includes(p.id)).length
+  const etapasFeitas = etapasMontagem.filter((e) => montagemApi.montagem.concluidas.includes(e.id)).length
 
-  // Link direto (/meu-primeiro-aquario#ciclagem): o MainLayout deixa essa rolagem para a página
-  useEffect(() => {
-    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'instant' })
-  }, [hash])
+  // As abas ficam presas no topo: a rolagem por âncora e as navegações fixas descontam a altura delas.
+  // useLayoutEffect: precisa valer ANTES do efeito do guia que rola até a âncora (#ciclagem)
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty('--altura-abas', ALTURA_ABAS)
+    return () => document.documentElement.style.removeProperty('--altura-abas')
+  }, [])
 
-  const irPara = useCallback(
-    (id) => {
-      const secao = document.getElementById(id)
-      if (!secao) return
-      secao.scrollIntoView({ behavior: reduzido ? 'instant' : 'smooth' })
-      ;(secao.querySelector('h2[tabindex]') ?? secao).focus({ preventScroll: true })
-      window.history.replaceState(window.history.state, '', `#${id}`)
-    },
-    [reduzido],
-  )
+  const trocar = (valor) => {
+    // Sem voltar ao topo da página: se as abas já estavam presas, a nova aba começa logo abaixo delas
+    navigate(ABAS[valor].caminho, { state: { manterRolagem: true } })
+    const ancora = refAncora.current
+    if (ancora && ancora.getBoundingClientRect().top < 0) ancora.scrollIntoView({ behavior: reduzido ? 'instant' : 'smooth' })
+  }
+
+  const classeAba =
+    'h-full min-h-11 flex-1 border-b-[3px] border-transparent px-3 text-pequeno font-semibold text-text-muted hover:text-primary-text focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-text data-[state=active]:border-primary-text data-[state=active]:font-bold data-[state=active]:text-primary-text sm:flex-none sm:px-5'
+  const contador = 'rounded-full bg-surface-muted px-2 py-0.5 text-micro font-bold tabular-nums text-text-muted'
+
+  // /meu-primeiro-aquario/qualquer-coisa: volta para a aba Aprender
+  if (segmento && segmento !== 'montar') return <Navigate to={ROTAS.primeiroAquario} replace />
 
   return (
     <PageTemplate
       eyebrow="Área educativa"
       titulo="Meu Primeiro Aquário"
-      descricao="Do zero ao primeiro peixe, passo a passo."
-      metaDescricao="Guia para iniciantes: equipamentos, ciclagem, qualidade da água, escolha dos peixes e manutenção, em 5 passos simples e com as palavras difíceis explicadas."
-      trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Meu Primeiro Aquário' }]}
+      tituloDocumento={ABAS[aba].documento}
+      descricao="Aprenda do zero ao primeiro peixe e monte o seu aquário, passo a passo."
+      metaDescricao={ABAS[aba].meta}
+      trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Meu Primeiro Aquário', to: aba === 'montar' ? ROTAS.primeiroAquario : undefined }, ...(aba === 'montar' ? [{ rotulo: 'Montar o meu' }] : [])]}
       ilustracao={<IlustracaoAquario className="w-64 shrink-0 max-desk:hidden" />}
       cabecalhoExtra={
         <div className="mt-6 flex flex-wrap gap-3">
           <Button tamanho="lg" asChild>
-            <a
-              href={`#${IDS[0]}`}
-              onClick={(e) => {
-                e.preventDefault()
-                irPara(IDS[0])
-              }}
-            >
+            <Link to={`${ROTAS.primeiroAquario}#${passosGuia[0].id}`}>
               <Play aria-hidden="true" />
               Começar pelo passo 1
-            </a>
+            </Link>
           </Button>
           <Button tamanho="lg" variant="secundario" asChild>
-            <a href="#glossario">
+            <Link to={ROTAS.montarAquario} state={{ manterRolagem: true }}>
+              <ListChecks aria-hidden="true" />
+              Montar o meu aquário
+            </Link>
+          </Button>
+          <Button tamanho="lg" variant="terciario" asChild>
+            <Link to={`${ROTAS.primeiroAquario}#glossario`}>
               <BookOpen aria-hidden="true" />
               Ver glossário
-            </a>
+            </Link>
           </Button>
         </div>
       }
     >
-      <div className="mx-auto max-w-[1200px] px-4 sm:px-6 desk:grid desk:grid-cols-[230px_minmax(0,1fr)] desk:gap-12 desk:px-10">
-        <StepNav passos={passosGuia} ativo={ativo} entendidos={entendidos} onIr={irPara} />
-        <div className="min-w-0">
-          {passosGuia.map((passo, i) => (
-            <GuideStep
-              key={passo.id}
-              passo={passo}
-              numero={i + 1}
-              total={passosGuia.length}
-              anterior={passosGuia[i - 1]}
-              proximo={proximoDe(i)}
-              entendido={entendidos.includes(passo.id)}
-              onEntendi={alternarEntendido}
-              onIr={irPara}
-            >
-              <GuiaConteudo id={passo.id} />
-            </GuideStep>
-          ))}
+      <div id="abas" ref={refAncora} className="scroll-mt-16 desk:scroll-mt-[72px]" />
+      <Tabs value={aba} onValueChange={trocar}>
+        <div className="sticky top-16 z-30 border-b border-border bg-surface/95 backdrop-blur desk:top-[72px]">
+          <TabsList aria-label="Meu Primeiro Aquário" className="mx-auto flex h-14 w-full max-w-[1200px] gap-1 px-4 sm:px-6 desk:px-10">
+            <TabsTrigger value="aprender" className={classeAba}>
+              <BookOpen aria-hidden="true" className="size-4" />
+              Aprender
+              <span className={contador} aria-hidden="true">
+                {lidos}/{passosGuia.length}
+              </span>
+              <span className="sr-only">, {lidos} de {passosGuia.length} passos lidos</span>
+            </TabsTrigger>
+            <TabsTrigger value="montar" className={classeAba}>
+              <ListChecks aria-hidden="true" className="size-4" />
+              Montar o meu
+              <span className={contador} aria-hidden="true">
+                {etapasFeitas}/{etapasMontagem.length}
+              </span>
+              <span className="sr-only">, {etapasFeitas} de {etapasMontagem.length} etapas feitas</span>
+            </TabsTrigger>
+          </TabsList>
         </div>
-      </div>
-      <GuiaResumo passos={passosGuia} />
-      <Glossario ids={glossarioGuia} />
-      <ProblemasComuns />
-      <Faq perguntas={perguntasFrequentes} link={{ to: ROTAS.perguntas, rotulo: 'Entrega, trocas e pagamento' }} />
-      <SpecialistCta />
+
+        <TabsContent value="aprender" tabIndex={-1}>
+          <GuiaAprender entendidos={entendidos} onEntendi={alternarEntendido} />
+        </TabsContent>
+        <TabsContent value="montar" tabIndex={-1}>
+          <Suspense
+            fallback={
+              <div aria-busy="true" className="mx-auto grid max-w-[1200px] gap-4 px-4 pt-8 sm:grid-cols-2 sm:px-6 desk:px-10 xl:grid-cols-3">
+                <p className="sr-only">Carregando o montador…</p>
+                {[0, 1, 2].map((i) => <CardItemSkeleton key={i} />)}
+              </div>
+            }
+          >
+            <MontadorAquario montagemApi={montagemApi} />
+          </Suspense>
+        </TabsContent>
+      </Tabs>
     </PageTemplate>
   )
 }
