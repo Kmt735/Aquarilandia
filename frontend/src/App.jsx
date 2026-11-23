@@ -23,6 +23,7 @@ const NaoEncontradaPage = lazy(() => import('./pages/NaoEncontradaPage'))
 const PerguntasFrequentesPage = lazy(() => import('./pages/PerguntasFrequentesPage'))
 const PoliticaPage = lazy(() => import('./pages/PoliticaPage'))
 const CreditosImagensPage = lazy(() => import('./pages/CreditosImagensPage'))
+const AvaliacoesSitePage = lazy(() => import('./pages/AvaliacoesSitePage'))
 const EtapaCarrinhoPage = lazy(() => import('./pages/checkout/EtapaCarrinhoPage'))
 const EtapaEntregaPage = lazy(() => import('./pages/checkout/EtapaEntregaPage'))
 const EtapaPagamentoPage = lazy(() => import('./pages/checkout/EtapaPagamentoPage'))
@@ -82,6 +83,7 @@ export default function App() {
                     <Route path={ROTAS.perguntas} element={<PerguntasFrequentesPage />} />
                     <Route path={`${ROTAS.politicas}/:tipo`} element={<PoliticaPage />} />
                     <Route path={ROTAS.creditosImagens} element={<CreditosImagensPage />} />
+                    <Route path={ROTAS.avaliacoes} element={<AvaliacoesSitePage />} />
 
                     <Route path={ROTAS.entrar} element={<EntrarPage />} />
                     <Route path={ROTAS.criarConta} element={<CriarContaPage />} />
