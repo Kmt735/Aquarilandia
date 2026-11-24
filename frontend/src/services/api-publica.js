@@ -1,4 +1,5 @@
 import { ErroApi } from './http.js'
+import { API_URL } from '../config/ambiente.js'
 
 // Consultas públicas não dependem da sessão usada pelos outros módulos.
 export async function consultarApi(caminho, parametros = {}, { signal } = {}) {
@@ -8,7 +9,7 @@ export async function consultarApi(caminho, parametros = {}, { signal } = {}) {
   }
   let resposta
   try {
-    resposta = await fetch(`/api${caminho}${query.size ? `?${query}` : ''}`, {
+    resposta = await fetch(`${API_URL}${caminho}${query.size ? `?${query}` : ''}`, {
       headers: { Accept: 'application/json' }, credentials: 'omit', signal,
     })
   } catch (erro) {

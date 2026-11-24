@@ -68,13 +68,16 @@ function exigirHttpsEmProducao(nome: string, valor: string | undefined): void {
   }
 }
 
-const corsOrigin = obrigatoriaEmProducao('CORS_ORIGIN')
+// CORS_ORIGIN aceita uma origem ou várias separadas por vírgula (ex.: o endereço de produção da Vercel e o de uma
+// prévia). Cada uma é comparada inteira com o header Origin, sem barra no fim
+const corsOrigins = (obrigatoriaEmProducao('CORS_ORIGIN') ?? 'http://localhost:5173')
+  .split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean)
 const frontendUrl = obrigatoriaEmProducao('FRONTEND_URL')
 const apiUrl = obrigatoriaEmProducao('API_URL')
 const gatewayAccessToken = obrigatoriaEmProducao('GATEWAY_ACCESS_TOKEN')
 const gatewayWebhookSecret = obrigatoriaEmProducao('GATEWAY_WEBHOOK_SECRET')
 
-exigirHttpsEmProducao('CORS_ORIGIN', corsOrigin)
+for (const origem of corsOrigins) exigirHttpsEmProducao('CORS_ORIGIN', origem)
 exigirHttpsEmProducao('FRONTEND_URL', frontendUrl)
 exigirHttpsEmProducao('API_URL', apiUrl)
 if (producao && gatewayWebhookSecret !== undefined && gatewayWebhookSecret.length < 32) {
@@ -126,6 +129,27 @@ if (producao) {
   }
 }
 
+// DATABASE_SSL (opcional): true liga TLS na conexão com o banco, para bancos gerenciados acessados pela internet (ex.: a
+// "External Database URL" do Render, usada pelos scripts rodados do seu computador). A URL interna do Render, usada pelo
+// serviço lá dentro, não precisa. Padrão: false (o Postgres do Docker). Qualquer outro valor é erro
+function lerBooleana(nome: string): boolean {
+  const valor = opcional(nome)
+  if (valor === undefined || valor === 'false') return false
+  if (valor === 'true') return true
+  throw new Error(`Variável de ambiente inválida: ${nome} precisa ser true ou false. Veja o .env.example.`)
+}
+const databaseSsl = lerBooleana('DATABASE_SSL')
+
+// TRUST_PROXY (opcional): quantos proxies ficam entre o cliente e a app em produção (o req.ip do rate limit vem do
+// X-Forwarded-For). Padrão 1 (o Caddy da VPS, ou o balanceador do Render)
+function lerTrustProxy(): number {
+  const valor = opcional('TRUST_PROXY')
+  if (valor === undefined) return 1
+  if (!/^\d$/.test(valor)) throw new Error('Variável de ambiente inválida: TRUST_PROXY precisa ser um número de 0 a 9. Veja o .env.example.')
+  return Number(valor)
+}
+const trustProxy = lerTrustProxy()
+
 // PERMITIR_SIMULACAO_PIX (opcional, Lote 13): só 'true' liga a simulação de pagamento Pix pela API (a demonstração do
 // dia 19 roda em produção com a chave de TESTE da AbacatePay, porque a loja ainda não tem conta). Mesmo ligada, ela
 // só funciona com a chave de teste (gateway.ts). Qualquer valor que não seja true ou false é erro: um "sim" ou "1"
@@ -157,7 +181,11 @@ export const env = {
   // Padrão 3333 em qualquer ambiente: a porta não é segredo e a hospedagem costuma definir PORT
   port,
   // Padrão só fora de produção (o Vite local); em produção já foi exigida acima, com https://
-  corsOrigin: corsOrigin ?? 'http://localhost:5173',
+  corsOrigins,
+  // A primeira origem da lista (compatibilidade com quem lê uma só)
+  corsOrigin: corsOrigins[0],
+  databaseSsl,
+  trustProxy,
   apiUrl,
   frontendUrl,
   // Sem token, o gateway.ts recusa a chamada ('sem chave'); sem segredo, o webhook.ts recusa toda notificação

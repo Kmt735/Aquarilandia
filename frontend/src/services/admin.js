@@ -8,7 +8,7 @@
 // Todas exigem sessão de administrador (cookie `sid`); sem ela o servidor responde 401 ou 403.
 // Peixes são produtos da categoria "peixes", com ficha técnica.
 // Com VITE_CATALOGO_MOCK=true, tudo roda sobre os dados de demonstração, só em memória.
-import { CATALOGO_MOCK } from '../config/ambiente.js'
+import { API_URL, CATALOGO_MOCK } from '../config/ambiente.js'
 import { lerEnvelope } from './catalogo-mapeamento.js'
 import { ErroApi } from './http.js'
 
@@ -21,7 +21,7 @@ async function chamar(caminho, { metodo = 'GET', parametros = {}, corpo } = {}) 
   }
   let resposta
   try {
-    resposta = await fetch(`/api${caminho}${query.size ? `?${query}` : ''}`, {
+    resposta = await fetch(`${API_URL}${caminho}${query.size ? `?${query}` : ''}`, {
       method: metodo,
       credentials: 'include',
       headers: { Accept: 'application/json', ...(corpo !== undefined && { 'Content-Type': 'application/json' }) },

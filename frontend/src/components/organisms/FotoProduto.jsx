@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Button from '../atoms/Button'
 import Input from '../atoms/Input'
 import Aviso from '../molecules/Aviso'
+import { API_URL } from '../../config/ambiente.js'
 import { imagemSegura } from '../../services/catalogo-mapeamento'
 
 export default function FotoProduto({ produtoId, imagemInicial }) {
@@ -10,7 +11,7 @@ export default function FotoProduto({ produtoId, imagemInicial }) {
   async function salvar(metodo, corpo) {
     setOcupado(true); setErro(null); setMensagem(null)
     try {
-      const r = await fetch(`/api/produtos/${produtoId}/imagem`, { method: metodo, credentials: 'include', body: corpo, signal: AbortSignal.timeout(20000) })
+      const r = await fetch(`${API_URL}/produtos/${produtoId}/imagem`, { method: metodo, credentials: 'include', body: corpo, signal: AbortSignal.timeout(20000) })
       const dados = await r.json().catch(() => null)
       if (!r.ok || !dados) throw new Error(dados?.erro ?? 'Não foi possível atualizar a foto.')
       setFoto(dados.imagemUrl); setMensagem(metodo === 'DELETE' ? 'Foto removida.' : 'Foto salva.')
