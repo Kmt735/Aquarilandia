@@ -1,9 +1,10 @@
 import { ErroApi } from './http.js'
+import { API_URL } from '../config/ambiente.js'
 
 export async function requisitarApi(caminho, { metodo = 'GET', corpo, headers = {}, signal } = {}) {
   let resposta
   try {
-    resposta = await fetch(`/api${caminho}`, {
+    resposta = await fetch(`${API_URL}${caminho}`, {
       method: metodo, credentials: 'include', cache: 'no-store',
       headers: { Accept: 'application/json', ...(corpo !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers },
       body: corpo === undefined ? undefined : JSON.stringify(corpo), signal: signal ?? AbortSignal.timeout(20_000),
