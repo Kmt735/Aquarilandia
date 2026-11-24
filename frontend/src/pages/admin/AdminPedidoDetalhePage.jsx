@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import Button from '../../components/atoms/Button'
 import Input from '../../components/atoms/Input'
@@ -10,12 +10,14 @@ import ResumoPedido from '../../components/organisms/ResumoPedido'
 import useConsulta from '../../hooks/useConsulta'
 import { atualizarPedidoAdmin, concluirEstorno, obterPedidoAdmin, simularPix } from '../../services/admin-pedidos'
 import { cancelarPedido } from '../../services/pedidos'
+import { marcarVisto } from '../../utils/pedidosVistos'
 import { ROTAS } from '../../utils/rotas'
 import { STATUS_PEDIDO, podeCancelar } from '../../utils/statusPedido'
 
 export default function AdminPedidoDetalhePage() {
   const { id } = useParams()
   const { dados, erro, carregando, recarregar } = useConsulta(() => obterPedidoAdmin(id), [id])
+  useEffect(() => { if (dados) marcarVisto(String(dados.id)) }, [dados])
   if (carregando) return <p role="status">Carregando pedido…</p>
   if (erro) return <ErroCompacto onTentar={recarregar}>{erro.message}</ErroCompacto>
   return <Detalhe key={dados.id} pedido={dados} recarregar={recarregar} />
@@ -42,11 +44,11 @@ function Detalhe({ pedido, recarregar }) {
     <section className="rounded-card border p-5"><h3 className="text-h3">Pagamento</h3>
       <p>{pedido.financeiro?.mensagem ?? 'Nenhum pagamento gerado.'}</p>
       <ul>{pedido.pagamentos.map((p) => <li className="mt-3" key={p.id}>
-        Pagamento {p.id}: {p.status} · {p.estornoTentativas} tentativa(s) de estorno
+        Pagamento {p.id}: {p.status} · {p.metodo === 'cartao' ? 'Cartão de crédito ou débito' : p.metodo === 'pix' ? 'Pix' : p.metodo} · {p.estornoTentativas} tentativa(s) de estorno
         {p.estornoUltimoErro && <p>{p.estornoUltimoErro}</p>}
         {p.status === 'aprovado' && p.estornoSolicitadoEm && p.estornoTentativas >= 5 && p.statusDetalhe === 'pagamento indevido'
           && <Button disabled={ocupado || !motivo.trim()} onClick={() => executar(() => concluirEstorno(p.id, motivo))}>Confirmar estorno no gateway</Button>}
-        {import.meta.env.VITE_SIMULACAO_PIX === 'true' && p.status === 'pendente'
+        {import.meta.env.VITE_SIMULACAO_PIX === 'true' && p.status === 'pendente' && p.metodo === 'pix'
           && <Button disabled={ocupado} onClick={() => executar(() => simularPix(p.id))}>Simular Pix de teste</Button>}
       </li>)}</ul>
     </section>

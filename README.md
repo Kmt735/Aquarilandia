@@ -2,11 +2,17 @@
 
 Site da Aquarilândia — peixes, plantas e projetos de aquários.
 
+Documentação para leitura e entrega: **[DOCUMENTACAO_COMPLETA_AQUARILANDIA.pdf](docs/DOCUMENTACAO_COMPLETA_AQUARILANDIA.pdf)**. Este é o único PDF do relatório e já inclui o apêndice técnico de arquitetura, banco, API, estoque, pagamentos, testes e implantação.
+
+O relatório reúne o contexto da parceira, a persona Juliana, o mapa de empatia, os wireframes reconstruídos, o relatório de IA, a inspeção e o plano de métricas. A apresentação adota ABNT e o manual do CEFET-MG, com texto preto, Arial 12, capa, folha de rosto, resumos, listas, sumário paginado e referências. A seção 8 registra a ciência e o aceite do gerenciador de projetos, conforme confirmação da equipe. As [fontes editáveis](docs/fontes/) e as [instruções de geração](docs/ferramentas/README.md) ficam separadas do arquivo de entrega.
+
+Histórico complementar para a documentação do projeto: [planejamento, estudos e revisões de segurança do backend](backend/docs/historico-planejamento-backend-2026-11-23.md), com distinção entre propostas iniciais, resultados relatados e implementação atual.
+
 ```
 Aquarilandia/
 ├── frontend/   React + JavaScript + Tailwind CSS (Vite) — Atomic Design
 ├── backend/    Node.js + TypeScript (Express)
-└── docs/       protótipo HTML original (prototipo-v4.html)
+└── docs/       PDF único de entrega, fontes editáveis, visuais e protótipo histórico
 ```
 
 ## Frontend
@@ -16,6 +22,12 @@ cd frontend
 npm ci
 npm run dev      # http://localhost:5173
 ```
+
+### Demo com admin e catálogo reais
+
+Para demonstrar login de admin → cadastro → entrada de estoque → loja → carrinho, use o
+[roteiro local isolado](backend/docs/demo-admin-2026-11-19.md). Ele usa PostgreSQL exclusivo, sessão real e
+movimentações rastreáveis; não usa o catálogo mock e bloqueia vendas, pagamentos e e-mail nesse launcher.
 
 ### Dados de demonstração (sem backend com produtos)
 

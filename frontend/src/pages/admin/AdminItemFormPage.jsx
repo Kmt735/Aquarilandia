@@ -19,12 +19,13 @@ import useTituloPagina from '../../hooks/useTituloPagina'
 import useToast from '../../hooks/useToast'
 import { criarItem, editarItem, obterItemAdmin } from '../../services/admin'
 import { listarCategorias } from '../../services/catalogo'
+import { atualizarImagemProduto } from '../../services/imagem-produto'
 import { ROTAS } from '../../utils/rotas'
 import { regras } from '../../utils/validacao'
 
 const precoParaCentavos = (v) => Math.round(Number(String(v).trim().replace(',', '.')) * 100)
 const regraPreco = (v) =>
-  /^\d{1,7}([.,]\d{1,2})?$/.test(String(v).trim()) && precoParaCentavos(v) > 0 ? null : 'Digite o preço em reais. Exemplo: 29,90.'
+  /^\d{1,8}([.,]\d{1,2})?$/.test(String(v).trim()) && precoParaCentavos(v) >= 0 && precoParaCentavos(v) <= 2147483647 ? null : 'Digite o preço em reais. Exemplo: 29,90.'
 
 export default function AdminItemFormPage() {
   const { id } = useParams()
@@ -80,6 +81,7 @@ function FormularioItem({ item, categorias }) {
   const editando = Boolean(item)
   const [categoriaId, setCategoriaId] = useState(item ? String(item.categoriaId) : '')
   const [erroCategoria, setErroCategoria] = useState(null)
+  const [arquivoFoto, setArquivoFoto] = useState(null)
   const categoria = categorias.find((c) => c.id === Number(categoriaId))
   const slug = categoria?.slug
   const fichaCampos = FICHAS[slug] ?? []
@@ -112,14 +114,34 @@ function FormularioItem({ item, categorias }) {
       preco: precoParaCentavos(v.preco),
       ficha: montarFicha(slug, v),
     }
-    if (editando) {
-      await editarItem(item.id, dados)
-      toast(`“${dados.nome}” foi atualizado.`, { tipo: 'sucesso' })
-    } else {
-      await criarItem({ ...dados, categoriaId: categoria.id })
-      toast(`“${dados.nome}” foi cadastrado.`, { tipo: 'sucesso' })
+    try {
+      if (editando) {
+        const { ficha, ...basicos } = dados
+        await editarItem(item.id, { ...basicos, ...(ficha && { ficha: { dados: ficha.dados } }) })
+        toast(`“${dados.nome}” foi atualizado.`, { tipo: 'sucesso' })
+      } else {
+        const criado = await criarItem({ ...dados, categoriaId: categoria.id })
+        if (arquivoFoto) {
+          try {
+            await atualizarImagemProduto(criado.id, arquivoFoto)
+          } catch {
+            toast('Produto cadastrado, mas não foi possível enviar a foto. Selecione a imagem novamente na edição.', { tipo: 'erro' })
+            navigate(`${ROTAS.adminProdutos}/${criado.id}/editar`)
+            return
+          }
+        }
+        toast(`“${dados.nome}” foi cadastrado.`, { tipo: 'sucesso' })
+      }
+      navigate(ROTAS.adminProdutos)
+    } catch (erro) {
+      if (erro.detalhes) {
+        if (erro.detalhes.categoriaId) setErroCategoria(erro.detalhes.categoriaId)
+        erro.detalhes = Object.fromEntries(Object.entries(erro.detalhes).map(([chave, mensagem]) => [
+          chave.startsWith('ficha.dados.') ? nomeCampo(slug, chave.slice('ficha.dados.'.length)) : chave, mensagem,
+        ]))
+      }
+      throw erro
     }
-    navigate(ROTAS.adminProdutos)
   })
 
   return (
@@ -186,6 +208,11 @@ function FormularioItem({ item, categorias }) {
           <Textarea rows={3} {...campo('descricao')} />
         </FormField>
 
+        {!editando && <FormField id="item-foto" label="Arquivo da foto" ajuda="Opcional. Escolha uma imagem JPEG, PNG ou WebP do seu computador.">
+          <Input type="file" accept="image/jpeg,image/png,image/webp" disabled={enviando}
+            onChange={(e) => setArquivoFoto(e.target.files?.[0] ?? null)} />
+        </FormField>}
+
         {fichaCampos.length > 0 && (
           <fieldset className="mt-6 border-t border-border pt-6">
             <legend className="mb-4 font-display text-h4 font-extrabold">Ficha técnica</legend>
@@ -206,7 +233,7 @@ function FormularioItem({ item, categorias }) {
           </Button>
         </div>
       </form>
-      {editando ? <><FotoProduto produtoId={item.id} imagemInicial={item.imagemUrl} /><LogisticaProduto produtoId={item.id} /></> : <p className="mt-4 text-pequeno text-text-muted">Após cadastrar o produto, abra a edição para enviar a foto e informar embalagem e condições de envio.</p>}
+      {editando ? <><FotoProduto produtoId={item.id} imagemInicial={item.imagemUrl} /><LogisticaProduto produtoId={item.id} /></> : <p className="mt-4 text-pequeno text-text-muted">Após cadastrar o produto, abra a edição para informar embalagem e condições de envio.</p>}
     </div>
   )
 }

@@ -75,15 +75,13 @@ async function expirarVenda(vendaId: number): Promise<boolean> {
 // mais de 1 hora. Aí cancela: se o Pix tiver sido pago, o webhook ou a próxima reconsulta devolve o dinheiro (o
 // pagamento aprovado de venda cancelada vira devolução, no processarCobranca)
 async function reconsultarAntesDeExpirar(venda: { id: number; vencidaHaMaisDeUmaHora: boolean }): Promise<boolean> {
-  const cobrancaId = await pagamentoService.buscarCobrancaPendente(venda.id)
-  if (!cobrancaId) return true
   try {
-    await pagamentoService.processarCobranca(cobrancaId)
+    await pagamentoService.reconsultarFinanceiro(venda.id)
     return true
   } catch (err) {
     if (venda.vencidaHaMaisDeUmaHora) {
       const codigo = descreverErro(err)
-      console.error(`[expiracao] venda ${venda.id}: reconsulta do Pix falhou (${codigo}); vencida há mais de 1 h, cancelando`)
+      console.error(`[expiracao] venda ${venda.id}: reconsulta do pagamento falhou (${codigo}); vencida há mais de 1 h, cancelando`)
       return true
     }
     throw err

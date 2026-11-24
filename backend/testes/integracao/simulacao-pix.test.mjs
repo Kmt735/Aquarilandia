@@ -25,6 +25,8 @@ describe('Simulação de Pix da demonstração (Lote 13) — PostgreSQL real e g
     process.env.DATABASE_URL = urlApp.toString()
     delete process.env.GATEWAY_ACCESS_TOKEN
     delete process.env.PERMITIR_SIMULACAO_PIX
+    delete process.env.EMAIL_API_KEY
+    delete process.env.EMAIL_REMETENTE
     const { app } = await import('../../src/app.ts')
     pool = (await import('../../src/config/db.ts')).db
     env = (await import('../../src/config/env.ts')).env
@@ -141,4 +143,68 @@ describe('Simulação de Pix da demonstração (Lote 13) — PostgreSQL real e g
     assert.deepEqual((await simular(admin, 2147483000)).corpo, { erro: 'Pagamento não encontrado.' })
     assert.equal(simulados.length, 1)
   })
+  async function simularDoCliente(quem, vendaId, { semOrigem = false } = {}) {
+    const r = await fetch(`${api}/vendas/${vendaId}/simular-pagamento`, {
+      method: 'POST', headers: { ...(semOrigem ? {} : { Origin: origem }), ...(quem ? { Cookie: `sid=${quem.token}` } : {}) },
+    })
+    return { status: r.status, corpo: await r.json() }
+  }
+  it('cliente conclui seu próprio Pix sem admin e a repetição não duplica confirmação nem baixa', async () => {
+    const { vendaId, pagamentoId, dono } = await comPix()
+    const r = await simularDoCliente(dono, vendaId)
+    assert.equal(r.status, 200); assert.equal(r.corpo.status, 'paga')
+    assert.equal(r.corpo.pagamento.status, 'aprovado')
+    assert.deepEqual(simulados, [`pix_char_SIM${pagamentoId}`])
+    assert.equal((await simularDoCliente(dono, vendaId)).status, 200)
+    assert.equal(simulados.length, 1)
+    assert.equal((await c.query("SELECT count(*)::int AS n FROM historico_status_venda WHERE venda_id=$1 AND status_novo='paga'", [vendaId])).rows[0].n, 1)
+    assert.equal((await c.query('SELECT p.estoque FROM produtos p JOIN itens_venda i ON i.produto_id=p.id WHERE i.venda_id=$1', [vendaId])).rows[0].estoque, 4)
+  })
+  it('simulação do cliente exige sessão e Origin e recusa pedidos de outra conta', async () => {
+    const { vendaId, dono } = await comPix()
+    assert.equal((await simularDoCliente(null, vendaId)).status, 401)
+    assert.equal((await simularDoCliente(dono, vendaId, { semOrigem: true })).status, 403)
+    assert.equal((await simularDoCliente(await conta(), vendaId)).status, 404)
+    assert.equal((await simularDoCliente(dono, 2147483000)).status, 404)
+    assert.equal((await simularDoCliente(dono, 'invalido')).status, 400)
+    assert.deepEqual(simulados, [])
+  })
+  it('capacidade e rota do cliente são desativadas sem chave Dev ou sem permissão de simular', async () => {
+    const { vendaId, dono } = await comPix()
+    for (const configuracao of [
+      { permitirSimulacaoPix: false, gatewayAccessToken: 'abc_dev_FICTICIA' },
+      { permitirSimulacaoPix: true, gatewayAccessToken: 'abc_prod_FICTICIA' },
+      { permitirSimulacaoPix: true, gatewayAccessToken: undefined },
+    ]) {
+      Object.assign(env, configuracao)
+      assert.equal((await simularDoCliente(dono, vendaId)).status, 404)
+      assert.equal((await simularDoCliente(null, vendaId)).status, 404)
+      const resposta = await fetch(`${api}/pagamentos/configuracao`)
+      assert.equal(resposta.headers.get('cache-control'), 'no-store')
+      assert.deepEqual(await resposta.json(), { simulacaoPix: false })
+    }
+    assert.equal(await statusVenda(vendaId), 'aguardando_pagamento'); assert.deepEqual(simulados, [])
+  })
+  it('pedido vencido ou cancelado não pode ser simulado pelo cliente', async () => {
+    const { vendaId, dono } = await comPix()
+    await c.query("UPDATE vendas SET expira_em=now()-interval '1 minute' WHERE id=$1", [vendaId])
+    assert.equal((await simularDoCliente(dono, vendaId)).status, 409)
+    await c.query("UPDATE vendas SET status='cancelada' WHERE id=$1", [vendaId])
+    assert.equal((await simularDoCliente(dono, vendaId)).status, 409)
+    assert.deepEqual(simulados, [])
+  })
+  it('solicitar a simulação não confirma se a consulta ao gateway continuar pendente', async () => {
+    const { vendaId, dono } = await comPix()
+    mock.method(simuladorPix, 'simularPagamentoPix', async () => {})
+    const r = await simularDoCliente(dono, vendaId)
+    assert.equal(r.status, 200); assert.equal(r.corpo.status, 'aguardando_pagamento')
+    assert.equal(r.corpo.pagamento.status, 'pendente'); assert.equal(await statusVenda(vendaId), 'aguardando_pagamento')
+  })
+  it('falha do gateway devolve erro e não aprova a compra', async () => {
+    const { vendaId, dono } = await comPix()
+    mock.method(simuladorPix, 'simularPagamentoPix', async () => { throw new Error('Falha sintética') })
+    assert.equal((await simularDoCliente(dono, vendaId)).status, 500)
+    assert.equal(await statusVenda(vendaId), 'aguardando_pagamento')
+  })
+
 })

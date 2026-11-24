@@ -3,6 +3,14 @@
 Alternativa ao deploy da VPS (`backend/docs/deploy.md`). Aqui o site (frontend) fica na Vercel, a API (backend) num
 Web Service do Render e o banco num Postgres do Render.
 
+Este roteiro é para **demonstração acadêmica nos planos gratuitos**, com pagamentos em Dev mode. Não habilite
+pagamentos reais nem contrate serviços pagos para seguir os passos. As URLs mostradas são exemplos até que os
+projetos sejam criados nos painéis.
+
+Nos comandos executados no WSL, use Node 22 e instale as dependências com `npm ci` em cada pasta. Ao trocar a
+versão principal do Node, reinstale as dependências: não reaproveite um `node_modules` com módulos nativos
+compilados para outra versão.
+
 ## Como as peças conversam
 
 ```
@@ -36,7 +44,9 @@ essas chamadas para o Render. Isso importa por três motivos:
    - **Region:** a mesma que você vai usar no Web Service (ex.: Ohio). Banco e API na mesma região conversam pela rede
      interna.
    - **PostgreSQL Version:** 17 (a versão dos scripts de `backend/db/init/`)
-   - **Plan:** Free para a demonstração. No Render, o banco Free expira depois de um tempo: confira o prazo no painel.
+   - **Plan:** Free para a demonstração. O Postgres gratuito expira **30 dias após a criação**; depois há 14 dias
+     para contratar um plano pago antes da exclusão. Programe a criação para perto da apresentação e mantenha uma
+     cópia dos dados de demonstração. [Limites oficiais](https://render.com/docs/free).
 3. **Create Database.** Quando ficar *Available*, abra **Connections** e copie:
    - **Internal Database URL**: vai no `DATABASE_URL` do Web Service.
    - **External Database URL**: só para os scripts rodados do seu computador (passos 3 e 4). Não vai para o Git
@@ -78,13 +88,13 @@ A versão do Node vem do `engines` do `backend/package.json` (22.x).
 | `PERMITIR_SIMULACAO_PIX` | `true` | só para a demonstração com a chave de teste (`abc_dev_`). Senão, `false` |
 | `FRETE_TRANSPORTE_JSON` | *(vazio)* | sem tabela contratada, só a retirada na loja funciona |
 | `PORT` | *(não defina)* | o Render define sozinho e o backend lê `process.env.PORT` |
-| `DATABASE_SSL` | *(não defina)* | a URL interna não precisa de TLS |
+| `DATABASE_SSL` | `false` | para a URL interna. Nos scripts locais com a URL externa, usar `true`, com validação padrão do certificado |
 | `TRUST_PROXY` | *(não defina, padrão 1)* | veja "Limitações" |
 | `IMAGENS_DIR` | *(não defina)* | sem disco persistente, o envio de fotos no admin responde 503 (veja "Limitações") |
 
 4. **Deploy Web Service.** Se o log mostrar `Variável de ambiente ... ausente/inválida`, o nome da variável está na
    mensagem. Em produção, o backend exige que a senha da `DATABASE_URL` tenha 32 caracteres ou mais. Se recusar a
-   senha gerada pelo Render, é essa regra.
+   senha gerada pelo Render, configure uma credencial que atenda à regra; não reduza a proteção no código.
 5. Teste: `https://aquarilandia-api.onrender.com/api/health` deve responder `{"status":"ok","banco":"ok"}`. Ele só
    faz `SELECT 1`, então responde ok mesmo antes de as tabelas existirem: o catálogo só funciona depois do passo 3.
 
@@ -96,15 +106,15 @@ Os `backend/db/init/*.sql` criam o esquema, mas **nenhum produto**. Rode do seu 
 ```bash
 cd backend
 npm ci
-read -s DATABASE_URL && export DATABASE_URL     # cole a External Database URL e tecle Enter (não aparece)
+IFS= read -r -s DATABASE_URL && export DATABASE_URL # cole a External Database URL e tecle Enter (não aparece)
 DATABASE_SSL=true npm run db:schema
 ```
 
-O script roda os 12 arquivos numa transação só. Se algum falhar, nada fica pela metade. Se as tabelas já existirem,
+O script roda os 13 arquivos numa transação só. Se algum falhar, nada fica pela metade. Se as tabelas já existirem,
 ele recusa sem mexer em nada.
 
-Alternativa com o `psql` instalado:
-`for f in db/init/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f" || break; done`.
+Esse comando é exclusivo para um banco vazio. Para um banco já inicializado, use as migrações específicas de cada
+módulo; não apague tabelas ou volumes para repetir a preparação.
 
 ## 4. Carregar produtos (dados de demonstração)
 
@@ -113,8 +123,8 @@ categorias, sem fotos. Ele é idempotente: rodar duas vezes não duplica. Com a 
 `DATABASE_URL` do passo 3 ainda exportado:
 
 ```bash
-read -s SENHA_ADMIN && export SENHA_ADMIN       # senha do admin de demonstração
-read -s SENHA_CLIENTE && export SENHA_CLIENTE   # senha do cliente de demonstração
+IFS= read -r -s SENHA_ADMIN && export SENHA_ADMIN       # senha do admin de demonstração
+IFS= read -r -s SENHA_CLIENTE && export SENHA_CLIENTE   # senha do cliente de demonstração
 NODE_ENV=development DATABASE_SSL=true \
   DEMO_API_URL=https://aquarilandia-api.onrender.com \
   ORIGEM=https://aquarilandia.vercel.app \
@@ -150,7 +160,7 @@ API não estiver no ar e você precisar mostrar apenas as telas do catálogo, co
 | Framework Preset | Vite |
 | Build Command | `npm run build` |
 | Output Directory | `dist` |
-| Install Command | padrão (`npm install`) ou `npm ci` |
+| Install Command | `npm ci` |
 
 4. **Environment Variables** (lidas no build: mudou, faça *Redeploy*). Nenhuma é segredo, todas vão para o
    JavaScript público:
@@ -163,6 +173,10 @@ API não estiver no ar e você precisar mostrar apenas as telas do catálogo, co
 
 5. **Deploy.** O `vercel.json` também faz o *rewrite* de qualquer rota para o `index.html`, então dar F5 em `/loja`
    ou `/conta` não dá 404.
+
+As rotas `/api` e os arquivos de `/assets` ficam fora do fallback da SPA. O arquivo também aplica `no-referrer`
+ao site e impede cache da API na CDN da Vercel. Chamadas autenticadas continuam passando pelo endereço do site;
+não substitua `/api` por uma URL absoluta do Render no frontend.
 
 ## 6. Passo final: CORS
 
@@ -180,21 +194,68 @@ No painel da AbacatePay, em **Dev mode**:
 
 - **URL:** `https://aquarilandia-api.onrender.com/api/pagamentos/webhook`
 - **Secret:** o mesmo `GATEWAY_WEBHOOK_SECRET` do Render
-- **Eventos:** `transparent.completed` e `transparent.refunded`
+- **Eventos de Pix:** `transparent.completed`, `transparent.refunded`, `transparent.disputed`, `transparent.lost`
+- **Eventos do checkout de cartão:** `checkout.completed`, `checkout.refunded`, `checkout.disputed`, `checkout.lost`
+
+Use uma chave `abc_dev_` e o webhook do mesmo ambiente Dev. O retorno do navegador não substitui a confirmação
+financeira recebida e reconsultada pelo backend.
 
 ## Limitações conhecidas desta hospedagem
 
 - **Plano Free do Render:**
   - a API dorme sem acesso, e o primeiro pedido depois disso pode levar perto de 1 min;
+  - os planos gratuitos podem ser usados sem adicionar cartão. Quando a cota mensal de banda acaba sem método
+    de pagamento, os serviços são suspensos; quando acabam os minutos de build, novos builds são bloqueados.
+    [Regras oficiais](https://render.com/docs/free);
   - as tarefas periódicas de vendas (`iniciarTarefasVendas`) só rodam com a API acordada.
 - **Fotos dos produtos:** o Web Service não tem disco persistente no plano Free, e sem `IMAGENS_DIR` o envio de foto
-  no admin responde 503. Com plano pago, crie um Disk (ex.: montado em `/var/data`) e defina
-  `IMAGENS_DIR=/var/data/imagens`.
+  no admin responde 503. O produto continua cadastrado e a interface informa a falha da foto. Para esta demonstração,
+  deixe `IMAGENS_DIR` ausente e use o catálogo sem upload de imagens. Não aponte para `/tmp` ou para o diretório do
+  código: arquivos enviados seriam perdidos no próximo reinício. Um disco persistente exige plano pago; armazenamento
+  externo exigiria uma integração adicional. [Persistência na Render](https://render.com/docs/disks).
+- **Avaliações do site, produtos e peixes:** são um protótipo salvo no `localStorage` do navegador. Elas não são
+  compartilhadas entre visitantes e não são persistidas no PostgreSQL. A coleta centralizada não faz parte desta
+  demonstração.
+- **E-mails:** o remetente `onboarding@resend.dev` entrega apenas para a conta autorizada pelo Resend. Para recuperar
+  senha em outras caixas de e-mail, será necessário um domínio de envio verificado. Não apresente essa configuração
+  de teste como envio liberado para qualquer destinatário.
 - **IP do rate limit:**
   - Com o rewrite, os pedidos passam pela Vercel e depois pelo balanceador do Render.
   - Com `TRUST_PROXY=1` (padrão), o limite pode contar o IP da Vercel em vez do IP do visitante. Isso não foi
     verificado.
   - Sinal do problema: em apresentações com muita gente, várias pessoas recebem "Muitas tentativas" no login ao
     mesmo tempo.
-  - Nesse caso, teste `TRUST_PROXY=2`.
+  - Mantenha `TRUST_PROXY=1` até verificar a cadeia real de proxies. Não aumente para `2` sem restringir o acesso
+    direto à API: confiar em um salto a mais pode aceitar um `X-Forwarded-For` fornecido pelo visitante.
 - **Frete:** sem `FRETE_TRANSPORTE_JSON`, a entrega responde 503 e só a retirada funciona (decisão de 17/11).
+
+## 8. Conferência antes da apresentação
+
+1. Confirme que a branch publicada contém a integração e as correções verificadas; alterações apenas locais não
+   chegam aos serviços configurados para acompanhar `main`.
+2. Abra `/api/health` diretamente na Render e aguarde a resposta, para despertar a API antes de demonstrar o site.
+3. No domínio da Vercel, confira `/api/health`, o catálogo e o acesso direto a `/loja` e `/conta` com recarga da página.
+4. Entre com as contas de demonstração e confirme restauração de sessão após recarregar, saída da conta e bloqueio
+   da área administrativa para clientes.
+5. Demonstre consulta, cadastro de produto sem foto, entrada de estoque, carrinho e retirada na unidade selecionada.
+6. No pagamento, use apenas Dev mode e a simulação permitida. Confira a mudança do pedido e do estoque sem cobrança
+   real. Se usar checkout de cartão, confira a habilitação no ambiente de teste e seus eventos de webhook.
+7. Informe ao professor as limitações de fotos, avaliações locais e prazo de expiração do banco gratuito.
+
+O build local e as fixtures de teste não substituem essa conferência no domínio publicado: os endereços, cabeçalhos
+do proxy e as credenciais de Dev só podem ser confirmados após a configuração dos projetos.
+
+### Verificação local de 23/11/2026
+
+A base `bc48ff3` de `origin/main` foi integrada à branch `fix/integracao-main-20261119`, preservando o cadastro com
+foto e a integração de frete. As correções de preparação foram verificadas com:
+
+- instalação limpa, typecheck, build e 1.458 testes do backend em Node 22.23.5;
+- 684 testes de integração em PostgreSQL 17 descartável, incluindo rollback completo do schema;
+- 47 testes de navegador no Chromium, com fornecedores externos substituídos por fixtures;
+- instalação limpa, testes, lint e build do frontend com `VITE_API_URL=/api` e catálogo real;
+- teste HTTP da aplicação compilada em modo de produção, com configuração fictícia: health, login, cookie
+  `Secure`/`HttpOnly`/`SameSite=Lax`, sessão, cadastro, recusa de upload sem disco, origem inválida e logout.
+
+Os testes não usaram banco do projeto, gateway ou e-mail reais. O PostgreSQL temporário foi encerrado ao fim da
+validação. As URLs dos serviços permanecem como exemplos, pois os projetos ainda não foram criados nas plataformas.

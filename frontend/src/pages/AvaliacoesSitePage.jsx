@@ -173,4 +173,3 @@ function SemResposta({ qtd }) {
   if (!qtd) return null
   return <p className="mt-3 text-legenda text-text-muted">{qtd} sem resposta (pergunta opcional)</p>
 }
-

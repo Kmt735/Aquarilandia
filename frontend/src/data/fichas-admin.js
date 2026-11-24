@@ -1,14 +1,14 @@
 // Campos da ficha técnica de cada categoria no formulário do administrador.
-// Os nomes e valores seguem os dados que a API devolve (veja src/mocks/catalogo-api.js).
-// Se o servidor recusar algum valor, a mensagem aparece na tela; é só ajustar a lista aqui.
+// Contrato: backend/src/modulos/catalogo/ficha.definicoes.ts e backend/api.md.
+// Validação final pertence à API; seus erros são associados aos campos do formulário.
 const n = (nome, rotulo, extra = {}) => ({ nome, rotulo, tipo: 'numero', ...extra })
 const t = (nome, rotulo, extra = {}) => ({ nome, rotulo, tipo: 'texto', ...extra })
 const o = (nome, rotulo, opcoes, extra = {}) => ({ nome, rotulo, tipo: 'opcoes', opcoes, ...extra })
 const s = (nome, rotulo, extra = {}) => ({ nome, rotulo, tipo: 'sim-nao', ...extra })
 
 const AGUA = [['doce', 'Doce'], ['salobra', 'Salobra'], ['marinho', 'Salgada']]
-const AGUA_AMBOS = [...AGUA, ['ambos', 'Doce e salgada']]
-const VOLTAGEM = [['bivolt', 'Bivolt'], ['110v', '110 V'], ['220v', '220 V']]
+const AGUA_AMBOS = [['doce', 'Doce'], ['marinho', 'Salgada'], ['ambos', 'Doce e salgada']]
+const VOLTAGEM = [['bivolt', 'Bivolt'], ['110', '110 V'], ['220', '220 V']]
 
 export const FICHAS = {
   peixes: [
@@ -19,26 +19,25 @@ export const FICHAS = {
     o('temperamento', 'Temperamento', [['pacifico', 'Pacífico'], ['semi_agressivo', 'Semiagressivo'], ['agressivo', 'Agressivo']], { obrigatorio: true }),
     o('dificuldade', 'Dificuldade', [['iniciante', 'Iniciante'], ['intermediario', 'Intermediário'], ['avancado', 'Avançado']], { obrigatorio: true }),
     t('origem', 'Origem'),
-    n('tempMinC', 'Temperatura mínima (°C)'),
-    n('tempMaxC', 'Temperatura máxima (°C)'),
-    n('phMin', 'pH mínimo'),
-    n('phMax', 'pH máximo'),
+    n('tempMinC', 'Temperatura mínima (°C)', { obrigatorio: true }),
+    n('tempMaxC', 'Temperatura máxima (°C)', { obrigatorio: true }),
+    n('phMin', 'pH mínimo', { obrigatorio: true }),
+    n('phMax', 'pH máximo', { obrigatorio: true }),
     n('cardumeMinimo', 'Quantidade mínima no cardume'),
-    n('aquarioMaxLitros', 'Aquário máximo (litros)'),
-    o('nivelNatacao', 'Onde nada', [['fundo', 'Fundo'], ['meio', 'Meio'], ['superficie', 'Superfície']]),
+    o('nivelNatacao', 'Onde nada', [['fundo', 'Fundo'], ['meio', 'Meio'], ['superficie', 'Superfície'], ['todos', 'Todos']]),
     o('dieta', 'Dieta', [['onivoro', 'Onívoro'], ['carnivoro', 'Carnívoro'], ['herbivoro', 'Herbívoro']]),
   ],
   aquarios: [
     n('volumeLitros', 'Volume (litros)', { obrigatorio: true }),
-    n('comprimentoCm', 'Comprimento (cm)'),
-    n('larguraCm', 'Largura (cm)'),
-    n('alturaCm', 'Altura (cm)'),
-    o('material', 'Material', [['vidro', 'Vidro'], ['acrilico', 'Acrílico']]),
-    o('tipoAgua', 'Tipo de água', AGUA_AMBOS),
+    n('comprimentoCm', 'Comprimento (cm)', { obrigatorio: true }),
+    n('larguraCm', 'Largura (cm)', { obrigatorio: true }),
+    n('alturaCm', 'Altura (cm)', { obrigatorio: true }),
+    o('material', 'Material', [['vidro', 'Vidro'], ['acrilico', 'Acrílico']], { obrigatorio: true }),
+    o('tipoAgua', 'Tipo de água', AGUA_AMBOS, { obrigatorio: true }),
   ],
   filtros: [
-    o('tipo', 'Tipo', [['interno', 'Interno'], ['hang_on', 'Pendurado (hang-on)'], ['canister', 'Externo (canister)']], { obrigatorio: true }),
-    n('vazaoLh', 'Vazão (litros por hora)'),
+    o('tipo', 'Tipo', [['interno', 'Interno'], ['hang_on', 'Pendurado (hang-on)'], ['canister', 'Externo (canister)'], ['esponja', 'Esponja'], ['sump', 'Sump']], { obrigatorio: true }),
+    n('vazaoLh', 'Vazão (litros por hora)', { obrigatorio: true }),
     n('aquarioMaxLitros', 'Aquário máximo (litros)'),
     n('potenciaW', 'Potência (W)'),
     o('voltagem', 'Voltagem', VOLTAGEM),
@@ -53,22 +52,22 @@ export const FICHAS = {
     o('voltagem', 'Voltagem', VOLTAGEM),
   ],
   iluminacao: [
-    t('tecnologia', 'Tecnologia (exemplo: led)'),
-    n('potenciaW', 'Potência (W)'),
+    o('tecnologia', 'Tecnologia', [['led', 'LED'], ['fluorescente', 'Fluorescente']], { obrigatorio: true }),
+    n('potenciaW', 'Potência (W)', { obrigatorio: true }),
     n('comprimentoCm', 'Comprimento (cm)'),
-    o('espectro', 'Espectro', [['branco', 'Branco'], ['plantado', 'Plantado'], ['marinho', 'Marinho']]),
+    o('espectro', 'Espectro', [['branco', 'Branco'], ['rgb', 'RGB'], ['plantado', 'Plantado'], ['marinho', 'Marinho']]),
     n('temperaturaCorK', 'Temperatura de cor (K)'),
     o('voltagem', 'Voltagem', VOLTAGEM),
   ],
   substratos: [
-    o('tipo', 'Tipo', [['areia', 'Areia'], ['cascalho', 'Cascalho'], ['fertil', 'Fértil'], ['coral', 'Coral']], { obrigatorio: true }),
-    n('pesoKg', 'Peso (kg)'),
-    n('granulometriaMm', 'Tamanho do grão (mm)'),
+    o('tipo', 'Tipo', [['areia', 'Areia'], ['cascalho', 'Cascalho'], ['fertil', 'Fértil'], ['coral', 'Coral'], ['argila', 'Argila']], { obrigatorio: true }),
+    n('pesoKg', 'Peso (kg)', { obrigatorio: true }),
+    t('granulometriaMm', 'Tamanho do grão (mm)'),
     t('cor', 'Cor'),
     s('alteraPh', 'Altera o pH da água'),
   ],
   decoracoes: [
-    o('material', 'Material', [['pedra', 'Pedra'], ['tronco', 'Tronco'], ['resina', 'Resina'], ['ceramica', 'Cerâmica']], { obrigatorio: true }),
+    o('material', 'Material', [['pedra', 'Pedra'], ['tronco', 'Tronco'], ['resina', 'Resina'], ['ceramica', 'Cerâmica'], ['plastico', 'Plástico']], { obrigatorio: true }),
     s('materialNatural', 'Material natural'),
     s('seguroMarinho', 'Seguro para aquário marinho'),
     n('comprimentoCm', 'Comprimento (cm)'),
@@ -77,27 +76,33 @@ export const FICHAS = {
   ],
   plantas: [
     t('nome', 'Nome científico', { obrigatorio: true }),
-    o('posicao', 'Posição no aquário', [['epifita', 'Epífita (presa em pedras e troncos)'], ['fundo', 'Fundo'], ['frente', 'Frente']]),
-    o('iluminacaoExigida', 'Iluminação exigida', [['baixa', 'Baixa'], ['media', 'Média'], ['alta', 'Alta']]),
+    o('posicao', 'Posição no aquário', [['epifita', 'Epífita (presa em pedras e troncos)'], ['fundo', 'Fundo'], ['frente', 'Frente'], ['meio', 'Meio'], ['flutuante', 'Flutuante']], { obrigatorio: true }),
+    o('iluminacaoExigida', 'Iluminação exigida', [['baixa', 'Baixa'], ['media', 'Média'], ['alta', 'Alta']], { obrigatorio: true }),
     s('precisaCo2', 'Precisa de CO₂'),
-    o('dificuldade', 'Dificuldade', [['iniciante', 'Iniciante'], ['avancado', 'Avançado']]),
+    o('dificuldade', 'Dificuldade', [['iniciante', 'Iniciante'], ['intermediario', 'Intermediário'], ['avancado', 'Avançado']], { obrigatorio: true }),
     n('tempMinC', 'Temperatura mínima (°C)'),
     n('tempMaxC', 'Temperatura máxima (°C)'),
   ],
   racoes: [
-    t('formato', 'Formato (exemplo: flocos)'),
-    n('pesoG', 'Peso (g)'),
-    o('tipoAgua', 'Tipo de água', AGUA_AMBOS),
+    o('formato', 'Formato', ['flocos', 'granulos', 'pastilhas', 'palitos', 'liofilizada', 'congelada'].map(v => [v, v]), { obrigatorio: true }),
+    n('pesoG', 'Peso (g)', { obrigatorio: true }),
+    o('tipoAgua', 'Tipo de água', AGUA_AMBOS, { obrigatorio: true }),
     t('indicadaPara', 'Indicada para'),
   ],
   condicionadores: [
-    t('tipo', 'Tipo (exemplo: condicionador)'),
+    o('tipo', 'Tipo', ['condicionador', 'medicamento', 'bacterias', 'suplemento', 'teste_agua'].map(v => [v, v]), { obrigatorio: true }),
     n('volumeMl', 'Volume (mL)'),
     t('dosagem', 'Dosagem'),
     t('principioAtivo', 'Princípio ativo'),
-    o('tipoAgua', 'Tipo de água', AGUA_AMBOS),
+    o('tipoAgua', 'Tipo de água', AGUA_AMBOS, { obrigatorio: true }),
   ],
-  // bombas e acessorios: ainda sem campos conhecidos na ficha
+  bombas: [
+    o('tipo', 'Tipo', [['submersa', 'Submersa'], ['circulacao', 'Circulação'], ['ar', 'Ar']], { obrigatorio: true }),
+    n('vazaoLh', 'Vazão (litros por hora)', { obrigatorio: true }),
+    n('alturaMaxM', 'Altura máxima (m)'), n('saidas', 'Saídas'), n('potenciaW', 'Potência (W)'),
+    o('voltagem', 'Voltagem', VOLTAGEM),
+  ],
+  // Acessórios não possuem ficha especializada.
 }
 
 // Cada campo do formulário tem um nome único: "<categoria>__<campo>"

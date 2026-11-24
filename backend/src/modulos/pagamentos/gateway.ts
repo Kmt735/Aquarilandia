@@ -10,7 +10,7 @@ const baseUrl = 'https://api.abacatepay.com/v2'
 const timeoutMs = 5000
 const msgIndisponivel = 'Não foi possível falar com o pagamento agora. Tente de novo em instantes.'
 // Todo id de cobrança Pix recebido de fora passa por aqui antes de ir para uma URL ou um body
-const padraoCobrancaId = /^pix_char_[A-Za-z0-9]+$/
+const padraoCobrancaId = /^(?:pix_char_|bill_)[A-Za-z0-9]{1,90}$/
 // Códigos de erro da AbacatePay (ex.: INSUFFICIENT_FUNDS) podem ir para o log e para estorno_ultimo_erro
 const padraoCodigoErro = /^[A-Z][A-Z_]{2,49}$/
 const msgJaReembolsada = 'Esta cobrança já foi reembolsada.'
@@ -18,6 +18,9 @@ const msgJaReembolsada = 'Esta cobrança já foi reembolsada.'
 // Texto que não está aqui nunca vai para o log nem para o banco: vira 'HTTP <status>'.
 const codigosDeMensagens: Readonly<Record<string, string>> = {
   // Visto no Dev mode (02/11/2026): a documentação promete INSUFFICIENT_FUNDS, a API manda este texto
+  'Billing not found': 'CHECKOUT_NAO_ENCONTRADO',
+  'Product with externalId already exists': 'PRODUTO_EXISTENTE',
+  'CARD is not available for this store': 'CARTAO_INDISPONIVEL',
   'Saldo insuficiente para realizar o reembolso.': 'INSUFFICIENT_FUNDS',
 }
 
@@ -94,7 +97,7 @@ const statusDaAbacatePay: Readonly<Record<string, StatusCobranca>> = {
 }
 
 class FalhaGateway extends Error {
-  constructor(public readonly codigo: string) {
+  constructor(public readonly codigo: string, public readonly definitiva = false) {
     super(codigo)
     this.name = 'FalhaGateway'
   }
@@ -110,7 +113,7 @@ function ehObjeto(valor: unknown): valor is Record<string, unknown> {
 
 function conferirCobrancaId(cobrancaId: unknown): string {
   if (typeof cobrancaId !== 'string' || !padraoCobrancaId.test(cobrancaId)) {
-    throw new Error('Id de cobrança fora do padrão pix_char_.')
+    throw new Error('Id de cobrança fora dos padrões pix_char_ ou bill_.')
   }
   return cobrancaId
 }
@@ -136,7 +139,7 @@ async function chamar(operacao: string, chamada: Chamada): Promise<unknown> {
   const token = env.gatewayAccessToken
   if (!token) {
     console.error('[gateway] GATEWAY_ACCESS_TOKEN ausente')
-    throw new FalhaGateway('sem chave')
+    throw new FalhaGateway('sem chave', true)
   }
 
   // URLSearchParams escapa os valores: nada de concatenação crua na URL
@@ -163,11 +166,13 @@ async function chamar(operacao: string, chamada: Chamada): Promise<unknown> {
     console.error(`[gateway] ${operacao}: HTTP ${resposta.status}`)
     const erro = ehObjeto(json) && typeof json.error === 'string' ? json.error : null
     if (erro === msgJaReembolsada) throw new FalhaGateway(msgJaReembolsada)
-    if (erro && Object.hasOwn(codigosDeMensagens, erro)) throw new FalhaGateway(codigosDeMensagens[erro])
-    throw new FalhaGateway(erro && padraoCodigoErro.test(erro) ? erro : `HTTP ${resposta.status}`)
+    if (erro && Object.hasOwn(codigosDeMensagens, erro)) throw new FalhaGateway(codigosDeMensagens[erro], [400, 401, 403, 404, 422].includes(resposta.status))
+    throw new FalhaGateway(erro && padraoCodigoErro.test(erro) ? erro : `HTTP ${resposta.status}`, [400, 401, 403, 404, 422].includes(resposta.status))
   }
   // A documentação manda conferir success antes de usar data, sem confiar só no status HTTP
   if (!ehObjeto(json) || json.success !== true || !('data' in json)) {
+    const erro = ehObjeto(json) && typeof json.error === 'string' ? json.error : null
+    if (erro && Object.hasOwn(codigosDeMensagens, erro)) throw new FalhaGateway(codigosDeMensagens[erro], true)
     console.error(`[gateway] ${operacao}: resposta inválida`)
     throw new FalhaGateway('resposta inválida')
   }
@@ -229,7 +234,7 @@ export async function criarCobrancaPix(entrada: NovaCobrancaPix): Promise<Cobran
   const { id, status, brCode, brCodeBase64, expiresAt, amount } = data
   const expira = typeof expiresAt === 'string' ? new Date(expiresAt) : null
   if (
-    typeof id !== 'string' || !padraoCobrancaId.test(id) ||
+    typeof id !== 'string' || !/^pix_char_[A-Za-z0-9]{1,91}$/.test(id) ||
     typeof brCode !== 'string' || brCode === '' ||
     // A imagem vai para um <img src> no frontend: só aceita um data URL de imagem
     typeof brCodeBase64 !== 'string' || !brCodeBase64.startsWith('data:image/') ||
@@ -254,6 +259,7 @@ export async function criarCobrancaPix(entrada: NovaCobrancaPix): Promise<Cobran
 // Usa GET /transparents/list?id= porque o /transparents/check devolve só id, status e expiração, sem valor.
 export async function consultarCobranca(cobrancaId: string): Promise<ConsultaCobranca> {
   const id = conferirCobrancaId(cobrancaId)
+  if (id.startsWith('bill_')) return consultarCheckout(id)
   const data = await chamarOu502('consultar', { metodo: 'GET', caminho: '/transparents/list', query: { id } })
 
   if (!Array.isArray(data)) throw respostaInvalida('consultar')
@@ -278,6 +284,7 @@ export async function consultarCobranca(cobrancaId: string): Promise<ConsultaCob
 // conferir que a listagem e o check concordam; se um dia divergirem, consultarCobranca passa a usar esta.
 export async function consultarStatusCobranca(cobrancaId: string): Promise<StatusCobranca> {
   const id = conferirCobrancaId(cobrancaId)
+  if (id.startsWith('bill_')) return (await consultarCheckout(id)).status
   const data = await chamarOu502('consultar-status', { metodo: 'GET', caminho: '/transparents/check', query: { id } })
   if (!ehObjeto(data) || data.id !== id) throw respostaInvalida('consultar-status')
   return paraStatusDoProjeto('consultar-status', data.status)
@@ -296,7 +303,7 @@ export async function estornar(cobrancaId: string, motivo?: string, valorEsperad
   try {
     const data = await chamar('estornar', {
       metodo: 'POST',
-      caminho: '/transparents/refund',
+      caminho: id.startsWith('bill_') ? '/checkouts/refund' : '/transparents/refund',
       body: motivo ? { id, reason: motivo } : { id },
     })
     if (!ehObjeto(data) || data.originalId !== id || data.status !== 'COMPLETE'
@@ -317,6 +324,8 @@ export async function estornar(cobrancaId: string, motivo?: string, valorEsperad
 // demonstração do dia 19 roda com NODE_ENV=production e a chave de teste. Com a chave de produção a AbacatePay recusaria
 // de qualquer jeito, e aqui nem chega a chamar
 export async function simularPagamentoPix(cobrancaId: string): Promise<void> {
+  conferirCobrancaId(cobrancaId)
+  if (!/^pix_char_[A-Za-z0-9]+$/.test(cobrancaId)) throw new AppError('A simulação está disponível somente para Pix.', 409)
   if (env.nodeEnv === 'production' && !simulacaoPixPermitida()) {
     throw new Error('Simular pagamento só existe fora de produção (Dev mode), ou na demonstração com a chave de teste.')
   }
@@ -332,3 +341,96 @@ export async function simularPagamentoPix(cobrancaId: string): Promise<void> {
 export const gatewayPix = { criarCobrancaPix, consultarCobranca, estornar }
 // O mesmo "seam" para a simulação (Lote 13), separado: o gatewayPix continua só com as três funções da venda real
 export const simuladorPix = { simularPagamentoPix }
+
+export interface NovoCheckoutCartao {
+  pagamentoId: number
+  vendaId: number
+  valor: number
+  referencia: string
+}
+export interface CheckoutCartao extends ConsultaCobranca { url: string }
+
+// Uma rejeição explícita permite tentar novamente; timeout ou resposta ambígua só permitem reconsultar.
+export class CheckoutRecusado extends AppError {
+  constructor(indisponivelNaConta = false) {
+    super(indisponivelNaConta ? 'O pagamento com cartão ainda não está disponível. Escolha Pix ou tente mais tarde.' : msgIndisponivel, 502)
+  }
+}
+
+function lerCheckout(data: unknown): CheckoutCartao {
+  if (!ehObjeto(data) || typeof data.id !== 'string' || !/^bill_[A-Za-z0-9]{1,90}$/.test(data.id)
+    || !Number.isSafeInteger(data.amount) || (data.amount as number) < 100 || typeof data.url !== 'string') {
+    throw respostaInvalida('checkout')
+  }
+  let url: URL
+  try { url = new URL(data.url) } catch { throw respostaInvalida('checkout-url') }
+  if (url.origin !== 'https://app.abacatepay.com' || url.pathname !== `/pay/${data.id}` || url.username || url.password) {
+    throw respostaInvalida('checkout-url')
+  }
+  const status = paraStatusDoProjeto('checkout', data.status)
+  if (status === 'aprovado' && data.paidAmount !== data.amount) throw respostaInvalida('checkout-valor-pago')
+  const extra = ehObjeto(data.metadata) ? data.metadata : {}
+  return { cobrancaId: data.id, url: url.href, valor: data.amount as number, status,
+    externalId: typeof data.externalId === 'string' ? data.externalId : null,
+    vendaId: inteiroPositivo(extra.vendaId), pagamentoId: inteiroPositivo(extra.pagamentoId) }
+}
+
+async function consultarCheckout(id: string): Promise<CheckoutCartao> {
+  const checkout = lerCheckout(await chamarOu502('consultar-checkout', { metodo: 'GET', caminho: '/checkouts/get', query: { id } }))
+  if (checkout.cobrancaId !== id) throw respostaInvalida('consultar-checkout')
+  return checkout
+}
+
+async function recuperarCheckout(referencia: string): Promise<CheckoutCartao | null> {
+  try {
+    const checkout = lerCheckout(await chamar('recuperar-checkout', { metodo: 'GET', caminho: '/checkouts/get', query: { externalId: referencia } }))
+    if (checkout.externalId !== referencia) throw respostaInvalida('recuperar-checkout')
+    return checkout
+  } catch (err) {
+    if (err instanceof FalhaGateway && err.codigo === 'CHECKOUT_NAO_ENCONTRADO') return null
+    if (err instanceof FalhaGateway) throw indisponivel()
+    throw err
+  }
+}
+
+async function prepararProdutoCheckout(dados: NovoCheckoutCartao): Promise<void> {
+  const { referencia, vendaId, valor } = dados
+  try {
+    const produto = await chamar('produto-checkout', { metodo: 'POST', caminho: '/products/create', body: {
+      externalId: referencia, name: `Aquarilândia: pedido #${vendaId}`, price: valor, currency: 'BRL',
+      description: 'Produtos e entrega do pedido.',
+    } })
+    if (!ehObjeto(produto) || produto.price !== valor || produto.externalId !== referencia) throw respostaInvalida('produto-checkout')
+  } catch (err) {
+    if (err instanceof FalhaGateway && err.codigo === 'PRODUTO_EXISTENTE') {
+      const produto = await chamarOu502('consultar-produto-checkout', { metodo: 'GET', caminho: '/products/get', query: { externalId: referencia } })
+      if (!ehObjeto(produto) || produto.price !== valor || produto.externalId !== referencia) throw respostaInvalida('produto-checkout')
+      return
+    }
+    if (err instanceof FalhaGateway) throw indisponivel()
+    throw err
+  }
+}
+
+async function criarCheckout(dados: NovoCheckoutCartao): Promise<CheckoutCartao> {
+  const { referencia, vendaId, pagamentoId, valor } = dados
+  const origem = env.frontendUrl ?? env.corsOrigin
+  let data: unknown
+  try {
+    data = await chamar('criar-checkout', { metodo: 'POST', caminho: '/checkouts/create', body: {
+      items: [{ id: referencia, quantity: 1 }], methods: ['CARD'], card: { maxInstallments: 1, passFeesToCustomer: false },
+      externalId: referencia, metadata: { vendaId, pagamentoId },
+      returnUrl: new URL(`/pagamento/pendente?pedido=${vendaId}`, origem).href,
+      completionUrl: new URL(`/pagamento/sucesso?pedido=${vendaId}`, origem).href,
+    } })
+  } catch (err) {
+    if (err instanceof FalhaGateway && err.definitiva) throw new CheckoutRecusado(err.codigo === 'CARTAO_INDISPONIVEL')
+    if (err instanceof FalhaGateway) throw indisponivel()
+    throw err
+  }
+  const checkout = lerCheckout(data)
+  if (checkout.valor !== valor || checkout.externalId !== referencia) throw respostaInvalida('criar-checkout')
+  return checkout
+}
+
+export const gatewayCartao = { recuperarCheckout, prepararProdutoCheckout, criarCheckout }

@@ -2374,3 +2374,27 @@ Aplicar 32 **antes** do código novo, também em base existente; o runner de est
 Volume, backup, limpeza segura, falhas ambíguas de COMMIT e homologação:
 [relatório de imagem principal](docs/imagem-principal-2026-11-14.md).
 Exemplos: [produto-imagem.http](http/produto-imagem.http).
+
+### Cartão de crédito e débito — checkout hospedado
+
+`POST /api/vendas/:id/pagamentos` aceita `{ "metodo": "cartao" }` e retorna `201` com
+`{ pagamentoId, metodo: "cartao", url, expiraEm }`. Sem modalidade, mantém a resposta Pix existente.
+Modalidade diferente de `pix` e `cartao` responde `422`. Valor, frete, cliente e prazo são lidos no servidor.
+A consulta, os webhooks `checkout.*`, as repetições e os estornos estão descritos em
+[Pagamento com cartão](docs/pagamento-cartao.md). Aplicar `36_pagamentos_cartao.sql` antes de ativar.
+
+
+### Concluir o Pix de demonstração pela tela do cliente
+
+`GET /api/pagamentos/configuracao` retorna `{ simulacaoPix: boolean }` com `Cache-Control: no-store`.
+Só retorna `true` quando `PERMITIR_SIMULACAO_PIX=true` e `GATEWAY_ACCESS_TOKEN` tem o prefixo de teste `abc_dev_`.
+
+`POST /api/vendas/:id/simular-pagamento` exige Origin, sessão e limite de pagamentos. Usa exclusivamente
+pedido e Pix pendente do cliente autenticado, recusa pedido de outra conta com `404`, e pedido vencido ou
+cancelado com `409`. Fora do modo de simulação retorna `404` antes das guardas. Não lê valor, status ou
+identificador de pagamento do body. Responde com o detalhe atual da compra; repetição após confirmação
+não gera nova simulação. Nenhum dado de chave ou identificador de cobrança é exposto.
+
+A operação chama o endpoint Dev da AbacatePay e reconsulta a cobrança antes de aprovar. Se o gateway
+continuar pendente ou falhar, a compra não é apresentada como paga. A confirmação em produção permanece
+automática por webhook autenticado ou reconsulta ao gateway, sem intervenção administrativa.

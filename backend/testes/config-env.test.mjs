@@ -108,6 +108,24 @@ describe('env.ts — falhar cedo (D-52)', { concurrency: true }, () => {
       naoSobe({ ...producao, [nome]: 'http://endereco-sentinela.example' }, `${nome} precisa começar com https:// em produção`))
   }
 
+  it('produção recusa lista de origens vazia após normalização', () =>
+    naoSobe({ ...producao, CORS_ORIGIN: ' , , ' }, 'CORS_ORIGIN precisa conter pelo menos uma origem'))
+
+  for (const origem of ['https://loja-sentinela.example/caminho', 'https://loja-sentinela.example?x=1',
+    'https://loja-sentinela.example#fragmento', 'https://usuario-sentinela:senha-sentinela@loja.example', 'https://*.vercel.app']) {
+    it('produção recusa origem com caminho, credenciais ou curinga', () =>
+      naoSobe({ ...producao, CORS_ORIGIN: origem }, 'CORS_ORIGIN precisa conter origens HTTP(S) sem caminho, credenciais ou curinga'))
+  }
+
+  it('produção carrega origens explícitas da Vercel, TLS e quantidade de proxies', async () => {
+    const r = await executar(['--input-type=module', '-e',
+      "const { env } = await import('./src/config/env.ts'); console.log(JSON.stringify({ corsOrigins: env.corsOrigins, corsOrigin: env.corsOrigin, databaseSsl: env.databaseSsl, trustProxy: env.trustProxy }))"],
+    { ...producao, CORS_ORIGIN: ' https://loja.vercel.app/, https://previa.vercel.app/ ', DATABASE_SSL: 'true', TRUST_PROXY: '1' })
+    assert.equal(r.codigo, 0, r.saida)
+    assert.deepEqual(JSON.parse(r.saida), { corsOrigins: ['https://loja.vercel.app', 'https://previa.vercel.app'],
+      corsOrigin: 'https://loja.vercel.app', databaseSsl: true, trustProxy: 1 })
+  })
+
   // Lote 14a: antes, "em produção sem EMAIL_API_KEY o env carrega (o email.ts é quem avisa e recusa enviar)".
   // Agora EMAIL_API_KEY e EMAIL_REMETENTE são obrigatórias em produção (D-54)
   for (const nome of ['EMAIL_API_KEY', 'EMAIL_REMETENTE']) {

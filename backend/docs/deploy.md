@@ -1,5 +1,8 @@
 # Deploy — Aquarilândia no ar (VPS + Docker + Caddy)
 
+Para **vendas reais**, siga também [Banco e AbacatePay de produção](producao-real.md).
+As etapas de dados e pagamentos de demonstração deste guia usam Dev mode e não habilitam cobranças reais.
+
 Antes da primeira publicação, leia [correções e contratos de 17/11/2026](correcoes-pre-deploy-2026-11-17.md).
 Retirada e transporte: [migração 35, cadastro de embalagens e tarifas por serviço](entrega-logistica-2026-11-17.md).
 Sem tabela comercial aprovada, deixe `FRETE_TRANSPORTE_JSON` vazia: somente retirada fica disponível em produção.
@@ -22,7 +25,8 @@ internet ──443/80──▶ Caddy (HTTPS automático) ──▶ app (site + A
 Você vai precisar de:
 - o VPS com Ubuntu 24.04, o IP dele e o acesso inicial;
 - o domínio comprado, com acesso ao painel de DNS;
-- a conta de **teste** da AbacatePay (Dev mode), com a chave que começa com `abc_dev_`;
+- a conta recebedora da AbacatePay verificada e a chave de produção (`abc_prod_`) para vendas reais;
+  para uma demonstração isolada, usar Dev mode (`abc_dev_`);
 - uma conta no **Resend** (e-mails: recuperação de senha e avisos de compra; plano gratuito);
 - cerca de 1 hora.
 
@@ -184,7 +188,7 @@ Troque **todo** `TROQUE_*`:
 | `CORS_ORIGIN`, `FRONTEND_URL`, `API_URL` | `https://` + o domínio (os três iguais) |
 | `DB_PASSWORD` | o primeiro `openssl rand -hex 32` |
 | `DATABASE_URL` | `postgres://aquarilandia:<a MESMA senha>@db:5432/aquarilandia` |
-| `GATEWAY_ACCESS_TOKEN` | a chave de **teste** da AbacatePay (`abc_dev_...`) |
+| `GATEWAY_ACCESS_TOKEN` | a chave de **produção** da conta recebedora (`abc_prod_...`); `abc_dev_...` somente para demonstração isolada |
 | `GATEWAY_WEBHOOK_SECRET` | o segundo `openssl rand -hex 32` |
 | `EMAIL_API_KEY` | a chave do Resend (`re_...`, passo 2b) |
 | `EMAIL_REMETENTE` | um endereço do domínio verificado, ex.: `Aquarilândia <nao-responda@SEU_DOMINIO>` |
@@ -258,12 +262,13 @@ Ele imprime só os e-mails, e pode rodar de novo sem duplicar nada. Para outros 
 
 ## 6. AbacatePay (webhook)
 
-No painel da AbacatePay, **em Dev mode**, cadastre o webhook:
+No painel da AbacatePay, **em modo de produção** para vendas reais (Dev mode só para demonstração), cadastre o webhook:
 
 - **URL:** `https://SEU_DOMINIO/api/pagamentos/webhook`
 - **Secret:** o `GATEWAY_WEBHOOK_SECRET` do `.env.producao`. É um segredo **novo**, gerado no passo 3: não reaproveite
   o do túnel de desenvolvimento.
-- **Eventos:** `transparent.completed` e `transparent.refunded`.
+- **Eventos:** `transparent.completed`, `transparent.refunded`, `transparent.disputed`, `transparent.lost`,
+  `checkout.completed`, `checkout.refunded`, `checkout.disputed` e `checkout.lost`.
 
 Para ver o segredo sem imprimir o resto do arquivo: `grep '^GATEWAY_WEBHOOK_SECRET=' .env.producao`. Copie direto do
 terminal para o painel.
@@ -276,7 +281,7 @@ sudo docker compose --env-file .env.producao -f docker-compose.prod.yml up -d
 
 ---
 
-## 7. Checklist final (faça tudo, nesta ordem)
+## 7. Checklist da demonstração isolada (não executar no banco de vendas reais)
 
 1. **Cliente:** em `https://SEU_DOMINIO`, entre com o cliente de demonstração, ponha um produto no carrinho, escolha a
    entrega e feche a compra.

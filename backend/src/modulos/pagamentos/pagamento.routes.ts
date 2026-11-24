@@ -10,6 +10,10 @@ export const pagamentoRoutes = Router()
 
 // Sem autenticar, sem exigirOrigem e sem rate limit: quem chama é a AbacatePay, que não manda Origin nem cookie.
 // A proteção é o webhookSecret na URL e a assinatura do corpo (verificarWebhook), e depois a reconsulta (#47).
+// Somente capacidade pública; nunca expõe chave nem segredo.
+pagamentoRoutes.get('/configuracao', (_req, res) => {
+  res.set('Cache-Control', 'no-store').json({ simulacaoPix: simulacaoPixPermitida() })
+})
 pagamentoRoutes.post('/webhook', pagamentoController.receberWebhook)
 // Lote 12: o admin registra a devolução manual de um pagamento indevido, depois das 5 tentativas automáticas
 pagamentoRoutes.post('/:id/concluir-estorno', exigirOrigem, autenticar, exigirAdmin, pagamentoController.concluirEstorno)

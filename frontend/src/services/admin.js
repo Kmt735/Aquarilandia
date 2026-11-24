@@ -8,9 +8,9 @@
 // Todas exigem sessão de administrador (cookie `sid`); sem ela o servidor responde 401 ou 403.
 // Peixes são produtos da categoria "peixes", com ficha técnica.
 // Com VITE_CATALOGO_MOCK=true, tudo roda sobre os dados de demonstração, só em memória.
-import { API_URL, CATALOGO_MOCK } from '../config/ambiente.js'
+import { CATALOGO_MOCK } from '../config/ambiente.js'
 import { lerEnvelope } from './catalogo-mapeamento.js'
-import { ErroApi } from './http.js'
+import { requisitarApi } from './api.js'
 
 const mock = CATALOGO_MOCK ? import('../mocks/catalogo-api.js').then((m) => m.adminMock) : null
 
@@ -19,24 +19,7 @@ async function chamar(caminho, { metodo = 'GET', parametros = {}, corpo } = {}) 
   for (const [chave, valor] of Object.entries(parametros)) {
     if (valor !== undefined && valor !== null && valor !== '') query.set(chave, String(valor))
   }
-  let resposta
-  try {
-    resposta = await fetch(`${API_URL}${caminho}${query.size ? `?${query}` : ''}`, {
-      method: metodo,
-      credentials: 'include',
-      headers: { Accept: 'application/json', ...(corpo !== undefined && { 'Content-Type': 'application/json' }) },
-      body: corpo === undefined ? undefined : JSON.stringify(corpo),
-    })
-  } catch {
-    throw new ErroApi('Não foi possível conectar ao servidor.', {}, 0)
-  }
-  if (resposta.status === 204) return null
-  const json = await resposta.json().catch(() => null)
-  if (resposta.ok) return json
-  if (resposta.status === 401) throw new ErroApi('O servidor não reconheceu sua sessão de administrador. Entre de novo.', {}, 401)
-  if (resposta.status === 403) throw new ErroApi('O servidor recusou a operação. Confira se esta conta é de administrador.', {}, 403)
-  if (resposta.status === 404) throw new ErroApi('Item não encontrado. Ele pode estar fora da loja ou ter sido removido.', {}, 404)
-  throw new ErroApi(json?.erro ?? 'Não foi possível concluir a operação.', json?.detalhes ?? {}, resposta.status)
+  return requisitarApi(`${caminho}${query.size ? `?${query}` : ''}`, { metodo, corpo })
 }
 
 // situacao: 'todos' | 'ativos' | 'inativos'

@@ -125,7 +125,7 @@ function Falha() {
       {/* Título exatamente como no item 9 do PDF */}
       <h1 className="text-h2">Pagamento recusado – tente outro cartão</h1>
       <p className="mt-2 text-corpo text-text-muted">
-        Fique tranquilo: nada foi cobrado e seu carrinho continua salvo. Se preferir, você também pode pagar com PIX.
+        Confira a situação da compra antes de tentar pagar novamente. A confirmação é consultada na AbacatePay; você também pode escolher Pix.
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         <Button asChild tamanho="lg">
@@ -143,9 +143,9 @@ function Pendente({ pedidoId }) {
   return (
     <div role="status">
       <Clock aria-hidden="true" className="mx-auto mb-4 size-14 text-warning-text" />
-      <h1 className="text-h2">Pagamento em análise</h1>
+      <h1 className="text-h2">Pagamento pendente</h1>
       <p className="mt-2 text-corpo text-text-muted">
-        {pedidoId ? `A compra ${pedidoId} está aguardando a confirmação do pagamento.` : 'Sua compra está aguardando a confirmação do pagamento.'} Se você escolheu PIX, conclua o pagamento no app do seu banco. O status atualizado aparece em Minhas compras.
+        {pedidoId ? `A compra ${pedidoId} está aguardando a confirmação do pagamento.` : 'Sua compra está aguardando a confirmação do pagamento.'} Se você escolheu Pix, conclua no app do banco. Se escolheu cartão, conclua na página da AbacatePay. O status atualizado aparece em Minhas compras.
       </p>
       <Button asChild tamanho="lg" className="mt-6">
         <Link to={pedidoId ? urlCompra(pedidoId) : ROTAS.minhaConta}>Acompanhar a compra</Link>

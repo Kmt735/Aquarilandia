@@ -15,7 +15,7 @@ export default function usePedidosNovos() {
 
   const conferir = useCallback(() => listarPedidosAdmin({ limite: 100 }).then(({ itens }) => {
       const vistos = lerVistos()
-      const pendentes = itens.filter((p) => aguardandoAtendimento(p) && !vistos.has(p.id))
+      const pendentes = itens.filter((p) => aguardandoAtendimento(p) && !vistos.has(String(p.id)))
       setNovos(pendentes.length)
       if (conhecidos.current) {
         const chegaram = pendentes.filter((p) => !conhecidos.current.has(p.id))

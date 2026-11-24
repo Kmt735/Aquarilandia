@@ -1,0 +1,32 @@
+{
+  "instituicao": "CENTRO FEDERAL DE EDUCAÇÃO TECNOLÓGICA DE MINAS GERAIS",
+  "campus": "CAMPUS VARGINHA",
+  "curso": "BACHARELADO EM SISTEMAS DE INFORMAÇÃO",
+  "autores": [
+    "Celio Henrique Pimenta Junior",
+    "Gabriel Teixeira",
+    "Augusto Assis",
+    "Mateus Martins"
+  ],
+  "titulo": "AQUARILÂNDIA",
+  "subtitulo": "Documentação técnica do projeto",
+  "natureza": "Relatório técnico apresentado à disciplina Design de Interação, do curso de Bacharelado em Sistemas de Informação do Centro Federal de Educação Tecnológica de Minas Gerais, Campus Varginha, como parte das atividades de desenvolvimento e documentação do projeto Aquarilândia.",
+  "cidade": "Varginha, MG",
+  "ano": "2026",
+  "resumo": "Este relatório apresenta o desenvolvimento e a documentação do site e da loja virtual da Aquarilândia, comércio de aquarismo localizado em São João del-Rei, Minas Gerais. O objetivo é relacionar o problema abordado, as necessidades dos usuários e as decisões de interface aos artefatos exigidos na disciplina Design de Interação. A elaboração utiliza os registros fornecidos pela equipe, a persona Juliana, o código-fonte e os relatórios técnicos do projeto. O método reúne análise documental, inspeção estática da interface, organização das heurísticas de Nielsen e aplicação qualitativa de GOMS e walkthrough cognitivo. Como resultados documentais, são apresentados a ficha da persona, o mapa de empatia, três níveis de wireframes reconstruídos, o histórico selecionado de prompts de inteligência artificial e um plano de métricas analíticas. O apêndice reúne arquitetura, banco de dados, contratos de API, segurança, estoque, pagamentos, testes e implantação. A análise identifica limites de completude de fichas e de consulta do montador, preservando a distinção entre evidência histórica, implementação e validação operacional. Os artefatos relacionam as necessidades de Juliana às decisões de interface e aos mecanismos técnicos que sustentam a loja virtual. O plano de métricas propõe indicadores para acompanhar o uso do site e orientar melhorias.",
+  "palavras_chave": [
+    "design de interação",
+    "aquarismo",
+    "usabilidade",
+    "persona",
+    "comércio eletrônico"
+  ],
+  "abstract": "This report presents the development and documentation of the Aquarilândia website and online store, an aquarium retailer located in São João del-Rei, Minas Gerais, Brazil. Its objective is to connect the design problem, user needs, and interface decisions with the deliverables required in the Interaction Design course. The work draws on records supplied by the project team, the Juliana persona, source code, and technical reports. The method combines documentary analysis, static interface inspection, an organization of Nielsen’s heuristics, and qualitative applications of GOMS and cognitive walkthrough. The documentary results include a persona profile, an empathy map, three reconstructed wireframe levels, selected artificial intelligence prompts, and an analytics measurement plan. An appendix describes the architecture, database, API contracts, security, inventory, payments, tests, and deployment. The analysis identifies limitations in technical product information and aquarium builder queries while distinguishing historical evidence, implementation, and operational validation. The results connect user needs with interface decisions and the technical mechanisms supporting the online store. The measurement plan provides criteria for tracking use and guiding improvements.",
+  "keywords": [
+    "interaction design",
+    "aquarium retail",
+    "usability",
+    "persona",
+    "e-commerce"
+  ]
+}

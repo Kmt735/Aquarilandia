@@ -4,7 +4,7 @@ import { pagamentoService } from './pagamento.service.js'
 import { verificarWebhook } from './webhook.js'
 
 // Eventos processados (#46/#47); qualquer outro é só confirmado com 200
-const eventosTratados = new Set(['transparent.completed', 'transparent.refunded', 'transparent.disputed', 'transparent.lost'])
+const eventosTratados = new Set(['transparent.completed', 'transparent.refunded', 'transparent.disputed', 'transparent.lost', 'checkout.completed', 'checkout.refunded', 'checkout.disputed', 'checkout.lost'])
 // O id do aviso (log_...) vira gateway_notificacao_id (VARCHAR(100)); o da cobrança, gateway_cobranca_id (VARCHAR(100))
 const padraoEventoId = /^log_[A-Za-z0-9]{1,96}$/
 const padraoCobrancaId = /^pix_char_[A-Za-z0-9]{1,91}$/
@@ -13,11 +13,15 @@ function ehObjeto(valor: unknown): valor is Record<string, unknown> {
   return typeof valor === 'object' && valor !== null && !Array.isArray(valor)
 }
 
-// data.transparent.id, se tiver o formato de id de cobrança Pix; senão null
-function lerCobrancaId(data: unknown): string | null {
-  if (!ehObjeto(data) || !ehObjeto(data.transparent)) return null
-  const { id } = data.transparent
-  return typeof id === 'string' && padraoCobrancaId.test(id) ? id : null
+// O tipo de evento determina o objeto e o formato de id permitido.
+function lerCobrancaId(data: unknown, evento: string): string | null {
+  if (!ehObjeto(data)) return null
+  const checkout = evento.startsWith('checkout.')
+  const objeto = checkout ? data.checkout : data.transparent
+  if (!ehObjeto(objeto)) return null
+  const { id } = objeto
+  const padrao = checkout ? /^bill_[A-Za-z0-9]{1,90}$/ : padraoCobrancaId
+  return typeof id === 'string' && padrao.test(id) ? id : null
 }
 
 export const pagamentoController = {
@@ -53,7 +57,7 @@ export const pagamentoController = {
       return
     }
     const eventoId = typeof id === 'string' && padraoEventoId.test(id) ? id : null
-    const cobrancaId = lerCobrancaId(data)
+    const cobrancaId = lerCobrancaId(data, event)
     // 200 e não 4xx/5xx: reenviar o mesmo corpo não o deixaria certo. Os ids não vão para o log
     if (!eventoId || !cobrancaId) {
       console.error(`[webhook] ${event} sem o id do evento ou da cobrança; ignorado`)

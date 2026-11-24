@@ -30,7 +30,11 @@ export async function criarPedido({ linhas, entrega, totalEsperado, chave }) {
     },
   }))
 }
+export const gerarCartao = (id) => requisitarApi(`/vendas/${encodeURIComponent(id)}/pagamentos`, { metodo: 'POST', corpo: { metodo: 'cartao' } })
 export const gerarPix = (id) => requisitarApi(`/vendas/${encodeURIComponent(id)}/pagamentos`, { metodo: 'POST' })
 export async function cancelarPedido(id, motivo) {
   return mapearPedido(await requisitarApi(`/vendas/${encodeURIComponent(id)}/cancelar`, { metodo: 'POST', corpo: { motivo } }))
 }
+
+export const configuracaoPagamento = () => requisitarApi('/pagamentos/configuracao')
+export const simularPagamentoDeTeste = (id) => requisitarApi(`/vendas/${encodeURIComponent(id)}/simular-pagamento`, { metodo: 'POST' })

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { test, expect } from './sistema.mjs'
 
 test('cadastro, login, Pix, confirmação e estorno usam API, sessão e estoque reais', async ({ page, sistema }) => {
+  sistema.definirSimulacaoPix(true)
   const email = `${randomUUID()}@checkout.example`, senha = 'SenhaFicticiaCheckout123!'
   await page.addInitScript((id) => localStorage.setItem('aquarilandia-carrinho', JSON.stringify({ versao: 2, itens: [{ id, qtd: 1 }] })), sistema.ids.aquario)
   await page.goto('/criar-conta?voltar=/checkout/entrega')
@@ -27,13 +28,15 @@ test('cadastro, login, Pix, confirmação e estorno usam API, sessão e estoque 
   expect((await sistema.cliente.query('SELECT status FROM vendas WHERE id=$1', [venda.id])).rows[0].status).toBe('aguardando_pagamento')
   const saldo = (await sistema.cliente.query('SELECT estoque FROM produtos WHERE id=$1', [sistema.ids.aquario])).rows[0].estoque
   await page.reload()
-  const repetida = page.waitForResponse((r) => /\/api\/vendas$/.test(r.url()) && r.request().method() === 'POST')
-  await page.getByRole('button', { name: /Gerar Pix de/ }).click()
+  const repetida = page.waitForResponse((r) => r.url().endsWith(`/api/vendas/${venda.id}/pagamentos`) && r.request().method() === 'POST')
+  await page.getByRole('button', { name: /^Gerar Pix/ }).click()
   const resposta = await repetida
-  expect(resposta.headers()['idempotent-replayed']).toBe('true')
-  expect((await resposta.json()).id).toBe(venda.id)
+  expect(resposta.status()).toBe(201)
+  expect((await sistema.cliente.query('SELECT count(*)::int AS total FROM pagamentos WHERE venda_id=$1', [venda.id])).rows[0].total).toBe(1)
   expect((await sistema.cliente.query('SELECT estoque FROM produtos WHERE id=$1', [sistema.ids.aquario])).rows[0].estoque).toBe(saldo)
-  await sistema.confirmarPagamento(venda.id)
+  const confirmada = page.waitForResponse(r => r.url().endsWith(`/api/vendas/${venda.id}/simular-pagamento`) && r.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Simular pagamento de teste', exact: true }).click()
+  expect((await confirmada).status()).toBe(200)
   await expect(page.getByRole('heading', { name: 'Pagamento aprovado!' })).toBeVisible()
   await page.getByRole('link', { name: 'Acompanhar a compra' }).click()
   await page.getByRole('button', { name: 'Cancelar compra', exact: true }).click()
@@ -41,6 +44,7 @@ test('cadastro, login, Pix, confirmação e estorno usam API, sessão e estoque 
   await expect(page.getByText('Cancelada', { exact: true }).first()).toBeVisible()
   expect((await sistema.cliente.query('SELECT estoque FROM produtos WHERE id=$1', [sistema.ids.aquario])).rows[0].estoque).toBe(saldo + 1)
   expect(await page.evaluate(() => localStorage.getItem('aquarilandia-pedidos-exemplo'))).toBeNull()
+  sistema.definirSimulacaoPix(false)
 })
 
 test('storage forjado não concede sessão nem acesso administrativo', async ({ page }) => {
@@ -100,7 +104,9 @@ test('admin com sessão real lista a compra e avança retirada somente após pag
   await sistema.confirmarPagamento(venda.id)
   await page.reload()
   for (const nome of ['Preparando o pedido', 'Pronta para retirada na loja', 'Chegou']) {
+    const atualizacao = page.waitForResponse(r => r.url().endsWith(`/api/vendas/${venda.id}/status`) && r.request().method() === 'POST')
     await page.getByRole('button', { name: `Avançar para: ${nome}`, exact: true }).click()
+    expect((await atualizacao).status()).toBe(200)
   }
   await expect(page.getByText('Chegou', { exact: true }).first()).toBeVisible()
   expect((await sistema.cliente.query('SELECT status FROM vendas WHERE id=$1', [venda.id])).rows[0].status).toBe('entregue')
@@ -129,4 +135,38 @@ test('cliente escolhe serviço com peso cubado e pedido grava transportadora e t
   await expect(page.getByLabel('Pix copia e cola')).toHaveValue(/PIX-FICTICIO/)
   const gravado=(await sistema.cliente.query('SELECT servico_frete,frete FROM vendas WHERE id=$1',[pedido.id])).rows[0]
   expect(gravado.servico_frete.id).toBe('rapido');expect(gravado.frete).toBe(4500)
+})
+
+test('cartão de crédito ou débito reutiliza o checkout e confirma o pagamento pelo servidor', async ({ page, sistema }) => {
+  const email = `${randomUUID()}@cartao.example`, senha = 'SenhaCartaoFixture123!'
+  expect((await page.request.post(`${sistema.origem}/api/auth/cadastro`, {
+    headers: { Origin: sistema.origem }, data: { nome: 'Cliente Cartão', email, senha, telefone: '32999990000', aceiteTermos: true },
+  })).status()).toBe(202)
+  await page.addInitScript((id) => localStorage.setItem('aquarilandia-carrinho', JSON.stringify({ versao: 2, itens: [{ id, qtd: 1 }] })), sistema.ids.aquario)
+  await page.goto('/entrar?voltar=/checkout/entrega')
+  await page.locator('#login-email').fill(email)
+  await page.locator('#login-senha').fill(senha)
+  await page.getByRole('button', { name: 'Entrar', exact: true }).click()
+  await expect(page).toHaveURL(/\/checkout\/entrega/)
+  await page.getByRole('radio', { name: /Retirar na loja/ }).check()
+  await page.getByRole('radio', { name: /Aquarilândia Centro/ }).check()
+  await page.getByRole('button', { name: /Continuar para o pagamento/ }).click()
+  await page.getByRole('radio', { name: /Cartão de crédito ou débito/ }).check()
+  const criada = page.waitForResponse(r => /\/api\/vendas$/.test(r.url()) && r.request().method() === 'POST')
+  await page.getByRole('button', { name: /Pagar com cartão/ }).click()
+  const venda = await (await criada).json()
+  await expect(page.getByRole('link', { name: 'Pagar na AbacatePay' })).toHaveAttribute('href', /^https:\/\/app\.abacatepay\.com\/pay\/bill_/)
+  expect((await sistema.cliente.query('SELECT status FROM vendas WHERE id=$1', [venda.id])).rows[0].status).toBe('aguardando_pagamento')
+  await page.reload()
+  await expect(page.getByRole('radio', { name: /Cartão de crédito ou débito/ })).toBeChecked()
+  await page.getByRole('button', { name: /Pagar com cartão/ }).click()
+  await expect(page.getByRole('link', { name: 'Pagar na AbacatePay' })).toBeVisible()
+  await page.goto(`/minha-conta/compras/${venda.id}`)
+  await page.getByRole('link', { name: 'Continuar pagamento', exact: true }).click()
+  await page.getByRole('button', { name: /Pagar com cartão/ }).click()
+  await expect(page.getByRole('link', { name: 'Pagar na AbacatePay' })).toBeVisible()
+  const pagamentos = (await sistema.cliente.query('SELECT metodo,valor FROM pagamentos WHERE venda_id=$1', [venda.id])).rows
+  expect(pagamentos).toEqual([{ metodo: 'cartao', valor: venda.total }])
+  await sistema.confirmarPagamento(venda.id)
+  await expect(page.getByRole('heading', { name: 'Pagamento aprovado!' })).toBeVisible()
 })

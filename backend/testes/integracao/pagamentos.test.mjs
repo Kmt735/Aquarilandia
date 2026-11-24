@@ -71,7 +71,7 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
   before(async () => {
     c = new pg.Client({ connectionString: url }); await c.connect()
     await c.query(`CREATE SCHEMA ${schema}`); criado = true; await c.query(`SET search_path TO ${schema}`)
-    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql']) {
+    for (const f of ['01_catalogo.sql', '10_clientes.sql', '20_vendas.sql', '35_entrega_logistica.sql', '21_vendas_idempotencia.sql', '22_pagamentos_estorno.sql', '30_estoque.sql', '31_estoque_vendas.sql', '36_pagamentos_cartao.sql']) {
       await c.query(await readFile(new URL(`../../db/init/${f}`, import.meta.url), 'utf8'))
     }
     adminId = (await c.query("INSERT INTO clientes (nome, email, senha_hash, papel) VALUES ('Admin', 'admin@pagamentos.example', 'hash', 'admin') RETURNING id")).rows[0].id
@@ -79,6 +79,8 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
     process.env.DATABASE_URL = urlApp.toString()
     process.env.GATEWAY_WEBHOOK_SECRET = segredo
     delete process.env.GATEWAY_ACCESS_TOKEN
+    delete process.env.EMAIL_API_KEY
+    delete process.env.EMAIL_REMETENTE
     const { app } = await import('../../src/app.ts')
     pool = (await import('../../src/config/db.ts')).db
     envApp = (await import('../../src/config/env.ts')).env
@@ -162,7 +164,7 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
   async function aviso(eventoId, cobrancaId, event = 'transparent.completed') {
     const corpo = JSON.stringify({
       id: eventoId, event, apiVersion: 2, devMode: true,
-      data: { transparent: { id: cobrancaId, amount: 1, status: 'PAID', externalId: 'pagamento-999' }, customer: pagador },
+      data: { [event.startsWith('checkout.') ? 'checkout' : 'transparent']: { id: cobrancaId, amount: 1, status: 'PAID', externalId: 'pagamento-999' }, customer: pagador },
     })
     const r = await fetch(`${api}/pagamentos/webhook?webhookSecret=${encodeURIComponent(segredo)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Webhook-Signature': assinar(corpo) }, body: corpo,
@@ -190,6 +192,116 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
            (SELECT coalesce(json_agg(p ORDER BY id), '[]') FROM pagamentos p)::text AS pagamentos,
            (SELECT coalesce(json_agg(h ORDER BY id), '[]') FROM historico_status_venda h)::text AS historico,
            (SELECT coalesce(json_agg(e ORDER BY id), '[]') FROM eventos_webhook e)::text AS eventos`)).rows[0]
+
+  async function gerarCartao(compra) {
+    const resposta = await fetch(`${api}/vendas/${compra.vendaId}/pagamentos`, { method: 'POST',
+      headers: { Origin: origem, Cookie: `sid=${compra.dono.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metodo: 'cartao', valor: 1 }) })
+    return { status: resposta.status, corpo: await resposta.json() }
+  }
+  async function instalarCartao() {
+    const { gatewayCartao } = await import('../../src/modulos/pagamentos/gateway.ts')
+    mock.method(gatewayCartao, 'recuperarCheckout', async (referencia) => {
+      const registro = [...gw.cobrancas.entries()].find(([, v]) => v.externalId === referencia)
+      return registro ? { cobrancaId: registro[0], url: `https://app.abacatepay.com/pay/${registro[0]}`, ...registro[1] } : null
+    })
+    mock.method(gatewayCartao, 'prepararProdutoCheckout', async () => {})
+    return mock.method(gatewayCartao, 'criarCheckout', async ({ pagamentoId, vendaId, valor, referencia }) => {
+      const id = `bill_fixture${pagamentoId}`
+      const dados = { status: 'pendente', valor, vendaId, pagamentoId, externalId: referencia }
+      gw.cobrancas.set(id, dados)
+      return { cobrancaId: id, url: `https://app.abacatepay.com/pay/${id}`, ...dados }
+    })
+  }
+  it('cartão: cinco tentativas concorrentes criam um checkout, reutilizam a referência e cobram o total do servidor', async () => {
+    const criar = await instalarCartao()
+    const compra = await comprar()
+    const respostas = await Promise.all(Array.from({ length: 5 }, () => gerarCartao(compra)))
+    assert.ok(respostas.some((r) => r.status === 201))
+    assert.ok(respostas.every((r) => [201, 409].includes(r.status)))
+    assert.equal(criar.mock.callCount(), 1)
+    const repetida = await gerarCartao(compra)
+    assert.equal(repetida.status, 201); assert.equal(repetida.corpo.metodo, 'cartao')
+    const [p] = await pagamentos(compra.vendaId)
+    assert.equal(p.valor, compra.total); assert.equal(p.metodo, 'cartao')
+    assert.equal(repetida.corpo.pagamentoId, p.id)
+    const outro = await cliente()
+    assert.equal((await gerarCartao({ ...compra, dono: outro })).status, 404)
+  })
+  it('cartão: timeout não repete o POST; a referência permite recuperar um checkout cuja resposta se perdeu', async () => {
+    const criar = await instalarCartao()
+    const compra = await comprar()
+    criar.mock.mockImplementation(async () => { throw new AppError(msg502, 502) })
+    assert.equal((await gerarCartao(compra)).status, 502)
+    assert.equal((await gerarCartao(compra)).status, 409)
+    assert.equal(criar.mock.callCount(), 1)
+    const [p] = await pagamentos(compra.vendaId)
+    const ref = (await c.query('SELECT referencia FROM pagamentos_checkout WHERE pagamento_id=$1', [p.id])).rows[0].referencia
+    const id = `bill_recuperada${p.id}`
+    gw.cobrancas.set(id, { status: 'pendente', valor: compra.total, vendaId: compra.vendaId, pagamentoId: p.id, externalId: ref })
+    assert.equal((await gerarCartao(compra)).status, 201)
+    assert.equal(criar.mock.callCount(), 1)
+  })
+  it('cartão: webhook reconsulta o valor, confirma uma vez e permite cancelamento com estorno e reposição', async () => {
+    await instalarCartao()
+    const compra = await comprar()
+    const resposta = await gerarCartao(compra)
+    assert.equal(resposta.status, 201)
+    const [p] = await pagamentos(compra.vendaId)
+    const id = p.gateway_cobranca_id
+    // O webhook diz PAID, mas o gateway ainda diz pendente.
+    await aviso(`log_cartaoPendente${p.id}`, id, 'checkout.completed')
+    assert.equal(await statusVenda(compra.vendaId), 'aguardando_pagamento')
+    gw.cobrancas.get(id).status = 'aprovado'
+    await aviso(`log_cartaoPago${p.id}`, id, 'checkout.completed')
+    await aviso(`log_cartaoPago${p.id}`, id, 'checkout.completed')
+    assert.equal(await statusVenda(compra.vendaId), 'paga')
+    assert.equal((await historico(compra.vendaId)).filter(h => h.status_novo === 'paga').length, 1)
+    // A consulta autenticada após o estorno deve confirmar que ele ocorreu.
+    gw.estorno = (cobranca) => { gw.cobrancas.get(cobranca).status = 'estornado'; return { aprovado: true, jaEstornado: false } }
+    const cancelamento = await fetch(`${api}/vendas/${compra.vendaId}/cancelar`, { method: 'POST', headers: { Origin: origem, Cookie: `sid=${compra.dono.token}` } })
+    assert.equal(cancelamento.status, 200)
+    assert.equal(await statusVenda(compra.vendaId), 'cancelada'); assert.equal(await saldo(compra.produtoId), 10)
+  })
+  it('Pix e cartão: dois pagamentos confirmados mantêm uma compra e devolvem o excedente', async () => {
+    await instalarCartao()
+    const compra = await comPix()
+    assert.equal((await gerarCartao(compra)).status, 201)
+    const linhas = await pagamentos(compra.vendaId)
+    assert.equal(linhas.length, 2)
+    const cartao = linhas.find(p => p.metodo === 'cartao')
+    gw.cobrancas.get(compra.cobrancaId).status = 'aprovado'
+    await aviso(`log_pixPrimeiro${cartao.id}`, compra.cobrancaId)
+    gw.estorno = (id) => { gw.cobrancas.get(id).status = 'estornado'; return { aprovado: true, jaEstornado: false } }
+    gw.cobrancas.get(cartao.gateway_cobranca_id).status = 'aprovado'
+    await aviso(`log_cartaoExcedente${cartao.id}`, cartao.gateway_cobranca_id, 'checkout.completed')
+    assert.equal(await statusVenda(compra.vendaId), 'paga'); assert.equal(await saldo(compra.produtoId), 9)
+    assert.equal((await pagamentos(compra.vendaId)).find(p => p.metodo === 'cartao').status, 'estornado')
+  })
+
+  it('expiração confere Pix e cartão: a opção mais recente não esconde outro pagamento aprovado', async () => {
+    await instalarCartao()
+    const compra = await comPix()
+    assert.equal((await gerarCartao(compra)).status, 201)
+    gw.cobrancas.get(compra.cobrancaId).status = 'aprovado'
+    await vencer(compra.vendaId, 1)
+    await tarefas.executarExpiracao()
+    assert.equal(await statusVenda(compra.vendaId), 'paga')
+    assert.equal(await saldo(compra.produtoId), 9)
+  })
+  it('cartão pago após cancelamento é devolvido sem reabrir a venda ou duplicar reposição', async () => {
+    await instalarCartao()
+    const compra = await comprar()
+    assert.equal((await gerarCartao(compra)).status, 201)
+    const [p] = await pagamentos(compra.vendaId)
+    const cancelada = await fetch(`${api}/vendas/${compra.vendaId}/cancelar`, { method: 'POST', headers: { Origin: origem, Cookie: `sid=${compra.dono.token}` } })
+    assert.equal(cancelada.status, 200)
+    gw.cobrancas.get(p.gateway_cobranca_id).status = 'aprovado'
+    gw.estorno = (id) => { gw.cobrancas.get(id).status = 'estornado'; return { aprovado: true, jaEstornado: false } }
+    assert.equal((await aviso(`log_cartaoTardio${p.id}`, p.gateway_cobranca_id, 'checkout.completed')).status, 200)
+    assert.equal(await statusVenda(compra.vendaId), 'cancelada'); assert.equal(await saldo(compra.produtoId), 10)
+    assert.equal((await pagamentos(compra.vendaId))[0].status, 'estornado')
+  })
 
   // ======================= #44 POST /api/vendas/:id/pagamentos =======================
 
@@ -580,7 +692,7 @@ describe('Pagamento Pix (Lote 11) — PostgreSQL real e gateway falso', { skip: 
     await vencer(vendaId, 61)
     assert.deepEqual(await tarefas.executarExpiracao(), { canceladas: 1, erros: 0 })
     assert.equal(await statusVenda(vendaId), 'cancelada')
-    assert.ok(saida.some((l) => l.includes(`[expiracao] venda ${vendaId}: reconsulta do Pix falhou`) && l.includes('cancelando')))
+    assert.ok(saida.some((l) => l.includes(`[expiracao] venda ${vendaId}: reconsulta do pagamento falhou`) && l.includes('cancelando')))
   })
 
   it('18. detalhe da compra com o Pix pago e sem aviso → já mostra paga; consultas em menos de 20 s → 1 chamada ao gateway', async () => {

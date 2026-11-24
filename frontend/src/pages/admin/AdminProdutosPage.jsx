@@ -72,7 +72,7 @@ export default function AdminProdutosPage() {
             Produtos
           </h2>
           <p className="mt-1 text-pequeno text-text-muted" aria-live="polite">
-            {dados ? plural(dados.total, 'item', 'itens') : 'Carregando…'}
+            {carregando ? 'Carregando…' : erro ? 'Consulta indisponível.' : plural(dados.total, 'item', 'itens')}
           </p>
         </div>
         <Button asChild>

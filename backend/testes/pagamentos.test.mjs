@@ -97,7 +97,7 @@ describe('Webhook — o que o controller lê do corpo (#46/#47)', () => {
     assert.equal(r.status, 200)
     assert.deepEqual(avisos.mock.calls.map((c) => c.arguments), [['log_abc123', 'transparent.completed', 'pix_char_xyz789']])
   })
-  it('refunded também é processado; checkout.completed e evento desconhecido só são confirmados', async () => {
+  it('refunded é processado; checkout com objeto de Pix e evento desconhecido são ignorados', async () => {
     await enviar({ ...completo, event: 'transparent.refunded' })
     await enviar({ ...completo, event: 'checkout.completed' })
     await enviar({ ...completo, event: 'outro' })
@@ -121,6 +121,13 @@ describe('Webhook — o que o controller lê do corpo (#46/#47)', () => {
       assert.equal(/log_|pix_char|bill_|Fulana/.test(texto), false)
     })
   }
+  it('checkout de cartão encaminha só os ids e exige assinatura válida', async () => {
+    const corpo = { id: 'log_checkout123', event: 'checkout.completed', data: { checkout: { id: 'bill_cartao123', amount: 1, status: 'PAID' } } }
+    assert.equal((await enviar(corpo, { assinatura: 'falsa' })).status, 401)
+    assert.equal(avisos.mock.callCount(), 0)
+    assert.equal((await enviar(corpo)).status, 200)
+    assert.deepEqual(avisos.mock.calls[0].arguments, ['log_checkout123', 'checkout.completed', 'bill_cartao123'])
+  })
   it('assinatura errada → 401 sem chamar o service', async () => {
     const r = await enviar(completo, { assinatura: 'errada' })
     assert.equal(r.status, 401)

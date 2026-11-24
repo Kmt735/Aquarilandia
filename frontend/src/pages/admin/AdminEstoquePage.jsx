@@ -5,6 +5,7 @@ import { ROTAS } from '../../utils/rotas'
 import Button from '../../components/atoms/Button'
 import Input from '../../components/atoms/Input'
 import Aviso from '../../components/molecules/Aviso'
+import EntradaEstoqueDialog from '../../components/organisms/EntradaEstoqueDialog'
 import ErroCompacto from '../../components/molecules/ErroCompacto'
 import useConsulta from '../../hooks/useConsulta'
 import { historicoEstoque, listarEstoque, movimentarEstoque } from '../../services/admin-operacoes'
@@ -12,7 +13,7 @@ import { formatarDataHora } from '../../utils/format'
 
 const tipos = { entrada: 'Entrada', saida: 'Saída', ajuste_positivo: 'Ajuste positivo', ajuste_negativo: 'Ajuste negativo' }
 export default function AdminEstoquePage() {
-  const [busca, setBusca] = useState(''), [pagina, setPagina] = useState(1)
+  const [busca, setBusca] = useState(''), [pagina, setPagina] = useState(1), [entrada, setEntrada] = useState(null)
   const consulta = useConsulta(() => listarEstoque({ busca, pagina, limite: 20 }), [busca, pagina])
   return <section>
     <h2 className="text-h2">Estoque</h2>
@@ -23,10 +24,11 @@ export default function AdminEstoquePage() {
       {!consulta.dados.total && <p className="py-6">Nenhum produto encontrado. Tente outra busca.</p>}
       <div className="overflow-x-auto rounded-card border border-border-strong"><table className="w-full text-left"><caption className="sr-only">Saldos de estoque</caption>
         <thead><tr><th className="p-3">Produto</th><th className="p-3">Saldo</th><th className="p-3">Situação</th><th className="p-3">Ações</th></tr></thead>
-        <tbody>{consulta.dados.itens.map((p) => <tr key={p.produtoId} className="border-t"><td className="p-3">{p.nome}</td><td className="p-3">{p.saldoAtual}</td><td className="p-3">{p.ativo ? 'Na loja' : 'Fora da loja'}</td><td className="p-3"><JanelaEstoque produto={p} aoSalvar={consulta.recarregar} /></td></tr>)}</tbody>
+        <tbody>{consulta.dados.itens.map((p) => <tr key={p.produtoId} className="border-t"><td className="p-3">{p.nome}</td><td className="p-3">{p.saldoAtual}</td><td className="p-3">{p.ativo ? 'Na loja' : 'Fora da loja'}</td><td className="p-3"><div className="flex flex-wrap gap-2"><Button variant="secundario" aria-label={`Dar entrada no estoque: ${p.nome}`} onClick={() => setEntrada(p)}>Dar entrada</Button><JanelaEstoque produto={p} aoSalvar={consulta.recarregar} /></div></td></tr>)}</tbody>
       </table></div>
       <div className="my-4 flex items-center gap-4"><Button disabled={pagina === 1} onClick={() => setPagina(pagina - 1)}>Anterior</Button><span>Página {pagina}</span><Button disabled={pagina * 20 >= consulta.dados.total} onClick={() => setPagina(pagina + 1)}>Próxima</Button></div>
     </>}
+    {entrada && <EntradaEstoqueDialog item={{ id: entrada.produtoId, nome: entrada.nome }} aoFechar={() => setEntrada(null)} aoSalvar={consulta.recarregar} />}
   </section>
 }
 
@@ -34,16 +36,16 @@ function JanelaEstoque({ produto, aoSalvar }) {
   const [ocupado, setOcupado] = useState(false)
   const [aberto, setAberto] = useState(false)
   return <Dialog open={aberto} onOpenChange={(valor) => { if (!ocupado) setAberto(valor) }}>
-    <DialogTrigger asChild><Button variant="secundario">Ajustar quantidade</Button></DialogTrigger>
+    <DialogTrigger asChild><Button variant="secundario">Saídas e ajustes</Button></DialogTrigger>
     <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" showCloseButton={!ocupado}>
-      <DialogHeader><DialogTitle>Estoque: {produto.nome}</DialogTitle><DialogDescription>Saldo atual: {produto.saldoAtual} unidade(s). Registre uma entrada, saída ou correção de quantidade.</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>Estoque: {produto.nome}</DialogTitle><DialogDescription>Saldo atual: {produto.saldoAtual} unidade(s). Registre uma saída ou correção de quantidade e consulte o histórico.</DialogDescription></DialogHeader>
       <Movimentacao produto={produto} aoSalvar={aoSalvar} aoOcupar={setOcupado} />
     </DialogContent>
   </Dialog>
 }
 
 function Movimentacao({ produto, aoSalvar, aoOcupar }) {
-  const [tipo, setTipo] = useState('entrada'), [quantidade, setQuantidade] = useState('1'), [motivo, setMotivo] = useState('')
+  const [tipo, setTipo] = useState('saida'), [quantidade, setQuantidade] = useState('1'), [motivo, setMotivo] = useState('')
   const [ocupado, setOcupado] = useState(false), [erro, setErro] = useState(null), [sucesso, setSucesso] = useState(null), [pagina, setPagina] = useState(1)
   const tentativa = useRef(null)
   const historico = useConsulta(() => historicoEstoque(produto.produtoId, pagina), [produto.produtoId, pagina])
@@ -63,7 +65,7 @@ function Movimentacao({ produto, aoSalvar, aoOcupar }) {
       {erro && <Aviso tipo="erro" role="alert">{erro.message} {Object.values(erro.detalhes ?? {}).join(' ')}</Aviso>}
       {sucesso && <Aviso tipo="sucesso" role="status">{sucesso}</Aviso>}
       <fieldset disabled={ocupado} className="space-y-4"><legend className="sr-only">Registrar movimentação</legend>
-      <label className="block">Tipo de movimentação<select className="ml-3 rounded-lg border p-3" value={tipo} onChange={(e) => setTipo(e.target.value)}>{Object.entries(tipos).map(([v, texto]) => <option key={v} value={v}>{texto}</option>)}</select></label>
+      <label className="block">Tipo de movimentação<select className="ml-3 rounded-lg border p-3" value={tipo} onChange={(e) => setTipo(e.target.value)}>{Object.entries(tipos).filter(([v]) => v !== 'entrada').map(([v, texto]) => <option key={v} value={v}>{texto}</option>)}</select></label>
       <label className="block">Quantidade<Input type="number" min="1" max="2147483647" step="1" required value={quantidade} onChange={(e) => setQuantidade(e.target.value)} /></label>
       <label className="block">Motivo<Input required maxLength={300} value={motivo} onChange={(e) => setMotivo(e.target.value)} /></label>
       </fieldset>
