@@ -6,7 +6,10 @@ import Termo from '../components/atoms/Termo'
 import EmptyState from '../components/molecules/EmptyState'
 import Galeria from '../components/molecules/Galeria'
 import { Trilha } from '../components/molecules/PageHead'
+import ResumoNotaProduto from '../components/molecules/ResumoNotaProduto'
+import AvaliacoesProduto from '../components/organisms/AvaliacoesProduto'
 import CaixaCompra from '../components/organisms/CaixaCompra'
+import useAvaliacoesProduto from '../hooks/useAvaliacoesProduto'
 import useConsulta from '../hooks/useConsulta'
 import useTituloPagina from '../hooks/useTituloPagina'
 import { obterPeixe } from '../services/catalogo'
@@ -72,6 +75,7 @@ export default function PeixeDetalhePage() {
   const { id } = useParams()
   const { dados: peixe, carregando, erro, recarregar } = useConsulta(() => obterPeixe(id), [id])
   useTituloPagina(peixe?.nome ?? (erro ? 'Peixe não encontrado' : 'Peixe'))
+  const avaliacoes = useAvaliacoesProduto('peixe', id)
 
   const trilha = [{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Loja', to: ROTAS.loja }, { rotulo: 'Peixes', to: ROTAS.peixes }, { rotulo: peixe?.nome ?? '…' }]
 
@@ -126,6 +130,7 @@ export default function PeixeDetalhePage() {
 
         <div>
           <h1 className="text-h1 text-primary-dark dark:text-foreground">{peixe.nome}</h1>
+          <ResumoNotaProduto resumo={avaliacoes.resumo} carregando={avaliacoes.carregando} />
           <p className="mt-1 text-corpo-lg text-text-muted italic">{peixe.cientifico}</p>
 
           {ficha.aquarioMinimo && (
@@ -194,6 +199,8 @@ export default function PeixeDetalhePage() {
           <ListaCompat titulo="Evite com" Icone={Ban} itens={peixe.evitarCom} tom="evite" />
         </div>
       </section>
+
+      <AvaliacoesProduto nomeItem={peixe.nome} avaliacoes={avaliacoes} />
     </article>
   )
 }
