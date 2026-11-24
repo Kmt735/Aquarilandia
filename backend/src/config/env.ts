@@ -77,7 +77,19 @@ const apiUrl = obrigatoriaEmProducao('API_URL')
 const gatewayAccessToken = obrigatoriaEmProducao('GATEWAY_ACCESS_TOKEN')
 const gatewayWebhookSecret = obrigatoriaEmProducao('GATEWAY_WEBHOOK_SECRET')
 
-for (const origem of corsOrigins) exigirHttpsEmProducao('CORS_ORIGIN', origem)
+if (corsOrigins.length === 0) {
+  throw new Error('Variável de ambiente inválida: CORS_ORIGIN precisa conter pelo menos uma origem. Veja o .env.example.')
+}
+for (const origem of corsOrigins) {
+  exigirHttpsEmProducao('CORS_ORIGIN', origem)
+  try {
+    const url = new URL(origem)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/'
+      || url.search || url.hash || url.hostname.includes('*')) throw new Error()
+  } catch {
+    throw new Error('Variável de ambiente inválida: CORS_ORIGIN precisa conter origens HTTP(S) sem caminho, credenciais ou curinga. Veja o .env.example.')
+  }
+}
 exigirHttpsEmProducao('FRONTEND_URL', frontendUrl)
 exigirHttpsEmProducao('API_URL', apiUrl)
 if (producao && gatewayWebhookSecret !== undefined && gatewayWebhookSecret.length < 32) {

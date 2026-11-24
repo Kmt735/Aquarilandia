@@ -111,6 +111,7 @@ export const test = base.extend({
       await vite.listen()
       const origem = `http://127.0.0.1:${vite.httpServer.address().port}`
       trocar(env, 'corsOrigin', origem)
+      trocar(env, 'corsOrigins', [origem])
       trocar(env, 'frontendUrl', origem)
       const confirmarPagamento = async (vendaId) => {
         const cobranca = [...cobrancas.values()].find((p) => p.vendaId === Number(vendaId))

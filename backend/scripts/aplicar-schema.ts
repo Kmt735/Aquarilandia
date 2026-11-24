@@ -18,7 +18,7 @@ if (!url || url.trim() === '') {
   console.error('Defina DATABASE_URL (veja o topo de scripts/aplicar-schema.ts).')
   process.exit(1)
 }
-const ssl = process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
+const ssl = process.env.DATABASE_SSL === 'true' ? true : undefined
 
 const pasta = fileURLToPath(new URL('../db/init/', import.meta.url))
 const arquivos = readdirSync(pasta).filter((a) => a.endsWith('.sql')).sort()

@@ -1,6 +1,7 @@
 -- Cartão pelo checkout hospedado. Migração aditiva; não altera pedidos nem saldos.
-BEGIN;
-SET LOCAL lock_timeout = '5s';
+DO $migracao$
+BEGIN
+PERFORM set_config('lock_timeout', '5s', true);
 CREATE TABLE IF NOT EXISTS pagamentos_checkout (
   pagamento_id INTEGER PRIMARY KEY REFERENCES pagamentos(id),
   referencia UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
@@ -10,4 +11,5 @@ CREATE TABLE IF NOT EXISTS pagamentos_checkout (
 DROP INDEX IF EXISTS uq_pagamentos_venda_pendente;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_pagamentos_venda_metodo_pendente
   ON pagamentos (venda_id, COALESCE(metodo, 'pix')) WHERE status = 'pendente';
-COMMIT;
+END
+$migracao$;
