@@ -1,11 +1,12 @@
 import { ErroApi } from './http.js'
+import { API_URL } from '../config/ambiente.js'
 
 export async function atualizarImagemProduto(produtoId, arquivo) {
   const corpo = arquivo ? new FormData() : undefined
   if (arquivo) corpo.append('imagem', arquivo)
   let resposta
   try {
-    resposta = await fetch(`/api/produtos/${encodeURIComponent(produtoId)}/imagem`, {
+    resposta = await fetch(`${API_URL}/produtos/${encodeURIComponent(produtoId)}/imagem`, {
       method: arquivo ? 'PUT' : 'DELETE', credentials: 'include', body: corpo,
       signal: AbortSignal.timeout(20000),
     })

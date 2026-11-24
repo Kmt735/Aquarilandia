@@ -28,7 +28,7 @@ function hashesDosScriptsInline(pasta: string | undefined): string[] {
 export const app = express()
 // Produção atrás de UM proxy (o Caddy, docker-compose.prod.yml): o req.ip (rate limit) vem do X-Forwarded-For que ele
 // escreve. Por isso nenhuma porta da app é publicada: só o Caddy fala com ela
-if (env.nodeEnv === 'production') app.set('trust proxy', 1)
+if (env.nodeEnv === 'production') app.set('trust proxy', env.trustProxy)
 
 // Cabeçalhos de segurança (Lote 13) em TODA resposta, da API e do site. A CSP libera só o necessário:
 //   - img-src data: (o QR code do Pix vem como data:image) e https: (fotos de produto podem vir de outro site);
@@ -62,7 +62,8 @@ app.use(helmet({
   referrerPolicy: { policy: 'no-referrer' },
   xContentTypeOptions: true,
 }))
-app.use(cors({ origin: env.corsOrigin, credentials: true }))
+// Uma origem: o mesmo comportamento de sempre (o header sai com ela). Várias: o cors devolve só a que bater
+app.use(cors({ origin: env.corsOrigins.length === 1 ? env.corsOrigins[0] : env.corsOrigins, credentials: true }))
 // Defesa mantida após a atualização do body-parser: JSON de até 100 KiB, sem descompressão.
 // verify guarda o corpo cru: o HMAC do webhook é calculado sobre o corpo exatamente como chegou, e re-serializar
 // o JSON mudaria os bytes. O req do verify é o Request do Express (o body-parser o tipa como IncomingMessage).

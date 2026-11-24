@@ -1,8 +1,10 @@
 import { Suspense, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router'
+import AvaliarSiteTab from '../atoms/AvaliarSiteTab'
 import SeloDemonstracao from '../atoms/SeloDemonstracao'
 import WhatsAppFloat from '../atoms/WhatsAppFloat'
 import Carregando from '../molecules/Carregando'
+import AvaliacaoSiteModal from '../organisms/AvaliacaoSiteModal'
 import AviseMeModal from '../organisms/AviseMeModal'
 import CartDrawer from '../organisms/CartDrawer'
 import Footer from '../organisms/Footer'
@@ -13,6 +15,7 @@ import ToastStack from '../organisms/ToastStack'
 import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
 import { CATALOGO_MOCK } from '../../config/ambiente'
+import { podeConvidar } from '../../services/avaliacoes'
 import { ROTAS } from '../../utils/rotas'
 
 // A troca de página recria o <main> (animação de entrada e foco limpo). As abas de Meu Primeiro Aquário
@@ -21,11 +24,15 @@ const chavePagina = (pathname) => (pathname.startsWith(ROTAS.primeiroAquario) ? 
 
 export default function MainLayout() {
   const { pathname } = useLocation()
-  const { painel, abrirPainel, fecharPaineis } = useUI()
+  const { painel, abrirPainel, fecharPaineis, abrirAvaliacao } = useUI()
   const abrirWhatsApp = useWhatsApp()
   const noCheckout = pathname.startsWith('/checkout') || pathname.startsWith('/pagamento')
   // O montador tem barra fixa embaixo e o próprio botão de WhatsApp ("Pedir orientação da loja")
   const noMontador = pathname === ROTAS.montarAquario
+  // Aba "Avalie o site": fora do checkout, fora da própria página de respostas e só se o visitante
+  // não avaliou/dispensou há pouco (o link do rodapé continua em todas as páginas).
+  // Relido a cada render: o layout re-renderiza quando o painel fecha, então a aba some logo após o envio.
+  const mostrarAbaAvaliacao = !noCheckout && pathname !== ROTAS.avaliacoes && podeConvidar()
 
   // Com âncora na URL (ex.: #ciclagem) quem posiciona a rolagem é a própria página; trocar de aba
   // (Meu Primeiro Aquário › Aprender/Montar) também não volta ao topo
@@ -63,9 +70,11 @@ export default function MainLayout() {
       {painel === 'busca' && <SearchBox />}
       {painel === 'orcamento' && <QuoteModal />}
       {painel === 'avise-me' && <AviseMeModal />}
+      {painel === 'avaliacao' && <AvaliacaoSiteModal />}
       <ToastStack />
       {/* No checkout o WhatsApp sai do caminho: a atenção fica na compra (item 29) */}
       {!noCheckout && !noMontador && <WhatsAppFloat onClick={() => abrirWhatsApp()} />}
+      {mostrarAbaAvaliacao && <AvaliarSiteTab onClick={() => abrirAvaliacao('aba')} />}
       {CATALOGO_MOCK && <SeloDemonstracao elevado={noMontador} />}
     </>
   )

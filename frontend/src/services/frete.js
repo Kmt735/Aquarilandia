@@ -4,7 +4,9 @@ import { ErroApi } from './http.js'
 import { requisitarApi } from './api.js'
 import { itensDaCompra } from './pedidos.js'
 
-export const AVISO_PEIXE = 'Peixes vivos são entregues só em São João del Rei. Fora daqui, você pode retirar na loja.'
+export const AVISO_PEIXE =
+  'Peixes vivos são entregues só em São João del Rei. Fora daqui, você pode retirar na loja.'
+
 export const cotarCompra = (linhas, entrega) => requisitarApi('/frete/calcular', {
   metodo: 'POST', corpo: { itens: itensDaCompra(linhas), ...(entrega.tipo === 'retirada' ? { retirada: true } : { cep: entrega.cep, ...(entrega.servicoFreteId ? {servicoFreteId:entrega.servicoFreteId} : {}) }) },
 })

@@ -6,6 +6,7 @@ import AquariumBackground from '../molecules/AquariumBackground'
 import WhatsAppIcon from '../icons/WhatsAppIcon'
 import { A_DEFINIR, AVISO_PAGAMENTO, formasPagamento, politicas, redes, unidades } from '../../data/loja'
 import useMediaQuery from '../../hooks/useMediaQuery'
+import useUI from '../../hooks/useUI'
 import useWhatsApp from '../../hooks/useWhatsApp'
 import { ROTAS, urlPolitica } from '../../utils/rotas'
 
@@ -40,6 +41,7 @@ function Grupo({ titulo, children }) {
 
 export default function Footer() {
   const abrirWhatsApp = useWhatsApp()
+  const { abrirAvaliacao } = useUI()
 
   return (
     <footer>
@@ -106,6 +108,11 @@ export default function Footer() {
               <li><Link to={ROTAS.servicos} className={link}>Serviços e orçamento</Link></li>
               <li><Link to={ROTAS.minhaConta} className={link}>Minhas compras</Link></li>
               <li><Link to={ROTAS.creditosImagens} className={link}>Créditos das fotos</Link></li>
+              <li>
+                <button type="button" onClick={() => abrirAvaliacao('rodape')} className={`${link} text-left`}>
+                  Avalie o site
+                </button>
+              </li>
             </ul>
             <h2 className="mt-5 mb-1 text-legenda font-bold tracking-[.1em] text-foreground uppercase">Políticas</h2>
             <ul>

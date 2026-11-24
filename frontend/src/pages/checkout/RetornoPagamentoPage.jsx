@@ -2,6 +2,7 @@ import { CircleCheck, CircleX, Clock, LoaderCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 import Button from '../../components/atoms/Button'
+import ConviteAvaliacao from '../../components/molecules/ConviteAvaliacao'
 import Stepper from '../../components/molecules/Stepper'
 import { ETAPAS_CHECKOUT } from '../../utils/checkout'
 import useCart from '../../hooks/useCart'
@@ -98,6 +99,7 @@ function Sucesso({ pedidoId }) {
             <Link to={ROTAS.inicio}>Voltar para a Início</Link>
           </Button>
         </div>
+        <ConviteAvaliacao />
       </div>
     )
   }

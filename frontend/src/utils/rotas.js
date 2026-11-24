@@ -20,6 +20,8 @@ export const ROTAS = {
   perguntas: '/perguntas-frequentes',
   politicas: '/politicas',
   creditosImagens: '/creditos-imagens',
+  // Respostas da avaliação do site (para a apresentação): de propósito fora do menu e do rodapé
+  avaliacoes: '/avaliacoes',
   entrar: '/entrar',
   criarConta: '/criar-conta',
   esqueciSenha: '/esqueci-a-senha',

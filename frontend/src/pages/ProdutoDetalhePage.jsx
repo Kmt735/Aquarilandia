@@ -5,8 +5,11 @@ import Skeleton from '../components/atoms/Skeleton'
 import EmptyState from '../components/molecules/EmptyState'
 import Galeria from '../components/molecules/Galeria'
 import { Trilha } from '../components/molecules/PageHead'
+import ResumoNotaProduto from '../components/molecules/ResumoNotaProduto'
+import AvaliacoesProduto from '../components/organisms/AvaliacoesProduto'
 import CaixaCompra from '../components/organisms/CaixaCompra'
 import { descricaoCategoria } from '../data/glossario'
+import useAvaliacoesProduto from '../hooks/useAvaliacoesProduto'
 import useConsulta from '../hooks/useConsulta'
 import useTituloPagina from '../hooks/useTituloPagina'
 import { linhasFicha } from '../services/catalogo-mapeamento'
@@ -18,6 +21,7 @@ export default function ProdutoDetalhePage() {
   const { id } = useParams()
   const { dados: produto, carregando, erro, recarregar } = useConsulta(() => obterProduto(id), [id])
   useTituloPagina(produto?.nome ?? (erro ? 'Produto não encontrado' : 'Produto'))
+  const avaliacoes = useAvaliacoesProduto('produto', id)
 
   if (carregando) {
     return (
@@ -63,6 +67,7 @@ export default function ProdutoDetalhePage() {
         </div>
         <div>
           <h1 className="text-h1 text-primary-dark dark:text-foreground">{produto.nome}</h1>
+          <ResumoNotaProduto resumo={avaliacoes.resumo} carregando={avaliacoes.carregando} />
           <p className="mt-4 max-w-[60ch] text-corpo text-text-muted">{produto.descricao ?? 'Descrição ainda não disponível.'}</p>
           <dl className="mt-5 flex flex-col divide-y divide-border rounded-card border border-border-strong bg-surface px-5 py-2">
             {dados.map(([k, v]) => (
@@ -79,6 +84,8 @@ export default function ProdutoDetalhePage() {
           </div>
         </div>
       </div>
+
+      <AvaliacoesProduto nomeItem={produto.nome} avaliacoes={avaliacoes} />
     </article>
   )
 }
