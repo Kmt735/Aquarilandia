@@ -1,74 +1,75 @@
 // Avaliações de produtos e peixes (nota + comentário), mostradas na página de cada item.
 //
-// TODO INTEGRAÇÃO: hoje tudo fica no localStorage DESTE navegador (protótipo; mocks/avaliacoes-produto.js).
-// No backend, troque o corpo das funções por:
-//   GET  /api/produtos/:id/avaliacoes   (lista pública, mais recentes primeiro)
-//   POST /api/produtos/:id/avaliacoes   (exigir login e, de preferência, compra entregue: selo "Compra verificada")
-// e modere os comentários antes de publicar. Os componentes não precisam mudar.
-import { CHAVE_AVALIACOES_PRODUTO, CHAVE_JA_AVALIADOS } from '../mocks/avaliacoes-produto.js'
-import { ErroApi, simularRede } from './http.js'
+// Vêm da API (backend/src/modulos/avaliacoes): o site mostra só as APROVADAS pela loja; a avaliação nova nasce
+// "pendente" (ou "aprovada", se a loja ligar AVALIACOES_PUBLICAR_DIRETO) e a resposta do envio diz qual.
+// Peixe também é produto na API: os dois usam /produtos/:id/avaliacoes.
+//
+// O localStorage guarda só a MARCA "este navegador já avaliou este item" (para não mostrar o formulário de novo),
+// nunca a avaliação em si.
+import { requisitarApi } from './api.js'
+import { ErroApi } from './http.js'
 import { NOTAS } from '../data/avaliacao-site.js'
 
 export const LIMITE_COMENTARIO_PRODUTO = 500
 export const LIMITE_NOME = 40
+const CHAVE_JA_AVALIADOS = 'aquarilandia-avaliacoes-produto-feitas'
 
-// Peixe e produto podem ter o mesmo id numérico: a chave junta o tipo
+// A marca de "já avaliado" separa peixe de produto (a página de cada um tem a sua)
 export const chaveItem = (item) => `${item?.tipo === 'peixe' ? 'peixe' : 'produto'}:${item?.id}`
 
-function ler(chave, padrao) {
+function lerMarcas() {
   try {
-    const bruto = localStorage.getItem(chave)
-    const dados = bruto ? JSON.parse(bruto) : padrao
-    return dados && typeof dados === 'object' ? dados : padrao
+    const dados = JSON.parse(localStorage.getItem(CHAVE_JA_AVALIADOS) ?? '{}')
+    return dados && typeof dados === 'object' ? dados : {}
   } catch {
-    return padrao
+    return {}
   }
 }
 
-function gravar(chave, valor) {
+function marcarAvaliado(item) {
   try {
-    localStorage.setItem(chave, JSON.stringify(valor))
+    localStorage.setItem(CHAVE_JA_AVALIADOS, JSON.stringify({ ...lerMarcas(), [chaveItem(item)]: Date.now() }))
   } catch {
-    // armazenamento bloqueado: a avaliação aparece só enquanto a página estiver aberta
+    // armazenamento bloqueado: o formulário pode aparecer de novo, sem problema
   }
 }
 
-export function montarAvaliacaoProduto({ nota, nome, comentario }, agora = Date.now()) {
+export const jaAvaliou = (item) => Boolean(lerMarcas()[chaveItem(item)])
+
+// O que vai para a API (o servidor valida de novo e tira HTML)
+export function montarAvaliacaoProduto({ nota, nome, comentario }) {
   if (!NOTAS.includes(nota)) throw new ErroApi('Escolha uma nota de 1 a 5.', { nota: 'Escolha uma nota de 1 a 5.' })
   return {
-    id: `${agora.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-    criadaEm: new Date(agora).toISOString(),
     nota,
     nome: String(nome ?? '').trim().replace(/\s+/g, ' ').slice(0, LIMITE_NOME) || null,
     comentario: String(comentario ?? '').trim().slice(0, LIMITE_COMENTARIO_PRODUTO) || null,
   }
 }
 
-const valida = (a) => a && NOTAS.includes(a.nota) && typeof a.criadaEm === 'string'
+export const RESUMO_VAZIO = { total: 0, media: 0, distribuicao: [...NOTAS].reverse().map((nota) => ({ nota, qtd: 0 })) }
 
+// { itens: [{ id, nota, nome, comentario, criadaEm }], resumo: { total, media, distribuicao } }
 export async function listarAvaliacoesProduto(item) {
-  await simularRede(250)
-  const lista = ler(CHAVE_AVALIACOES_PRODUTO, {})[chaveItem(item)]
-  return Array.isArray(lista) ? lista.filter(valida).sort((a, b) => b.criadaEm.localeCompare(a.criadaEm)) : []
+  const r = await requisitarApi(`/produtos/${encodeURIComponent(item.id)}/avaliacoes`)
+  return { itens: Array.isArray(r?.itens) ? r.itens : [], resumo: r?.resumo ?? RESUMO_VAZIO }
 }
 
+// Devolve a avaliação criada, com o status ("pendente" ou "aprovada")
 export async function enviarAvaliacaoProduto(item, dados) {
-  const avaliacao = montarAvaliacaoProduto(dados)
-  await simularRede(400)
-  const chave = chaveItem(item)
-  const todas = ler(CHAVE_AVALIACOES_PRODUTO, {})
-  gravar(CHAVE_AVALIACOES_PRODUTO, { ...todas, [chave]: [...(Array.isArray(todas[chave]) ? todas[chave] : []), avaliacao] })
-  gravar(CHAVE_JA_AVALIADOS, { ...ler(CHAVE_JA_AVALIADOS, {}), [chave]: avaliacao.criadaEm })
-  return avaliacao
+  const corpo = montarAvaliacaoProduto(dados)
+  const criada = await requisitarApi(`/produtos/${encodeURIComponent(item.id)}/avaliacoes`, { metodo: 'POST', corpo })
+  marcarAvaliado(item)
+  return criada
 }
 
-export const jaAvaliou = (item) => Boolean(ler(CHAVE_JA_AVALIADOS, {})[chaveItem(item)])
-
-export function resumirNotas(lista) {
-  const total = lista.length
+// Soma avaliações recém-publicadas a um resumo vindo da API (sem recarregar a lista)
+export function somarAoResumo(resumo, novas) {
+  if (!novas.length) return resumo
+  const total = resumo.total + novas.length
+  const soma = resumo.media * resumo.total + novas.reduce((s, a) => s + a.nota, 0)
   return {
     total,
-    media: total ? lista.reduce((s, a) => s + a.nota, 0) / total : 0,
-    distribuicao: [...NOTAS].reverse().map((nota) => ({ nota, qtd: lista.filter((a) => a.nota === nota).length })),
+    media: soma / total,
+    distribuicao: resumo.distribuicao.map((d) => ({ ...d, qtd: d.qtd + novas.filter((a) => a.nota === d.nota).length })),
   }
 }

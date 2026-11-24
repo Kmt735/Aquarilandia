@@ -45,6 +45,7 @@ const AdminItemFormPage = lazy(() => import('./pages/admin/AdminItemFormPage'))
 const AdminEstoquePage = lazy(() => import('./pages/admin/AdminEstoquePage'))
 const AdminOrcamentosPage = lazy(() => import('./pages/admin/AdminOrcamentosPage'))
 const AdminClientesPage = lazy(() => import('./pages/admin/AdminClientesPage'))
+const AdminAvaliacoesPage = lazy(() => import('./pages/admin/AdminAvaliacoesPage'))
 
 // Endereço antigo do guia: quem já tinha o link cai no novo, mantendo a âncora
 function RedirecionarPrimeiroAquario() {
@@ -113,6 +114,7 @@ export default function App() {
                     <Route path="estoque" element={<AdminEstoquePage />} />
                     <Route path="orcamentos" element={<AdminOrcamentosPage />} />
                     <Route path="clientes" element={<AdminClientesPage />} />
+                    <Route path="avaliacoes" element={<AdminAvaliacoesPage />} />
                     </Route>
                     <Route path="*" element={<NaoEncontradaPage />} />
                   </Route>

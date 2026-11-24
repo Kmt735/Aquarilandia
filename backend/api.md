@@ -14,6 +14,7 @@ Se precisar fugir de alguma regra, combine antes e atualize este arquivo no mesm
 | Vendas | Celio | `src/modulos/vendas/` | `/api/vendas`, `/api/frete` | `vendas`, `itens_venda`, `historico_status_venda` |
 | Pagamentos | Celio | `src/modulos/pagamentos/` | `/api/pagamentos`, `/api/vendas/:id/pagamentos` | `pagamentos`, `eventos_webhook` |
 | Orçamentos *(já existe)* | Celio | `src/modulos/orcamentos/` | `/api/orcamentos` | `orcamentos` |
+| Avaliações | — | `src/modulos/avaliacoes/` | `/api/produtos/:id/avaliacoes`, `/api/avaliacoes-site`, `/api/avaliacoes` | `avaliacoes_produto`, `avaliacoes_site` |
 | Catálogo | Dev 2 | `src/modulos/catalogo/` | `/api/categorias`, `/api/produtos`, `/api/peixes`, `/api/servicos` | `categorias`, `produtos` e as tabelas de detalhe (`peixes`, `aquarios`, `filtros`...) |
 | Estoque | Dev 2 | `src/modulos/estoque/` | `/api/estoque` | `movimentacoes_estoque` e a coluna `produtos.estoque` |
 
@@ -202,6 +203,18 @@ POST   /api/pagamentos/:id/simular              (admin — só na demonstração
 GET    /api/orcamentos                          ?status=&pagina=&limite=   (admin — paginado, ver seção 4)
 POST   /api/orcamentos                          (público, rate limit: 5 por hora por IP, contando os que deram certo)
 PATCH  /api/orcamentos/:id                      { status }   (admin — novo, em_atendimento ou concluido)
+
+GET    /api/produtos/:id/avaliacoes             (público — só as aprovadas + resumo; peixe também é produto)
+POST   /api/produtos/:id/avaliacoes             { nota, nome?, comentario? }   (público, Origin; limite: 10 por hora por IP, somado ao do site)
+GET    /api/avaliacoes-site                     (público — resumo das aprovadas e os últimos comentários)
+POST   /api/avaliacoes-site                     { nota, motivo?, encontrou?, comentario?, origem?, pagina? }   (público, Origin, mesmo limite)
+GET    /api/avaliacoes/resumo                   (admin — por tipo: total, pendentes, aprovadas, ocultas, média; e pendentes no total)
+GET    /api/avaliacoes/produtos                 ?status=&nota=&pagina=&limite=   (admin — com produtoNome e produtoCategoria)
+GET    /api/avaliacoes/site                     ?status=&nota=&pagina=&limite=   (admin)
+PATCH  /api/avaliacoes/produtos/:id             { status }   (admin — pendente, aprovada ou oculta)
+PATCH  /api/avaliacoes/site/:id                 { status }   (admin)
+DELETE /api/avaliacoes/produtos/:id             (admin — 204)
+DELETE /api/avaliacoes/site/:id                 (admin — 204)
 ```
 
 **Dev 2 — catálogo / estoque**
@@ -1797,6 +1810,35 @@ desenvolvimento sem `EMAIL_API_KEY`, o `utils/email.ts` imprime o e-mail no term
 Resend (D-54): só texto, timeout de 10 s, e uma falha do provedor nunca desfaz a mudança de status nem muda a resposta.
 
 ---
+
+### Avaliações de produto e do site — implementadas em 23/11/2026
+
+**Moderação.** Toda avaliação nova nasce com o `STATUS_INICIAL` de `avaliacao.config.ts`: `pendente` (padrão) ou
+`aprovada`, se `AVALIACOES_PUBLICAR_DIRETO=true`. O site só mostra as `aprovada`. A loja modera no painel
+(Admin → Avaliações): aprovar, ocultar (sai do site, fica no banco) ou excluir (apaga de vez).
+
+**Validação no servidor** (`avaliacao.validacao.ts`):
+- `nota`: número inteiro de 1 a 5 (texto `"5"` é recusado).
+- `nome` (até 40) e `comentario` (até 500 no produto, 300 no site): opcionais. Tags HTML e caracteres de controle
+  são removidos antes de medir; passou do limite é 422.
+- `motivo`, `encontrou`, `origem`: opção fora da lista vira `null` (`origem` vira `aba`).
+- `pagina`: só um caminho do próprio site (`/loja/3`).
+- Campos que o visitante não decide (`status`, `id`, `produtoId`) são ignorados.
+
+**Respostas.**
+- `POST /produtos/:id/avaliacoes` → 201 `{ id, nota, nome, comentario, criadaEm, status }`. 404 se o produto não
+  existe ou está inativo.
+- `GET /produtos/:id/avaliacoes` → `{ itens: [{ id, nota, nome, comentario, criadaEm }],
+  resumo: { total, media, distribuicao: [{ nota: 5, qtd }, …, { nota: 1, qtd }] } }`. Até 100 itens, mais recentes
+  primeiro; o resumo conta todas.
+- `POST /avaliacoes-site` → 201 `{ id, nota, criadaEm, status }`.
+- `GET /avaliacoes-site` → `{ total, media, distribuicao, motivos: [{ valor, qtd }], encontrou: [{ valor, qtd }],
+  comentarios: [...] }` (até 50 comentários aprovados).
+- `GET /avaliacoes/resumo` (admin) → `{ produtos: { total, pendentes, aprovadas, ocultas, media }, site: {...},
+  pendentes }`. A média não conta as ocultas.
+
+Não guarda IP nem conta de quem avaliou. As tabelas estão em `db/init/36_avaliacoes.sql`, que é idempotente.
+Num banco que já existe, rode `npm run db:migrar-avaliacoes`.
 
 ## 7. Banco de dados
 

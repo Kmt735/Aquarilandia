@@ -140,6 +140,10 @@ function lerBooleana(nome: string): boolean {
 }
 const databaseSsl = lerBooleana('DATABASE_SSL')
 
+// AVALIACOES_PUBLICAR_DIRETO (opcional): true publica as avaliações novas na hora, sem passar pela moderação da loja.
+// Padrão false: nascem 'pendente' e só aparecem no site depois de aprovadas (modulos/avaliacoes/avaliacao.config.ts)
+const avaliacoesPublicarDireto = lerBooleana('AVALIACOES_PUBLICAR_DIRETO')
+
 // TRUST_PROXY (opcional): quantos proxies ficam entre o cliente e a app em produção (o req.ip do rate limit vem do
 // X-Forwarded-For). Padrão 1 (o Caddy da VPS, ou o balanceador do Render)
 function lerTrustProxy(): number {
@@ -186,6 +190,7 @@ export const env = {
   corsOrigin: corsOrigins[0],
   databaseSsl,
   trustProxy,
+  avaliacoesPublicarDireto,
   apiUrl,
   frontendUrl,
   // Sem token, o gateway.ts recusa a chamada ('sem chave'); sem segredo, o webhook.ts recusa toda notificação

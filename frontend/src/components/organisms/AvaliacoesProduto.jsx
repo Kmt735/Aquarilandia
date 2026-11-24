@@ -9,7 +9,7 @@ import Textarea from '../atoms/Textarea'
 import Aviso from '../molecules/Aviso'
 import BarraDistribuicao from '../molecules/BarraDistribuicao'
 import EstrelasNota from '../molecules/EstrelasNota'
-import { ROTULO_NOTA } from '../../data/avaliacao-site'
+import { MSG_PENDENTE, MSG_PUBLICADA, ROTULO_NOTA } from '../../data/avaliacao-site'
 import useAuth from '../../hooks/useAuth'
 import { LIMITE_COMENTARIO_PRODUTO, LIMITE_NOME } from '../../services/avaliacoes-produto'
 
@@ -22,7 +22,8 @@ const POR_PAGINA = 5
 export default function AvaliacoesProduto({ nomeItem, avaliacoes }) {
   const { lista, resumo, carregando, erro, recarregar, enviar, jaAvaliou } = avaliacoes
   const [aberto, setAberto] = useState(false)
-  const [agradecer, setAgradecer] = useState(false)
+  // Status da avaliação enviada nesta visita ('pendente' ou 'aprovada'): decide o agradecimento
+  const [agradecer, setAgradecer] = useState(null)
   const [mostrar, setMostrar] = useState(POR_PAGINA)
   const tituloFormRef = useRef(null)
   const botaoRef = useRef(null)
@@ -91,7 +92,7 @@ export default function AvaliacoesProduto({ nomeItem, avaliacoes }) {
               {agradecer ? (
                 <p ref={obrigadoRef} tabIndex={-1} className="flex items-start gap-2 text-pequeno font-semibold text-foreground outline-none">
                   <CircleCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-success-text" />
-                  Obrigado! Sua avaliação foi publicada.
+                  {agradecer === 'aprovada' ? MSG_PUBLICADA : MSG_PENDENTE}
                 </p>
               ) : jaAvaliou ? (
                 <p className="text-pequeno text-text-muted">Você já avaliou este item.</p>
@@ -111,10 +112,10 @@ export default function AvaliacoesProduto({ nomeItem, avaliacoes }) {
                 tituloRef={tituloFormRef}
                 onCancelar={cancelar}
                 onEnviar={async (campos) => {
-                  await enviar(campos)
+                  const enviada = await enviar(campos)
                   setFocarApos('obrigado')
                   setAberto(false)
-                  setAgradecer(true)
+                  setAgradecer(enviada?.status ?? 'pendente')
                 }}
               />
             )}
