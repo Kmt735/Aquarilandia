@@ -1,0 +1,2 @@
+pypdf==7.1.1
+PyMuPDF==2.1
