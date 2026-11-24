@@ -1,8 +1,10 @@
 import { MessageSquareHeart, Star, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import Button from '../components/atoms/Button'
+import EstrelasExibicao from '../components/atoms/EstrelasExibicao'
 import Skeleton from '../components/atoms/Skeleton'
 import Aviso from '../components/molecules/Aviso'
+import BarraDistribuicao from '../components/molecules/BarraDistribuicao'
 import EmptyState from '../components/molecules/EmptyState'
 import PageTemplate from '../components/templates/PageTemplate'
 import { ENCONTROU, MOTIVOS_VISITA, ROTULO_NOTA } from '../data/avaliacao-site'
@@ -13,7 +15,6 @@ import { ROTAS } from '../utils/rotas'
 const rotuloDe = (opcoes, v) => opcoes.find(([valor]) => valor === v)?.[1]
 const ORIGEM = { aba: 'Aba lateral', rodape: 'Rodapé', 'pos-compra': 'Depois da compra' }
 const numero = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 })
-const porcento = (qtd, total) => (total ? Math.round((qtd / total) * 100) : 0)
 const data = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 
 // Página escondida (fora do menu e do rodapé) para mostrar as respostas na apresentação.
@@ -96,7 +97,7 @@ function Resumo({ lista, onApagar }) {
               {numero.format(r.media)}
               <span className="text-h4 text-text-muted"> de 5</span>
             </p>
-            <EstrelasMedia media={r.media} />
+            <EstrelasExibicao nota={r.media} />
           </div>
           <p className="text-pequeno text-text-muted">
             <strong className="text-foreground tabular-nums">{r.total}</strong> {r.total === 1 ? 'avaliação' : 'avaliações'}
@@ -107,7 +108,7 @@ function Resumo({ lista, onApagar }) {
           <h3 className="mb-3 text-h4">Distribuição das notas</h3>
           <ul className="space-y-2">
             {r.distribuicao.map(({ nota, qtd }) => (
-              <Barra key={nota} rotulo={`${nota} ${nota === 1 ? 'estrela' : 'estrelas'}`} dica={ROTULO_NOTA[nota]} qtd={qtd} total={r.total} />
+              <BarraDistribuicao key={nota} rotulo={`${nota} ${nota === 1 ? 'estrela' : 'estrelas'}`} dica={ROTULO_NOTA[nota]} qtd={qtd} total={r.total} />
             ))}
           </ul>
         </div>
@@ -117,14 +118,14 @@ function Resumo({ lista, onApagar }) {
         <div className={cartao}>
           <h2 className="mb-3 text-h4">O que vieram fazer</h2>
           <ul className="space-y-2">
-            {r.motivos.map((m) => <Barra key={m.valor} rotulo={m.rotulo} qtd={m.qtd} total={r.total} />)}
+            {r.motivos.map((m) => <BarraDistribuicao key={m.valor} rotulo={m.rotulo} qtd={m.qtd} total={r.total} />)}
           </ul>
           <SemResposta qtd={r.total - r.motivos.reduce((s, m) => s + m.qtd, 0)} />
         </div>
         <div className={cartao}>
           <h2 className="mb-3 text-h4">Encontraram o que procuravam?</h2>
           <ul className="space-y-2">
-            {r.encontrou.map((m) => <Barra key={m.valor} rotulo={m.rotulo} qtd={m.qtd} total={r.total} />)}
+            {r.encontrou.map((m) => <BarraDistribuicao key={m.valor} rotulo={m.rotulo} qtd={m.qtd} total={r.total} />)}
           </ul>
           <SemResposta qtd={r.total - r.encontrou.reduce((s, m) => s + m.qtd, 0)} />
         </div>
@@ -167,37 +168,9 @@ function Resumo({ lista, onApagar }) {
   )
 }
 
-// Barra horizontal com o número escrito ao lado (a leitura não depende do tamanho da barra)
-function Barra({ rotulo, dica, qtd, total }) {
-  const pct = porcento(qtd, total)
-  return (
-    <li className="grid grid-cols-[8.5rem_1fr_4.75rem] items-center gap-3 text-pequeno sm:grid-cols-[11rem_1fr_4.75rem]">
-      <span className="text-foreground">
-        {rotulo}
-        {dica && <span className="sr-only"> ({dica})</span>}
-      </span>
-      <span aria-hidden="true" className="h-2.5 overflow-hidden rounded-full bg-surface-muted">
-        <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
-      </span>
-      <span className="text-right text-text-muted tabular-nums">
-        {qtd} <span className="text-legenda">({pct}%)</span>
-      </span>
-    </li>
-  )
-}
 
 function SemResposta({ qtd }) {
   if (!qtd) return null
   return <p className="mt-3 text-legenda text-text-muted">{qtd} sem resposta (pergunta opcional)</p>
 }
 
-function EstrelasMedia({ media }) {
-  const cheias = Math.round(media)
-  return (
-    <span aria-hidden="true" className="mt-1 flex">
-      {[1, 2, 3, 4, 5].map((n) => (
-        <Star key={n} strokeWidth={1.75} className={`size-5 ${n <= cheias ? 'fill-accent text-warning-text' : 'text-border-control'}`} />
-      ))}
-    </span>
-  )
-}
