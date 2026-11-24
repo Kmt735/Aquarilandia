@@ -75,6 +75,7 @@ A versão do Node vem do `engines` do `backend/package.json` (22.x).
 | `GATEWAY_WEBHOOK_SECRET` | resultado de `openssl rand -hex 32` | **segredo**, no mínimo 32 caracteres. O mesmo valor vai no webhook da AbacatePay |
 | `EMAIL_API_KEY` | `re_...` | **segredo**, chave do Resend. Obrigatória em produção |
 | `EMAIL_REMETENTE` | `Aquarilândia <onboarding@resend.dev>` | sem domínio verificado no Resend, o `onboarding@resend.dev` só entrega para o e-mail da própria conta do Resend |
+| `AVALIACOES_PUBLICAR_DIRETO` | `false` | `false` (padrão): avaliação nova espera a loja aprovar no painel. `true`: publica na hora |
 | `PERMITIR_SIMULACAO_PIX` | `true` | só para a demonstração com a chave de teste (`abc_dev_`). Senão, `false` |
 | `FRETE_TRANSPORTE_JSON` | *(vazio)* | sem tabela contratada, só a retirada na loja funciona |
 | `PORT` | *(não defina)* | o Render define sozinho e o backend lê `process.env.PORT` |
@@ -100,8 +101,17 @@ read -s DATABASE_URL && export DATABASE_URL     # cole a External Database URL e
 DATABASE_SSL=true npm run db:schema
 ```
 
-O script roda os 12 arquivos numa transação só. Se algum falhar, nada fica pela metade. Se as tabelas já existirem,
+O script roda os arquivos de `db/init/` numa transação só (inclusive o `36_avaliacoes.sql`, das avaliações). Se algum falhar, nada fica pela metade. Se as tabelas já existirem,
 ele recusa sem mexer em nada.
+
+**Banco que já existia antes das avaliações?** O `db:schema` recusa banco com tabelas. Crie só as tabelas novas
+(o script é idempotente e não apaga nada):
+
+```bash
+read -s DATABASE_URL && export DATABASE_URL     # External Database URL
+NODE_ENV=development DATABASE_SSL=true npm run db:migrar-avaliacoes
+unset DATABASE_URL
+```
 
 Alternativa com o `psql` instalado:
 `for f in db/init/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f" || break; done`.

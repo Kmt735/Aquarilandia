@@ -22,7 +22,8 @@
     "criar-admin": "tsx --env-file-if-exists=.env scripts/criar-admin.ts",
     "db:migrar-imagens": "tsx --env-file-if-exists=.env scripts/migrar-imagens.ts",
     "imagens:limpar": "tsx --env-file-if-exists=.env scripts/limpar-imagens.ts",
-    "db:migrar-consultas-estoque": "tsx --env-file-if-exists=.env scripts/migrar-consultas-estoque.ts"
+    "db:migrar-consultas-estoque": "tsx --env-file-if-exists=.env scripts/migrar-consultas-estoque.ts",
+    "db:migrar-avaliacoes": "tsx --env-file-if-exists=.env scripts/migrar-avaliacoes.ts"
   },
   "dependencies": {
     "argon2": "^0.45.1",

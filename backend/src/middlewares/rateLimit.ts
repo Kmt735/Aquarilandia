@@ -103,3 +103,13 @@ export const limitePagamento = rateLimit({
   legacyHeaders: false,
   handler: responderLimite,
 })
+
+// Avaliações públicas (produto/peixe e site, sem login): conta todos os pedidos, por IP, somando as duas rotas.
+// 10 por hora dá para avaliar vários itens de uma compra; segura quem tenta encher a fila de moderação
+export const limiteAvaliacao = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: responderLimite,
+})

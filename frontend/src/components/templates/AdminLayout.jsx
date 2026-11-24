@@ -4,6 +4,7 @@ import Button from '../atoms/Button'
 import PageHead from '../molecules/PageHead'
 import { Badge } from '@/components/ui/badge'
 import useAuth from '../../hooks/useAuth'
+import useAvaliacoesPendentes from '../../hooks/useAvaliacoesPendentes'
 import usePedidosNovos from '../../hooks/usePedidosNovos'
 import useTituloPagina from '../../hooks/useTituloPagina'
 import useToast from '../../hooks/useToast'
@@ -16,6 +17,7 @@ const ABAS = [
   { id: 'estoque', to: ROTAS.adminEstoque, rotulo: 'Estoque' },
   { id: 'orcamentos', to: ROTAS.adminOrcamentos, rotulo: 'Orçamentos' },
   { id: 'clientes', to: ROTAS.adminClientes, rotulo: 'Clientes' },
+  { id: 'avaliacoes', to: ROTAS.adminAvaliacoes, rotulo: 'Avaliações' },
 ]
 
 // Área do administrador. Esta tela só esconde o painel de quem não é admin:
@@ -39,6 +41,7 @@ function PainelAdmin({ usuario }) {
   const navigate = useNavigate()
   const { toast } = useToast()
   const { novos } = usePedidosNovos()
+  const pendentes = useAvaliacoesPendentes()
 
   return (
     <>
@@ -60,6 +63,14 @@ function PainelAdmin({ usuario }) {
                     }
                   >
                     {aba.rotulo}
+                    {aba.id === 'avaliacoes' && pendentes > 0 && (
+                      <>
+                        <Badge variant="aviso" className="ml-2 px-1.5">
+                          {pendentes}
+                        </Badge>
+                        <span className="sr-only"> {pendentes === 1 ? 'avaliação pendente' : 'avaliações pendentes'}</span>
+                      </>
+                    )}
                     {aba.id === 'pedidos' && novos > 0 && (
                       <>
                         <Badge variant="destructive" className="ml-2 px-1.5">

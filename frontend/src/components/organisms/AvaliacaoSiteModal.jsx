@@ -9,12 +9,13 @@ import Textarea from '../atoms/Textarea'
 import Aviso from '../molecules/Aviso'
 import EstrelasNota from '../molecules/EstrelasNota'
 import OpcoesRapidas from '../molecules/OpcoesRapidas'
-import { ENCONTROU, LIMITE_COMENTARIO, MOTIVOS_VISITA } from '../../data/avaliacao-site'
+import { ENCONTROU, LIMITE_COMENTARIO, MOTIVOS_VISITA, MSG_PENDENTE } from '../../data/avaliacao-site'
 import useMediaQuery from '../../hooks/useMediaQuery'
 import useUI from '../../hooks/useUI'
 import { enviarAvaliacao, registrarDispensa } from '../../services/avaliacoes'
 
-const OBRIGADO = 'Obrigado! Sua opinião ajuda a melhorar a loja.'
+// Publicada na hora (AVALIACOES_PUBLICAR_DIRETO no backend): o agradecimento de antes
+const OBRIGADO_PUBLICADA = 'Obrigado! Sua opinião ajuda a melhorar a loja.'
 const FECHAR_EM = 3500 // ms: tempo para ler o agradecimento antes de fechar sozinho (o botão Fechar fica disponível)
 
 // Avaliação do SITE (não de produto). Diálogo no desktop, folha de baixo no celular.
@@ -29,6 +30,7 @@ export default function AvaliacaoSiteModal() {
   const [comentario, setComentario] = useState('')
   const [fase, setFase] = useState('preenchendo') // preenchendo | enviando | enviada
   const [erro, setErro] = useState('')
+  const [publicada, setPublicada] = useState(false)
   const fecharRef = useRef(null)
 
   // Agradecimento: foco no "Fechar" (o formulário sumiu) e fechamento automático
@@ -50,7 +52,8 @@ export default function AvaliacaoSiteModal() {
     setFase('enviando')
     setErro('')
     try {
-      await enviarAvaliacao({ nota, motivo, encontrou, comentario, origem: origemAvaliacao, pagina: pathname })
+      const enviada = await enviarAvaliacao({ nota, motivo, encontrou, comentario, origem: origemAvaliacao, pagina: pathname })
+      setPublicada(enviada?.status === 'aprovada')
       setFase('enviada')
     } catch (err) {
       setErro(err?.erro ?? 'Não foi possível enviar agora. Tente de novo em instantes.')
@@ -68,7 +71,7 @@ export default function AvaliacaoSiteModal() {
         {enviada && (
           <div className="py-4 text-center">
             <CircleCheck aria-hidden="true" className="mx-auto mb-3 size-12 text-success-text" />
-            <p className="font-display text-h4 font-extrabold text-foreground">{OBRIGADO}</p>
+            <p className="font-display text-h4 font-extrabold text-foreground">{publicada ? OBRIGADO_PUBLICADA : MSG_PENDENTE}</p>
           </div>
         )}
       </div>

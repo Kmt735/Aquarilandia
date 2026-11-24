@@ -9,12 +9,13 @@ import { vendaRoutes } from '../modulos/vendas/venda.routes.js'
 import { pagamentoRoutes } from '../modulos/pagamentos/pagamento.routes.js'
 import { estoqueRoutes } from '../modulos/estoque/estoque.routes.js'
 import { imagemPublicaRoutes } from '../modulos/catalogo/imagem/imagem.controller.js'
+import { avaliacaoRoutes } from '../modulos/avaliacoes/avaliacao.routes.js'
 
 export const routes = Router()
 
 // Contas, pedidos e pagamentos podem conter dados pessoais mesmo nas respostas de erro.
 routes.use((req, res, next) => {
-  if (/^\/(auth|clientes|vendas|pagamentos|orcamentos|estoque)(\/|$)/.test(req.path)) {
+  if (/^\/(auth|clientes|vendas|pagamentos|orcamentos|estoque|avaliacoes)(\/|$)/.test(req.path)) {
     res.set('Cache-Control', 'no-store')
     res.vary('Cookie')
   }
@@ -29,6 +30,8 @@ routes.get('/health', async (_req, res) => {
     res.status(503).json({ status: 'erro', banco: 'indisponível' })
   }
 })
+// Antes do catálogo: /produtos/:id/avaliacoes é das avaliações
+routes.use('/', avaliacaoRoutes)
 routes.use('/', catalogoRoutes)
 routes.use('/orcamentos', orcamentoRoutes)
 routes.use('/auth', authRoutes)

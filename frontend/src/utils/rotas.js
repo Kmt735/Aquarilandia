@@ -5,6 +5,7 @@ export const ROTAS = {
   adminEstoque: '/admin/estoque',
   adminOrcamentos: '/admin/orcamentos',
   adminClientes: '/admin/clientes',
+  adminAvaliacoes: '/admin/avaliacoes',
   adminNovoItem: '/admin/produtos/novo',
   inicio: '/',
   loja: '/loja',

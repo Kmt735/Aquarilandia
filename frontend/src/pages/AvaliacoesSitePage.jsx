@@ -1,4 +1,4 @@
-import { MessageSquareHeart, Star, Trash2 } from 'lucide-react'
+import { MessageSquareHeart, Star } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import Button from '../components/atoms/Button'
 import EstrelasExibicao from '../components/atoms/EstrelasExibicao'
@@ -9,7 +9,7 @@ import EmptyState from '../components/molecules/EmptyState'
 import PageTemplate from '../components/templates/PageTemplate'
 import { ENCONTROU, MOTIVOS_VISITA, ROTULO_NOTA } from '../data/avaliacao-site'
 import useUI from '../hooks/useUI'
-import { apagarAvaliacoesLocais, listarAvaliacoes, resumirAvaliacoes } from '../services/avaliacoes'
+import { buscarResumoAvaliacoes } from '../services/avaliacoes'
 import { ROTAS } from '../utils/rotas'
 
 const rotuloDe = (opcoes, v) => opcoes.find(([valor]) => valor === v)?.[1]
@@ -18,20 +18,25 @@ const numero = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1, minimu
 const data = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 
 // Página escondida (fora do menu e do rodapé) para mostrar as respostas na apresentação.
-// Lê só o que foi salvo NESTE navegador até a integração com o backend/Google Form (services/avaliacoes.js).
+// Mostra o resumo das avaliações APROVADAS pela loja (GET /api/avaliacoes-site). As novas e a moderação ficam
+// no painel do administrador (Admin → Avaliações).
 export default function AvaliacoesSitePage() {
-  const [lista, setLista] = useState(null)
+  const [resumo, setResumo] = useState(null)
+  const [erro, setErro] = useState(null)
+  const [versao, setVersao] = useState(0)
   const { painel, abrirAvaliacao } = useUI()
 
-  // Recarrega ao abrir a página e sempre que o painel de avaliação fecha (para ver a resposta nova na hora)
+  // Recarrega ao abrir a página e sempre que o painel de avaliação fecha
   useEffect(() => {
     if (painel === 'avaliacao') return
     let ativo = true
-    listarAvaliacoes().then((l) => ativo && setLista(l))
+    buscarResumoAvaliacoes()
+      .then((r) => { if (ativo) { setResumo(r); setErro(null) } })
+      .catch((e) => { if (ativo) setErro(e) })
     return () => {
       ativo = false
     }
-  }, [painel])
+  }, [painel, versao])
 
   useEffect(() => {
     const meta = document.createElement('meta')
@@ -41,12 +46,6 @@ export default function AvaliacoesSitePage() {
     return () => meta.remove()
   }, [])
 
-  const apagar = () => {
-    if (!window.confirm('Apagar todas as avaliações salvas neste navegador? Isso não pode ser desfeito.')) return
-    apagarAvaliacoesLocais()
-    setLista([])
-  }
-
   return (
     <PageTemplate
       eyebrow="Uso interno"
@@ -55,35 +54,38 @@ export default function AvaliacoesSitePage() {
       trilha={[{ rotulo: 'Início', to: ROTAS.inicio }, { rotulo: 'Avaliações do site' }]}
     >
       <div className="mx-auto max-w-[1000px] space-y-8 px-4 py-10 sm:px-6">
-        <Aviso tipo="aviso" titulo="Protótipo">
-          As respostas ficam guardadas só neste navegador. Quando o site for ligado ao backend (ou a um Google Form), esta página passa a mostrar as respostas de todos os visitantes.
+        <Aviso tipo="info" titulo="Só avaliações aprovadas">
+          Cada avaliação nova passa pela loja antes de aparecer aqui. As que ainda esperam conferência ficam no painel do administrador, em Avaliações.
         </Aviso>
 
-        {lista === null ? (
+        {erro && !resumo ? (
+          <Aviso tipo="erro" role="alert" acao={<Button variant="secundario" onClick={() => setVersao((v) => v + 1)}>Tentar de novo</Button>}>
+            Não conseguimos carregar as avaliações agora.
+          </Aviso>
+        ) : resumo === null ? (
           <div className="grid gap-4 sm:grid-cols-3" aria-busy="true">
             <span className="sr-only">Carregando avaliações…</span>
             <Skeleton className="h-32" />
             <Skeleton className="h-32" />
             <Skeleton className="h-32" />
           </div>
-        ) : lista.length === 0 ? (
+        ) : resumo.total === 0 ? (
           <EmptyState
             icone={<MessageSquareHeart aria-hidden="true" />}
             titulo="Nenhuma avaliação ainda"
             acoes={<Button onClick={() => abrirAvaliacao('aba')}>Fazer uma avaliação de teste</Button>}
           >
-            Quando alguém usar o botão “Avalie o site”, as respostas aparecem aqui.
+            Quando alguém usar o botão “Avalie o site” e a loja aprovar, as respostas aparecem aqui.
           </EmptyState>
         ) : (
-          <Resumo lista={lista} onApagar={apagar} />
+          <Resumo r={resumo} />
         )}
       </div>
     </PageTemplate>
   )
 }
 
-function Resumo({ lista, onApagar }) {
-  const r = resumirAvaliacoes(lista)
+function Resumo({ r }) {
   const cartao = 'rounded-xl border border-border-strong bg-surface p-5'
 
   return (
@@ -149,7 +151,7 @@ function Resumo({ lista, onApagar }) {
                   </span>
                   {a.motivo && <span>Veio para: {rotuloDe(MOTIVOS_VISITA, a.motivo)}</span>}
                   {a.encontrou && <span>Encontrou: {rotuloDe(ENCONTROU, a.encontrou)}</span>}
-                  <span>{ORIGEM[a.origem] ?? a.origem}{a.pagina ? ` · ${a.pagina}` : ''}</span>
+                  <span>{ORIGEM[a.origem] ?? a.origem}</span>
                   <time dateTime={a.criadaEm}>{data.format(new Date(a.criadaEm))}</time>
                 </p>
               </li>
@@ -157,13 +159,6 @@ function Resumo({ lista, onApagar }) {
           </ul>
         )}
       </section>
-
-      <div className="flex justify-end">
-        <Button variant="secundario" onClick={onApagar}>
-          <Trash2 aria-hidden="true" />
-          Apagar respostas deste navegador
-        </Button>
-      </div>
     </>
   )
 }

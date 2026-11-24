@@ -1,4 +1,4 @@
-// Avaliação do SITE (experiência de navegação). Não é avaliação de produto: o catálogo não tem notas.
+// Avaliação do SITE (experiência de navegação) e textos comuns às avaliações de produto.
 export const NOTAS = [1, 2, 3, 4, 5]
 
 export const ROTULO_NOTA = {
@@ -24,3 +24,16 @@ export const ENCONTROU = [
 ]
 
 export const LIMITE_COMENTARIO = 300
+
+// Agradecimento depois de enviar (site e produto). A API diz se a avaliação já foi publicada ou espera a loja conferir
+export const MSG_PENDENTE = 'Obrigado! Sua avaliação aparece no site depois que a loja conferir.'
+export const MSG_PUBLICADA = 'Obrigado! Sua avaliação foi publicada.'
+
+// Situação da avaliação na moderação (mesmos valores da API)
+export const STATUS_AVALIACAO = { pendente: 'Pendente', aprovada: 'Aprovada', oculta: 'Oculta' }
+
+// "Não perguntar de novo" (aba lateral). Prazos provisórios: a loja pode ajustar
+export const LEMBRETE_AVALIACAO = {
+  diasAposEnvio: 90, // quem já avaliou não vê a aba lateral por ~3 meses
+  diasAposDispensa: 7, // quem clicou em "Agora não" não vê a aba por 1 semana
+}
